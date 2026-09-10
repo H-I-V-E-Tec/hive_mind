@@ -1,4 +1,7 @@
 .antigravitycli
 .qdrant-mcp-server.log
 .qdrant-mcp-server/
+.env.hive
+.env.hive.local
+hive.local.toml
 .DS_Store

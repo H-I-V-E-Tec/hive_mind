@@ -19,14 +19,20 @@ var Version = "1.0.0"
 func Start(version string) {
 	Version = version
 
-	// Preprocess CLI flags and auto-discover configuration files
-	PreprocessConfig()
-
 	// Setup localized logs redirected away from stdout to keep MCP channel clean
 	log.SetOutput(os.Stderr)
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help") {
+		printCLIHelp()
+		return
+	}
 
-	// Configure physical log file if option enabled
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
+		os.Exit(10)
+	}
+
+	// Configure physical log file if option enabled by a future operational spec.
 	if cfg.LogToFile {
 		dirPath := ".qdrant-mcp-server"
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
@@ -66,7 +72,11 @@ func Start(version string) {
 			}
 			return
 		case "ingest", "-ingest", "--ingest":
-			cfg, client, worker := mustCreateWorker()
+			if !cfg.IsWriter() {
+				fmt.Fprintln(os.Stderr, "authorization error: ingest requires HIVE_ROLE=writer")
+				os.Exit(12)
+			}
+			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
 
@@ -83,7 +93,7 @@ func Start(version string) {
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server search <query>")
 				os.Exit(1)
 			}
-			_, client, worker := mustCreateWorker()
+			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
 
@@ -95,7 +105,11 @@ func Start(version string) {
 			fmt.Println(results)
 			return
 		case "evaluate-search", "eval-search", "eval":
-			cfg, client, worker := mustCreateWorker()
+			if !cfg.IsWriter() {
+				fmt.Fprintln(os.Stderr, "authorization error: evaluate-search requires HIVE_ROLE=writer")
+				os.Exit(12)
+			}
+			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
 
@@ -128,26 +142,23 @@ func Start(version string) {
 
 	log.Println("Starting Go Qdrant-RAG MCP Server...")
 
-	cfg = LoadConfig()
-	if cfg.CollectionName == "" || cfg.WatchDirectory == "" || cfg.OllamaHost == "" {
-		log.Fatal("Fatal: Missing required environment variables (QDRANT_COLLECTION, WATCH_DIRECTORY, OLLAMA_HOST)")
-	}
-
-	// Connect to home lab Qdrant via fast gRPC
-	client, err := qdrant.NewClient(&qdrant.Config{
-		Host:                   cfg.QdrantHost,
-		Port:                   cfg.QdrantPort,
-		SkipCompatibilityCheck: true,
-	})
+	client, err := newQdrantClient(cfg)
 	if err != nil {
 		log.Fatalf("Failed to establish Qdrant connection: %v", err)
 	}
 	defer client.Close()
 
-	gitIgnore := NewGitIgnoreMatcher(cfg.WatchDirectory)
+	var gitIgnore *GitIgnoreMatcher
+	if cfg.IsWriter() {
+		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
+	}
 
 	worker := NewIngestionWorker(cfg, client, gitIgnore)
 	defer worker.Close()
+	if cfg.IsReader() {
+		worker.ListenToMCPClient(context.Background())
+		return
+	}
 
 	// Boot active structural watcher
 	watcher, err := fsnotify.NewWatcher()
@@ -189,24 +200,32 @@ type EvaluationQuery struct {
 	PathPrefix     string
 }
 
-func mustCreateWorker() (Config, *qdrant.Client, *IngestionWorker) {
-	cfg := LoadConfig()
-	if cfg.CollectionName == "" || cfg.WatchDirectory == "" || cfg.OllamaHost == "" {
-		log.Fatal("Fatal: Missing required environment variables (QDRANT_COLLECTION, WATCH_DIRECTORY, OLLAMA_HOST)")
-	}
-
-	client, err := qdrant.NewClient(&qdrant.Config{
-		Host:                   cfg.QdrantHost,
-		Port:                   cfg.QdrantPort,
-		SkipCompatibilityCheck: true,
-	})
+func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
+	client, err := newQdrantClient(cfg)
 	if err != nil {
 		log.Fatalf("Failed to establish Qdrant connection: %v", err)
 	}
 
-	gitIgnore := NewGitIgnoreMatcher(cfg.WatchDirectory)
+	var gitIgnore *GitIgnoreMatcher
+	if cfg.IsWriter() {
+		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
+	}
 	worker := NewIngestionWorker(cfg, client, gitIgnore)
-	return cfg, client, worker
+	return client, worker
+}
+
+func newQdrantClient(cfg Config) (*qdrant.Client, error) {
+	tlsConfig, err := cfg.QdrantTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	return qdrant.NewClient(&qdrant.Config{
+		Host:      cfg.QdrantHost,
+		Port:      cfg.QdrantPort,
+		APIKey:    cfg.QdrantAPIKey.Reveal(),
+		UseTLS:    cfg.QdrantUseTLS,
+		TLSConfig: tlsConfig,
+	})
 }
 
 func defaultEvaluationQueries(watchDir string) []EvaluationQuery {
@@ -220,15 +239,12 @@ func defaultEvaluationQueries(watchDir string) []EvaluationQuery {
 }
 
 func printCLIHelp() {
-	fmt.Println("\n==================================================================")
-	fmt.Println("🤖 Go Qdrant-RAG MCP Server CLI")
-	fmt.Println("==================================================================")
-	fmt.Println("A Model Context Protocol server that implements real-time codebase")
-	fmt.Println("semantic search using Qdrant & Ollama.")
+	fmt.Println("Hive Mind MCP")
+	fmt.Println("Private shared recon memory backed by Qdrant and local Ollama.")
 	fmt.Println()
-	fmt.Println("\x1b[1;33mCommands:\x1b[0m")
+	fmt.Println("Commands:")
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
-	fmt.Println("  ingest                         Recursively crawl and ingest the workspace into Qdrant immediately.")
+	fmt.Println("  ingest                         Ingest HIVE_DATA_DIR (writer only).")
 	fmt.Println("  search <query>                 Execute a direct semantic search from the CLI.")
 	fmt.Println("  evaluate-search                Ingest the workspace and run canned search quality checks.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
@@ -236,40 +252,26 @@ func printCLIHelp() {
 	fmt.Println("                                 Options: cursor, windsurf, cline, copilot, generic, codex, all.")
 	fmt.Println("  help, -h, --help               Show this help information.")
 	fmt.Println()
-	fmt.Println("\x1b[1;33mCommand-line Parameters / Flags:\x1b[0m")
-	fmt.Println("  --collection, -c <name>        Qdrant collection name")
-	fmt.Println("  --watch-dir, -w <path>         Directory to watch/index")
-	fmt.Println("  --ollama, -o <url>             Ollama host/URL")
-	fmt.Println("  --embedding, -e <model>        Ollama embedding model name")
-	fmt.Println("  --qdrant-host, -qh <host>      Qdrant server hostname/IP")
-	fmt.Println("  --qdrant-port, -qp <port>      Qdrant server gRPC port")
-	fmt.Println("  --exclude-dirs, -xd <list>     Comma-separated directories to skip")
-	fmt.Println("  --include-hidden-dirs, -ihd    Comma-separated hidden directories to watch")
-	fmt.Println("  --parser-mode, -pm <mode>      Parsing mode: 'code', 'doc', or 'full'")
-	fmt.Println("  --max-workers, -mw <num>       Maximum concurrent embedding threads")
-	fmt.Println("  --batch-size, -bs <num>        Batch size for vector upserts (default: 100)")
-	fmt.Println("  --batch-timeout, -bt <dur>     Batch timeout for vector upserts (default: 200ms)")
-	fmt.Println("  --log-to-file, -lf <bool>      Log output to physical file option (default: false)")
-	fmt.Println("  --search-mode, -sm <mode>      Search mode: 'dense', 'sparse', or 'hybrid' (default: 'dense')")
+	fmt.Println("Configuration flags (override environment and --config):")
+	fmt.Println("  --config <path>                Read the explicitly selected flat TOML file.")
+	fmt.Println("  --hive-id <id>                 Hive identifier.")
+	fmt.Println("  --device-id <id>               Authorized device identifier.")
+	fmt.Println("  --role <writer|reader>         Immutable process role.")
+	fmt.Println("  --collection <name>            Qdrant data collection.")
+	fmt.Println("  --data-dir <path>              Hive data directory (writer only).")
+	fmt.Println("  --qdrant-url <url>             Qdrant URL; HTTPS required off loopback.")
+	fmt.Println("  --qdrant-tls-ca-file <path>    Optional private CA bundle.")
+	fmt.Println("  --qdrant-tls-server-name <id>  Optional expected certificate name.")
+	fmt.Println("  --ollama-url <url>             Loopback Ollama URL.")
+	fmt.Println("  --embedding-model <name>       Ollama embedding model.")
+	fmt.Println("  --max-classification <level>   internal (default) or restricted.")
 	fmt.Println()
-	fmt.Println("\x1b[1;33mAuto-Discovery Feature:\x1b[0m")
-	fmt.Println("  The server automatically searches upwards from the current directory for")
-	fmt.Println("  configuration settings in `.mcp.json`, `.claude/settings.local.json`, or")
-	fmt.Println("  `.codex/config.toml` (and user-level `~/.claude/settings.json`), auto-loading")
-	fmt.Println("  the configured environment variables for a seamless CLI experience.")
+	fmt.Println("Required environment/TOML keys:")
+	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")
+	fmt.Println("  QDRANT_URL, QDRANT_API_KEY, OLLAMA_URL, EMBEDDING_MODEL")
+	fmt.Println("  HIVE_DATA_DIR is required only for writer.")
 	fmt.Println()
-	fmt.Println("\x1b[1;33mConfiguration via Environment Variables:\x1b[0m")
-	fmt.Println("  QDRANT_HOST         Qdrant hostname/IP (default: 172.20.0.5)")
-	fmt.Println("  QDRANT_PORT         Qdrant gRPC port (default: 6334)")
-	fmt.Println("  QDRANT_COLLECTION   Collection name for vectors (Required)")
-	fmt.Println("  WATCH_DIRECTORY     Directory to recursively monitor & index (Required)")
-	fmt.Println("  OLLAMA_HOST         Ollama API URL (Required)")
-	fmt.Println("  EMBEDDING_MODEL     Ollama model for embeddings (Required)")
-	fmt.Println("  PARSER_MODE         Parsing mode: code, doc, or full (default: full)")
-	fmt.Println("  MAX_EMBEDDING_WORKERS  Max concurrent embedding worker threads (default: 5)")
-	fmt.Println("  BATCH_SIZE          Batch size for vector upserts (default: 100)")
-	fmt.Println("  BATCH_TIMEOUT       Batch timeout for vector upserts (default: 200ms)")
-	fmt.Println("  LOG_TO_FILE         Log output to physical file option (default: false)")
-	fmt.Println("  SEARCH_MODE         Search mode: dense, sparse, or hybrid (default: dense)")
-	fmt.Println("================================================================================")
+	fmt.Println("QDRANT_API_KEY is never accepted as a process argument. Configuration files")
+	fmt.Println("containing it must be permission-restricted and outside HIVE_DATA_DIR.")
+	fmt.Println("No configuration file is auto-discovered and legacy keys are rejected.")
 }

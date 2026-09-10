@@ -1,142 +1,313 @@
 package tests
 
 import (
+	"crypto/tls"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"qdrant-mcp-server/server"
 )
 
-func TestParseCLIFlags(t *testing.T) {
-	args := []string{"ingest", "--collection", "test-collection", "-w", "/some/path", "--ollama=http://ollama:11434"}
-	flags := server.ParseCLIFlags(args)
+const sentinelAPIKey = "spec01-sentinel-api-key"
 
-	if flags["QDRANT_COLLECTION"] != "test-collection" {
-		t.Errorf("Expected test-collection, got %s", flags["QDRANT_COLLECTION"])
-	}
-	if flags["WATCH_DIRECTORY"] != "/some/path" {
-		t.Errorf("Expected /some/path, got %s", flags["WATCH_DIRECTORY"])
-	}
-	if flags["OLLAMA_HOST"] != "http://ollama:11434" {
-		t.Errorf("Expected http://ollama:11434, got %s", flags["OLLAMA_HOST"])
+func validHiveEnv(dataDir string) map[string]string {
+	return map[string]string{
+		"HIVE_ID":         "research-team",
+		"HIVE_DEVICE_ID":  "workstation-a",
+		"HIVE_ROLE":       "writer",
+		"HIVE_COLLECTION": "hive_mind_v01",
+		"HIVE_DATA_DIR":   dataDir,
+		"QDRANT_URL":      "http://127.0.0.1:6334",
+		"QDRANT_API_KEY":  sentinelAPIKey,
+		"OLLAMA_URL":      "http://127.0.0.1:11434",
+		"EMBEDDING_MODEL": "nomic-embed-text",
 	}
 }
 
-func TestLoadJsonConfig(t *testing.T) {
-	// Create a temp .mcp.json file
-	tmpDir, err := os.MkdirTemp("", "mcp-test")
+func cloneEnv(input map[string]string) map[string]string {
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
+}
+
+func TestHiveConfigCompleteWriter(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg, err := server.LoadConfigFrom(nil, validHiveEnv(dataDir))
+	if err != nil {
+		t.Fatalf("LoadConfigFrom returned error: %v", err)
+	}
+	if cfg.HiveID != "research-team" || cfg.DeviceID != "workstation-a" || !cfg.IsWriter() {
+		t.Fatalf("unexpected identity or role: %+v", cfg)
+	}
+	if cfg.CollectionName != "hive_mind_v01" || cfg.ControlCollection != "hive_mind_v01__control" {
+		t.Fatalf("unexpected collections: %+v", cfg)
+	}
+	if cfg.DataDirectory != dataDir || cfg.WatchDirectory != dataDir {
+		t.Fatalf("data directory was not canonicalized as expected: %q", cfg.DataDirectory)
+	}
+	if cfg.ParserMode != "doc" || cfg.MaxEmbeddingWorkers != 2 || cfg.MaxFileSize != 5*1024*1024 {
+		t.Fatalf("safe defaults were not applied: %+v", cfg)
+	}
+	if cfg.MaxClassification != "internal" {
+		t.Fatalf("expected internal classification default, got %q", cfg.MaxClassification)
+	}
+}
+
+func TestHiveConfigReaderDoesNotRequireDataDirectory(t *testing.T) {
+	env := validHiveEnv(t.TempDir())
+	env["HIVE_ROLE"] = "reader"
+	delete(env, "HIVE_DATA_DIR")
+
+	cfg, err := server.LoadConfigFrom(nil, env)
+	if err != nil {
+		t.Fatalf("reader config returned error: %v", err)
+	}
+	if !cfg.IsReader() || cfg.DataDirectory != "" {
+		t.Fatalf("unexpected reader config: %+v", cfg)
+	}
+}
+
+func TestHiveConfigBuildsVerifiedTLSSettings(t *testing.T) {
+	env := validHiveEnv(t.TempDir())
+	env["QDRANT_URL"] = "https://qdrant.hive.internal:7443"
+	env["QDRANT_TLS_SERVER_NAME"] = "qdrant.internal.example"
+
+	cfg, err := server.LoadConfigFrom(nil, env)
+	if err != nil {
+		t.Fatalf("TLS config returned error: %v", err)
+	}
+	if !cfg.QdrantUseTLS || cfg.QdrantHost != "qdrant.hive.internal" || cfg.QdrantPort != 7443 {
+		t.Fatalf("unexpected Qdrant endpoint: %+v", cfg)
+	}
+	tlsConfig, err := cfg.QdrantTLSConfig()
+	if err != nil {
+		t.Fatalf("QdrantTLSConfig returned error: %v", err)
+	}
+	if tlsConfig.MinVersion != tls.VersionTLS12 || tlsConfig.ServerName != "qdrant.internal.example" || tlsConfig.InsecureSkipVerify {
+		t.Fatalf("TLS verification is not fail-closed: %+v", tlsConfig)
+	}
+}
+
+func TestHiveConfigPrecedenceFlagsEnvironmentFileDefaults(t *testing.T) {
+	root := t.TempDir()
+	dataDir := t.TempDir()
+	configPath := filepath.Join(root, "hive.toml")
+	content := strings.Join([]string{
+		`HIVE_ID = "from-file"`,
+		`HIVE_DEVICE_ID = "file-device"`,
+		`HIVE_ROLE = "writer"`,
+		`HIVE_COLLECTION = "file_collection"`,
+		`HIVE_DATA_DIR = "` + dataDir + `"`,
+		`QDRANT_URL = "http://127.0.0.1:6334"`,
+		`QDRANT_API_KEY = "file-secret"`,
+		`OLLAMA_URL = "http://127.0.0.1:11434"`,
+		`EMBEDDING_MODEL = "file-model"`,
+		`HIVE_MAX_CLASSIFICATION = "restricted"`,
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env := map[string]string{
+		"HIVE_ID":         "from-environment",
+		"QDRANT_API_KEY":  sentinelAPIKey,
+		"EMBEDDING_MODEL": "environment-model",
+	}
+	args := []string{"--config", configPath, "--hive-id=from-flag"}
+	cfg, err := server.LoadConfigFrom(args, env)
+	if err != nil {
+		t.Fatalf("LoadConfigFrom returned error: %v", err)
+	}
+	if cfg.HiveID != "from-flag" {
+		t.Fatalf("flag did not win: %q", cfg.HiveID)
+	}
+	if cfg.EmbeddingModel != "environment-model" {
+		t.Fatalf("environment did not win over file: %q", cfg.EmbeddingModel)
+	}
+	if cfg.DeviceID != "file-device" || cfg.MaxClassification != "restricted" {
+		t.Fatalf("file values were not retained: %+v", cfg)
+	}
+}
+
+func TestHiveConfigDoesNotAutoDiscover(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.toml")
+	if err := os.WriteFile(configPath, []byte(`HIVE_ID = "discovered"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
 
-	jsonPath := filepath.Join(tmpDir, ".mcp.json")
-	content := `{
-		"mcpServers": {
-			"qdrant-memory-rag": {
-				"command": "qdrant-mcp-server",
-				"env": {
-					"QDRANT_COLLECTION": "json-collection",
-					"WATCH_DIRECTORY": "/json/path",
-					"MAX_EMBEDDING_WORKERS": 12,
-					"QDRANT_PORT": 6334
-				}
+	_, err = server.LoadConfigFrom(nil, map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "HIVE_ID") {
+		t.Fatalf("expected missing config instead of auto-discovery, got %v", err)
+	}
+}
+
+func TestHiveConfigRejectsLegacyEnvironment(t *testing.T) {
+	for _, legacyKey := range []string{
+		"HIVE_MODE", "WATCH_DIRECTORY", "QDRANT_COLLECTION",
+		"QDRANT_HOST", "QDRANT_PORT", "OLLAMA_HOST",
+	} {
+		t.Run(legacyKey, func(t *testing.T) {
+			env := validHiveEnv(t.TempDir())
+			env[legacyKey] = "legacy-value"
+			_, err := server.LoadConfigFrom(nil, env)
+			if err == nil || !strings.Contains(err.Error(), legacyKey) {
+				t.Fatalf("expected explicit legacy rejection, got %v", err)
 			}
-		}
-	}`
-
-	if err := os.WriteFile(jsonPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	vars := server.LoadJsonConfig(jsonPath)
-	if vars["QDRANT_COLLECTION"] != "json-collection" {
-		t.Errorf("Expected json-collection, got %s", vars["QDRANT_COLLECTION"])
-	}
-	if vars["WATCH_DIRECTORY"] != "/json/path" {
-		t.Errorf("Expected /json/path, got %s", vars["WATCH_DIRECTORY"])
-	}
-	if vars["MAX_EMBEDDING_WORKERS"] != "12" {
-		t.Errorf("Expected 12, got %s", vars["MAX_EMBEDDING_WORKERS"])
-	}
-	if vars["QDRANT_PORT"] != "6334" {
-		t.Errorf("Expected 6334, got %s", vars["QDRANT_PORT"])
+		})
 	}
 }
 
-func TestLoadTomlConfig(t *testing.T) {
-	// Create a temp config.toml
-	tmpDir, err := os.MkdirTemp("", "toml-test")
+func TestHiveConfigRejectsInvalidOrMissingValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(map[string]string)
+		expected string
+	}{
+		{"missing hive", func(env map[string]string) { delete(env, "HIVE_ID") }, "HIVE_ID"},
+		{"invalid hive", func(env map[string]string) { env["HIVE_ID"] = "Bad Hive" }, "HIVE_ID"},
+		{"invalid device", func(env map[string]string) { env["HIVE_DEVICE_ID"] = "DEVICE" }, "HIVE_DEVICE_ID"},
+		{"invalid role", func(env map[string]string) { env["HIVE_ROLE"] = "admin" }, "HIVE_ROLE"},
+		{"long collection", func(env map[string]string) { env["HIVE_COLLECTION"] = strings.Repeat("a", 56) }, "HIVE_COLLECTION"},
+		{"missing writer dir", func(env map[string]string) { delete(env, "HIVE_DATA_DIR") }, "HIVE_DATA_DIR"},
+		{"missing directory", func(env map[string]string) { env["HIVE_DATA_DIR"] = filepath.Join(t.TempDir(), "missing") }, "HIVE_DATA_DIR"},
+		{"qdrant path", func(env map[string]string) { env["QDRANT_URL"] = "https://qdrant.example/private" }, "QDRANT_URL"},
+		{"remote plaintext qdrant", func(env map[string]string) { env["QDRANT_URL"] = "http://10.0.0.10:6334" }, "https"},
+		{"remote ollama", func(env map[string]string) { env["OLLAMA_URL"] = "http://10.0.0.11:11434" }, "loopback"},
+		{"invalid classification", func(env map[string]string) { env["HIVE_MAX_CLASSIFICATION"] = "public" }, "HIVE_MAX_CLASSIFICATION"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := validHiveEnv(t.TempDir())
+			test.mutate(env)
+			_, err := server.LoadConfigFrom(nil, env)
+			if err == nil || !strings.Contains(err.Error(), test.expected) {
+				t.Fatalf("expected error containing %q, got %v", test.expected, err)
+			}
+		})
+	}
+}
+
+func TestHiveConfigRejectsSecretInProcessArguments(t *testing.T) {
+	_, err := server.LoadConfigFrom([]string{"--qdrant-api-key=" + sentinelAPIKey}, validHiveEnv(t.TempDir()))
+	if err == nil || strings.Contains(err.Error(), sentinelAPIKey) {
+		t.Fatalf("secret argument was not safely rejected: %v", err)
+	}
+}
+
+func TestHiveConfigRejectsUnknownAndValuelessFlags(t *testing.T) {
+	for _, args := range [][]string{{"--watch-dir", "/tmp"}, {"--hive-id"}, {"--config", "--role"}} {
+		_, err := server.LoadConfigFrom(args, validHiveEnv(t.TempDir()))
+		if err == nil {
+			t.Fatalf("expected flag rejection for %v", args)
+		}
+	}
+}
+
+func TestHiveConfigSecretNeverAppearsInFormattingOrErrors(t *testing.T) {
+	env := validHiveEnv(t.TempDir())
+	cfg, err := server.LoadConfigFrom(nil, env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	outputs := []string{
+		fmt.Sprintf("%v", cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg),
+		fmt.Sprintf("%v", cfg.QdrantAPIKey), fmt.Sprintf("%+v", cfg.QdrantAPIKey),
+	}
+	for _, output := range outputs {
+		if strings.Contains(output, sentinelAPIKey) {
+			t.Fatalf("secret leaked through formatting: %s", output)
+		}
+	}
 
-	tomlPath := filepath.Join(tmpDir, "config.toml")
-	content := `
-[mcp_servers.qdrant-memory-rag.env]
-QDRANT_COLLECTION = "toml-collection"
-WATCH_DIRECTORY = "/toml/path"
-OLLAMA_HOST = "http://toml-ollama:11434"
-`
+	bad := cloneEnv(env)
+	bad["QDRANT_API_KEY"] = sentinelAPIKey + "\n"
+	_, err = server.LoadConfigFrom(nil, bad)
+	if err == nil || strings.Contains(err.Error(), sentinelAPIKey) {
+		t.Fatalf("secret leaked through validation error: %v", err)
+	}
+}
 
-	if err := os.WriteFile(tomlPath, []byte(content), 0644); err != nil {
+func TestHiveConfigProtectedSecretFile(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	if err := os.Mkdir(dataDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	content := completeTOML(dataDir, sentinelAPIKey)
 
-	vars := server.LoadTomlConfig(tomlPath)
-	if vars["QDRANT_COLLECTION"] != "toml-collection" {
-		t.Errorf("Expected toml-collection, got %s", vars["QDRANT_COLLECTION"])
+	outside := filepath.Join(root, "hive.toml")
+	if err := os.WriteFile(outside, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if vars["WATCH_DIRECTORY"] != "/toml/path" {
-		t.Errorf("Expected /toml/path, got %s", vars["WATCH_DIRECTORY"])
-	}
-	if vars["OLLAMA_HOST"] != "http://toml-ollama:11434" {
-		t.Errorf("Expected http://toml-ollama:11434, got %s", vars["OLLAMA_HOST"])
-	}
-}
-
-func TestConfig_LogToFileParsing(t *testing.T) {
-	os.Setenv("LOG_TO_FILE", "true")
-	defer os.Unsetenv("LOG_TO_FILE")
-
-	cfg := server.LoadConfig()
-	if !cfg.LogToFile {
-		t.Errorf("Expected LogToFile to be true when LOG_TO_FILE env is true")
+	if _, err := server.LoadConfigFrom([]string{"--config", outside}, nil); err != nil {
+		t.Fatalf("protected file outside data dir should pass: %v", err)
 	}
 
-	args := []string{"ingest", "--log-to-file", "false"}
-	flags := server.ParseCLIFlags(args)
-	if flags["LOG_TO_FILE"] != "false" {
-		t.Errorf("Expected flags[LOG_TO_FILE] to be false, got %s", flags["LOG_TO_FILE"])
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(outside, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := server.LoadConfigFrom([]string{"--config", outside}, nil); err == nil || !strings.Contains(err.Error(), "group or others") {
+			t.Fatalf("expected permissive file rejection, got %v", err)
+		}
+		if _, err := server.LoadConfigFrom([]string{"--config", outside}, map[string]string{"QDRANT_API_KEY": "environment-override"}); err == nil || !strings.Contains(err.Error(), "group or others") {
+			t.Fatalf("environment override must not make a secret-bearing file safe: %v", err)
+		}
 	}
 
-	args2 := []string{"ingest", "-lf", "true"}
-	flags2 := server.ParseCLIFlags(args2)
-	if flags2["LOG_TO_FILE"] != "true" {
-		t.Errorf("Expected flags2[LOG_TO_FILE] to be true, got %s", flags2["LOG_TO_FILE"])
+	inside := filepath.Join(dataDir, "hive.toml")
+	if err := os.WriteFile(inside, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.LoadConfigFrom([]string{"--config", inside}, nil); err == nil || !strings.Contains(err.Error(), "outside HIVE_DATA_DIR") {
+		t.Fatalf("expected in-data-dir secret rejection, got %v", err)
 	}
 }
 
-func TestConfig_SearchModeParsing(t *testing.T) {
-	os.Setenv("SEARCH_MODE", "hybrid")
-	defer os.Unsetenv("SEARCH_MODE")
-
-	cfg := server.LoadConfig()
-	if cfg.SearchMode != "hybrid" {
-		t.Errorf("Expected SearchMode to be hybrid, got %s", cfg.SearchMode)
+func TestHiveConfigRejectsUnknownOrDuplicateTOMLKeys(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"unknown":   "UNKNOWN_SETTING = \"value\"\n",
+		"duplicate": "HIVE_ID = \"one\"\nHIVE_ID = \"two\"\n",
+		"section":   "[hive]\nHIVE_ID = \"one\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(root, name+".toml")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := server.LoadConfigFrom([]string{"--config", path}, nil); err == nil {
+				t.Fatalf("expected TOML rejection for %s", name)
+			}
+		})
 	}
+}
 
-	args := []string{"ingest", "--search-mode", "sparse"}
-	flags := server.ParseCLIFlags(args)
-	if flags["SEARCH_MODE"] != "sparse" {
-		t.Errorf("Expected flags[SEARCH_MODE] to be sparse, got %s", flags["SEARCH_MODE"])
-	}
-
-	args2 := []string{"ingest", "-sm", "dense"}
-	flags2 := server.ParseCLIFlags(args2)
-	if flags2["SEARCH_MODE"] != "dense" {
-		t.Errorf("Expected flags2[SEARCH_MODE] to be dense, got %s", flags2["SEARCH_MODE"])
-	}
+func completeTOML(dataDir, apiKey string) string {
+	return strings.Join([]string{
+		`HIVE_ID = "research-team"`,
+		`HIVE_DEVICE_ID = "workstation-a"`,
+		`HIVE_ROLE = "writer"`,
+		`HIVE_COLLECTION = "hive_mind_v01"`,
+		`HIVE_DATA_DIR = "` + dataDir + `"`,
+		`QDRANT_URL = "http://127.0.0.1:6334"`,
+		`QDRANT_API_KEY = "` + apiKey + `"`,
+		`OLLAMA_URL = "http://127.0.0.1:11434"`,
+		`EMBEDDING_MODEL = "nomic-embed-text"`,
+	}, "\n")
 }

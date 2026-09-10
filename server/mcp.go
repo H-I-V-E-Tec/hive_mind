@@ -73,53 +73,12 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 
 	// 2. Capabilities Protocol Declaration Block
 	if req.Method == "tools/list" {
+		tools := iw.availableTools()
 		response := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
 			"result": map[string]interface{}{
-				"tools": []map[string]interface{}{
-					{
-						"name":        "qdrant_search",
-						"description": "Search your local codebases via semantic vector queries hosted on your home lab server. Use this to find implementation patterns, look up technical definitions, or trace structural business logic context.",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"query": map[string]interface{}{
-									"type":        "string",
-									"description": "The explicit semantic search query string (e.g., 'JWT authentication filter middleware' or 'WPF custom control XAML templates').",
-								},
-								"file_extensions": map[string]interface{}{
-									"type": "array",
-									"items": map[string]interface{}{
-										"type": "string",
-									},
-									"description": "Optional list of file extensions to restrict the search to (e.g. ['go', 'py']).",
-								},
-								"path_prefix": map[string]interface{}{
-									"type":        "string",
-									"description": "Optional path prefix to restrict the search to (e.g., 'src/auth').",
-								},
-							},
-							"required": []string{"query"},
-						},
-					},
-					{
-						"name":        "get_sync_status",
-						"description": "Retrieve the real-time status of the codebase vector ingestion pipeline. Use this to check if files are still being indexed, how many files are queued for debouncing, and how many files have been successfully synchronized.",
-						"inputSchema": map[string]interface{}{
-							"type":       "object",
-							"properties": map[string]interface{}{},
-						},
-					},
-					{
-						"name":        "ingest_workspace",
-						"description": "Trigger a full recursive scan and ingestion of all non-ignored files in the workspace directory. Use this to seed/index a new project or force a complete synchronization with Qdrant.",
-						"inputSchema": map[string]interface{}{
-							"type":       "object",
-							"properties": map[string]interface{}{},
-						},
-					},
-				},
+				"tools": tools,
 			},
 		}
 		out, _ := json.Marshal(response)
@@ -214,6 +173,10 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 			out, _ := json.Marshal(response)
 			fmt.Println(string(out))
 		} else if params.Name == "ingest_workspace" {
+			if !iw.Cfg.IsWriter() {
+				iw.sendMCPError(req.ID, -32601, "Requested tool execution target not found")
+				return
+			}
 			go func() {
 				count, err := iw.SyncWorkspace(context.Background())
 				if err != nil {
@@ -247,6 +210,43 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 		}
 		return
 	}
+}
+
+func (iw *IngestionWorker) availableTools() []map[string]interface{} {
+	tools := []map[string]interface{}{
+		{
+			"name":        "qdrant_search",
+			"description": "Search the configured Hive collection using semantic vector retrieval.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "The semantic search query.",
+					},
+					"file_extensions": map[string]interface{}{
+						"type":  "array",
+						"items": map[string]interface{}{"type": "string"},
+					},
+					"path_prefix": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"query"},
+			},
+		},
+		{
+			"name":        "get_sync_status",
+			"description": "Retrieve the local Hive ingestion status.",
+			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		},
+	}
+	if iw.Cfg.IsWriter() {
+		tools = append(tools, map[string]interface{}{
+			"name":        "ingest_workspace",
+			"description": "Trigger ingestion from the configured Hive data directory.",
+			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
+		})
+	}
+	return tools
 }
 
 // Helper tool to safely write standardized JSON-RPC protocol error contexts

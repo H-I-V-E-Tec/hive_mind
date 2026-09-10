@@ -43,15 +43,15 @@ A implementação será substituída gradualmente pelos componentes descritos na
 
 Todos os computadores devem usar o mesmo `EMBEDDING_MODEL`. Vetores gerados por modelos ou dimensões diferentes são incompatíveis com a mesma collection.
 
-## Contrato alvo da v0.1
+## Configuração Hive
 
-> A configuração abaixo ainda não é aceita pela implementação atual. Ela documenta o alvo definido nas specs; a migração do código legado ainda está pendente.
+O contrato da spec 01 já está implementado. A configuração falha antes de criar clientes ou watchers quando estiver ausente, inválida ou insegura; variáveis legadas e autodescoberta não são aceitas.
 
 Exemplo do writer:
 
 ```bash
 QDRANT_URL=https://qdrant.hive.internal:6334
-QDRANT_API_KEY=<injetada-por-secret-manager>
+QDRANT_API_KEY=replace-via-secret-manager
 QDRANT_TLS_CA_FILE=/caminho/para/hive-ca.pem
 HIVE_ID=research-team
 HIVE_DEVICE_ID=workstation-a
@@ -64,16 +64,16 @@ EMBEDDING_MODEL=nomic-embed-text
 
 O reader usa `HIVE_ROLE=reader`, outro `HIVE_DEVICE_ID`, credencial read-only própria e não precisa de `HIVE_DATA_DIR`. O contrato completo está na [spec de configuração](docs/spec/01-hive-configuration.md) e as invariantes estão na [spec 00](docs/spec/00-system-invariants.md).
 
-## Executando a base legada
+## Compilação e testes
 
-O código atual ainda usa `QDRANT_COLLECTION`, `WATCH_DIRECTORY` e `OLLAMA_HOST`. Ele pode ser compilado e seus testes podem ser executados para desenvolvimento da migração:
+Compile o binário e execute a suíte:
 
 ```bash
 go build -o hive-mind .
 go test ./...
 ```
 
-Não trate a base legada como implementação segura das specs Hive. Em particular, ela ainda não implementa os papéis writer/reader, revisões recuperáveis, manifesto de escopo aprovado ou credenciais distintas.
+O carregamento de configuração, os papéis locais e o transporte autenticado/TLS do cliente Qdrant já seguem a spec 01. As próximas etapas ainda precisam substituir a ingestão, os payloads, a busca e o protocolo de revisões herdados; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 

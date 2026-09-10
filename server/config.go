@@ -1,497 +1,596 @@
 package server
 
 import (
-	"encoding/json"
-	"io"
-	"log"
+	"bufio"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
-// Config holds all the server configurations.
-type Config struct {
-	QdrantHost        string
-	QdrantPort        int
-	CollectionName    string
-	WatchDirectory    string
-	OllamaHost        string
-	EmbeddingModel    string
-	DebounceDuration  time.Duration
-	ExcludeDirs       []string
-	IncludeHiddenDirs []string
-	ParserMode        string // "code", "doc", or "full" (default)
-	MaxEmbeddingWorkers int    // maximum concurrent embedding workers (default: 5)
-	BatchSize         int           // batch size for vector upserts (default: 100)
-	BatchTimeout      time.Duration // batch timeout for vector upserts (default: 200ms)
-	LogToFile           bool          // log output to physical file option (default: false)
-	SearchMode          string        // search mode: "dense", "sparse", or "hybrid" (default: "dense")
-	ExcludeExtensions   []string      // file extensions to exclude from indexing (default: .sql)
-	MaxFileSize         int64         // maximum file size in bytes to index (default: 1MB)
+const (
+	RoleWriter = "writer"
+	RoleReader = "reader"
+)
+
+var legacyConfigKeys = []string{
+	"HIVE_MODE",
+	"WATCH_DIRECTORY",
+	"QDRANT_COLLECTION",
+	"QDRANT_HOST",
+	"QDRANT_PORT",
+	"OLLAMA_HOST",
 }
 
+// Secret controls every fmt representation so configuration dumps cannot
+// accidentally expose credential material.
+type Secret struct {
+	value string
+}
 
-func LoadConfig() Config {
-	host := os.Getenv("QDRANT_HOST")
-	if host == "" {
-		host = "172.20.0.5"
+func newSecret(value string) Secret { return Secret{value: value} }
+
+func (s Secret) Reveal() string { return s.value }
+
+func (s Secret) IsSet() bool { return s.value != "" }
+
+func (s Secret) String() string { return "[REDACTED]" }
+
+func (s Secret) GoString() string { return "[REDACTED]" }
+
+func (s Secret) Format(state fmt.State, _ rune) {
+	_, _ = state.Write([]byte("[REDACTED]"))
+}
+
+// Config is the effective Hive Mind configuration. The legacy-named fields at
+// the bottom are temporary internal adapters for code replaced by later specs;
+// legacy environment variables and flags are never accepted.
+type Config struct {
+	HiveID              string
+	DeviceID            string
+	Role                string
+	CollectionName      string
+	ControlCollection   string
+	DataDirectory       string
+	QdrantURL           string
+	QdrantAPIKey        Secret
+	QdrantTLSCAFile     string
+	QdrantTLSServerName string
+	QdrantUseTLS        bool
+	QdrantHost          string
+	QdrantPort          int
+	OllamaURL           string
+	EmbeddingModel      string
+	MaxClassification   string
+	ConfigFile          string
+
+	WatchDirectory      string
+	OllamaHost          string
+	DebounceDuration    time.Duration
+	ExcludeDirs         []string
+	IncludeHiddenDirs   []string
+	ParserMode          string
+	MaxEmbeddingWorkers int
+	BatchSize           int
+	BatchTimeout        time.Duration
+	LogToFile           bool
+	SearchMode          string
+	ExcludeExtensions   []string
+	MaxFileSize         int64
+}
+
+func (c Config) IsWriter() bool { return c.Role == RoleWriter }
+
+func (c Config) IsReader() bool { return c.Role == RoleReader }
+
+// Format is intentionally explicit and always redacts QdrantAPIKey.
+func (c Config) Format(state fmt.State, _ rune) {
+	_, _ = fmt.Fprintf(state,
+		"Config{HiveID:%q DeviceID:%q Role:%q CollectionName:%q ControlCollection:%q DataDirectory:%q QdrantURL:%q QdrantAPIKey:[REDACTED] OllamaURL:%q EmbeddingModel:%q MaxClassification:%q}",
+		c.HiveID, c.DeviceID, c.Role, c.CollectionName, c.ControlCollection,
+		c.DataDirectory, c.QdrantURL, c.OllamaURL, c.EmbeddingModel, c.MaxClassification,
+	)
+}
+
+// LoadConfig loads flags, environment, and an explicitly selected TOML file.
+// Precedence is flags > environment > file > safe defaults.
+func LoadConfig() (Config, error) {
+	env := make(map[string]string)
+	for _, item := range os.Environ() {
+		parts := strings.SplitN(item, "=", 2)
+		if len(parts) == 2 {
+			env[parts[0]] = parts[1]
+		}
 	}
+	return LoadConfigFrom(os.Args[1:], env)
+}
 
-	port := 6334
-	if portStr := os.Getenv("QDRANT_PORT"); portStr != "" {
-		if p, err := strconv.Atoi(portStr); err == nil {
-			port = p
-		} else {
-			log.Printf("Warning: QDRANT_PORT '%s' is not a valid integer, falling back to default 6334", portStr)
+// LoadConfigFrom is the deterministic entry point used by tests and embedders.
+func LoadConfigFrom(args []string, env map[string]string) (Config, error) {
+	for _, key := range legacyConfigKeys {
+		if _, exists := env[key]; exists {
+			return Config{}, fmt.Errorf("legacy configuration %s is not supported", key)
 		}
 	}
 
-	// Helper function to turn comma-separated string arrays into Go slices cleanly
-	parseEnvArray := func(key string) []string {
-		val := os.Getenv(key)
-		if val == "" {
-			return []string{}
-		}
-		items := strings.Split(val, ",")
-		for i, item := range items {
-			items[i] = strings.TrimSpace(item)
-		}
-		return items
+	flagValues, configPath, err := parseConfigFlags(args)
+	if err != nil {
+		return Config{}, err
 	}
 
-	parserMode := strings.ToLower(strings.TrimSpace(os.Getenv("PARSER_MODE")))
-	if parserMode == "" {
-		parserMode = "full"
-	} else if parserMode != "code" && parserMode != "doc" && parserMode != "full" {
-		log.Printf("Warning: PARSER_MODE '%s' is not valid, falling back to default 'full'", parserMode)
-		parserMode = "full"
+	values := map[string]string{"HIVE_MAX_CLASSIFICATION": "internal"}
+	fileContainsSecret := false
+	if configPath != "" {
+		fileValues, err := loadExplicitTOML(configPath)
+		if err != nil {
+			return Config{}, err
+		}
+		for key, value := range fileValues {
+			values[key] = value
+		}
+		_, fileContainsSecret = fileValues["QDRANT_API_KEY"]
 	}
-
-	maxWorkers := 5
-	if workerStr := os.Getenv("MAX_EMBEDDING_WORKERS"); workerStr != "" {
-		if w, err := strconv.Atoi(workerStr); err == nil && w > 0 {
-			maxWorkers = w
-		} else {
-			log.Printf("Warning: MAX_EMBEDDING_WORKERS '%s' is not a valid positive integer, falling back to default 5", workerStr)
+	for key := range allowedConfigKeys {
+		if value, exists := env[key]; exists {
+			values[key] = value
 		}
 	}
-
-	batchSize := 100
-	if batchSizeStr := os.Getenv("BATCH_SIZE"); batchSizeStr != "" {
-		if b, err := strconv.Atoi(batchSizeStr); err == nil && b > 0 {
-			batchSize = b
-		} else {
-			log.Printf("Warning: BATCH_SIZE '%s' is not a valid positive integer, falling back to default 100", batchSizeStr)
-		}
+	for key, value := range flagValues {
+		values[key] = value
 	}
 
-	batchTimeout := 200 * time.Millisecond
-	if batchTimeoutStr := os.Getenv("BATCH_TIMEOUT"); batchTimeoutStr != "" {
-		if d, err := time.ParseDuration(batchTimeoutStr); err == nil && d > 0 {
-			batchTimeout = d
-		} else {
-			log.Printf("Warning: BATCH_TIMEOUT '%s' is not a valid duration, falling back to default 200ms", batchTimeoutStr)
+	cfg, err := buildConfig(values, configPath)
+	if err != nil {
+		return Config{}, err
+	}
+	if configPath != "" && fileContainsSecret {
+		if err := validateSecretConfigFile(configPath, cfg.DataDirectory); err != nil {
+			return Config{}, err
 		}
 	}
+	return cfg, nil
+}
 
-	logToFile := false
-	if logToFileStr := os.Getenv("LOG_TO_FILE"); logToFileStr != "" {
-		if b, err := strconv.ParseBool(logToFileStr); err == nil {
-			logToFile = b
-		} else {
-			log.Printf("Warning: LOG_TO_FILE '%s' is not a valid boolean, falling back to default false", logToFileStr)
+var allowedConfigKeys = map[string]struct{}{
+	"HIVE_ID": {}, "HIVE_DEVICE_ID": {}, "HIVE_ROLE": {},
+	"HIVE_COLLECTION": {}, "HIVE_DATA_DIR": {},
+	"HIVE_MAX_CLASSIFICATION": {}, "QDRANT_URL": {},
+	"QDRANT_API_KEY": {}, "QDRANT_TLS_CA_FILE": {},
+	"QDRANT_TLS_SERVER_NAME": {}, "OLLAMA_URL": {},
+	"EMBEDDING_MODEL": {},
+}
+
+var configFlagKeys = map[string]string{
+	"--hive-id":                "HIVE_ID",
+	"--device-id":              "HIVE_DEVICE_ID",
+	"--role":                   "HIVE_ROLE",
+	"--collection":             "HIVE_COLLECTION",
+	"--data-dir":               "HIVE_DATA_DIR",
+	"--max-classification":     "HIVE_MAX_CLASSIFICATION",
+	"--qdrant-url":             "QDRANT_URL",
+	"--qdrant-tls-ca-file":     "QDRANT_TLS_CA_FILE",
+	"--qdrant-tls-server-name": "QDRANT_TLS_SERVER_NAME",
+	"--ollama-url":             "OLLAMA_URL",
+	"--embedding-model":        "EMBEDDING_MODEL",
+}
+
+func parseConfigFlags(args []string) (map[string]string, string, error) {
+	values := make(map[string]string)
+	configPath := ""
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--qdrant-api-key" || strings.HasPrefix(arg, "--qdrant-api-key=") {
+			return nil, "", errors.New("QDRANT_API_KEY is not accepted as a process argument; use the environment or protected config file")
 		}
-	}
-
-	searchMode := "dense"
-	if searchModeStr := strings.ToLower(strings.TrimSpace(os.Getenv("SEARCH_MODE"))); searchModeStr != "" {
-		if searchModeStr == "dense" || searchModeStr == "sparse" || searchModeStr == "hybrid" {
-			searchMode = searchModeStr
-		} else {
-			log.Printf("Warning: SEARCH_MODE '%s' is not valid (must be dense, sparse, or hybrid), falling back to default 'dense'", searchModeStr)
-		}
-	}
-
-	excludeExts := parseEnvArray("EXCLUDE_EXTENSIONS")
-	if os.Getenv("EXCLUDE_EXTENSIONS") == "" {
-		// Provide .sql as a safe out-of-the-box default
-		excludeExts = []string{".sql"}
-	} else {
-		// Normalize extension formats (ensure leading dot exists)
-		for i, ext := range excludeExts {
-			if ext != "" && !strings.HasPrefix(ext, ".") {
-				excludeExts[i] = "." + ext
+		name, inlineValue, hasInlineValue := strings.Cut(arg, "=")
+		if name == "--config" {
+			value, consumed, err := flagValue(name, inlineValue, hasInlineValue, args, i)
+			if err != nil {
+				return nil, "", err
 			}
+			if consumed {
+				i++
+			}
+			if configPath != "" {
+				return nil, "", errors.New("--config may be provided only once")
+			}
+			configPath = value
+			continue
+		}
+		if key, exists := configFlagKeys[name]; exists {
+			value, consumed, err := flagValue(name, inlineValue, hasInlineValue, args, i)
+			if err != nil {
+				return nil, "", err
+			}
+			if consumed {
+				i++
+			}
+			values[key] = value
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			return nil, "", errors.New("unsupported configuration flag")
+		}
+	}
+	return values, configPath, nil
+}
+
+func flagValue(name, inlineValue string, hasInlineValue bool, args []string, index int) (string, bool, error) {
+	if hasInlineValue {
+		if inlineValue == "" {
+			return "", false, fmt.Errorf("%s requires a value", name)
+		}
+		return inlineValue, false, nil
+	}
+	if index+1 >= len(args) || strings.HasPrefix(args[index+1], "-") {
+		return "", false, fmt.Errorf("%s requires a value", name)
+	}
+	return args[index+1], true, nil
+}
+
+func loadExplicitTOML(path string) (map[string]string, error) {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, errors.New("explicit configuration must be a regular file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("cannot open the explicit configuration file")
+	}
+	defer file.Close()
+
+	values := make(map[string]string)
+	scanner := bufio.NewScanner(file)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := strings.TrimSpace(stripTOMLComment(scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			return nil, fmt.Errorf("configuration file line %d: TOML sections are not supported", lineNumber)
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("configuration file line %d is invalid", lineNumber)
+		}
+		key := strings.TrimSpace(parts[0])
+		if _, allowed := allowedConfigKeys[key]; !allowed {
+			return nil, fmt.Errorf("configuration file line %d contains an unsupported key", lineNumber)
+		}
+		if _, duplicate := values[key]; duplicate {
+			return nil, fmt.Errorf("configuration file line %d repeats key %s", lineNumber, key)
+		}
+		value, err := parseTOMLScalar(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("configuration file line %d has an invalid value", lineNumber)
+		}
+		values[key] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, errors.New("cannot read the explicit configuration file")
+	}
+	return values, nil
+}
+
+func stripTOMLComment(line string) string {
+	var quote rune
+	escaped := false
+	for index, char := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote == '"' && char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == '\'' || char == '"' {
+			if quote == 0 {
+				quote = char
+			} else if quote == char {
+				quote = 0
+			}
+			continue
+		}
+		if char == '#' && quote == 0 {
+			return line[:index]
+		}
+	}
+	return line
+}
+
+func parseTOMLScalar(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("empty value")
+	}
+	if strings.HasPrefix(raw, "\"") {
+		value, err := strconv.Unquote(raw)
+		if err != nil {
+			return "", err
+		}
+		return value, nil
+	}
+	if strings.HasPrefix(raw, "'") && strings.HasSuffix(raw, "'") && len(raw) >= 2 {
+		return raw[1 : len(raw)-1], nil
+	}
+	return "", errors.New("configuration values must be TOML strings")
+}
+
+func buildConfig(values map[string]string, configPath string) (Config, error) {
+	required := []string{
+		"HIVE_ID", "HIVE_DEVICE_ID", "HIVE_ROLE", "HIVE_COLLECTION",
+		"QDRANT_URL", "QDRANT_API_KEY", "OLLAMA_URL", "EMBEDDING_MODEL",
+	}
+	for _, key := range required {
+		if strings.TrimSpace(values[key]) == "" {
+			return Config{}, fmt.Errorf("missing required configuration %s", key)
 		}
 	}
 
-	maxFileSize := int64(1024 * 1024) // 1MB default
-	if maxFileStr := os.Getenv("MAX_FILE_SIZE_BYTES"); maxFileStr != "" {
-		if m, err := strconv.ParseInt(maxFileStr, 10, 64); err == nil && m > 0 {
-			maxFileSize = m
-		} else {
-			log.Printf("Warning: MAX_FILE_SIZE_BYTES '%s' is not a valid positive integer, falling back to default 1MB", maxFileStr)
+	hiveID := strings.TrimSpace(values["HIVE_ID"])
+	deviceID := strings.TrimSpace(values["HIVE_DEVICE_ID"])
+	collection := strings.TrimSpace(values["HIVE_COLLECTION"])
+	if !validIdentifier(hiveID, 64) {
+		return Config{}, errors.New("HIVE_ID must match [a-z0-9][a-z0-9_-]{0,63}")
+	}
+	if !validIdentifier(deviceID, 64) {
+		return Config{}, errors.New("HIVE_DEVICE_ID must match [a-z0-9][a-z0-9_-]{0,63}")
+	}
+	if !validIdentifier(collection, 55) {
+		return Config{}, errors.New("HIVE_COLLECTION must match [a-z0-9][a-z0-9_-]{0,54}")
+	}
+
+	role := strings.ToLower(strings.TrimSpace(values["HIVE_ROLE"]))
+	if role != RoleWriter && role != RoleReader {
+		return Config{}, errors.New("HIVE_ROLE must be writer or reader")
+	}
+
+	qdrantURL, qdrantHost, qdrantPort, qdrantTLS, err := validateServiceURL(values["QDRANT_URL"], "QDRANT_URL", false)
+	if err != nil {
+		return Config{}, err
+	}
+	if !qdrantTLS && !isLoopbackHost(qdrantHost) {
+		return Config{}, errors.New("QDRANT_URL outside loopback must use https")
+	}
+
+	ollamaURL, ollamaHost, _, _, err := validateServiceURL(values["OLLAMA_URL"], "OLLAMA_URL", true)
+	if err != nil {
+		return Config{}, err
+	}
+	if !isLoopbackHost(ollamaHost) {
+		return Config{}, errors.New("OLLAMA_URL must use a loopback host in v0.1")
+	}
+
+	apiKey := values["QDRANT_API_KEY"]
+	if strings.TrimSpace(apiKey) != apiKey || containsControl(apiKey) || len(apiKey) > 8192 {
+		return Config{}, errors.New("QDRANT_API_KEY has an invalid format")
+	}
+	embeddingModel := strings.TrimSpace(values["EMBEDDING_MODEL"])
+	if containsControl(embeddingModel) || len(embeddingModel) > 200 {
+		return Config{}, errors.New("EMBEDDING_MODEL has an invalid format")
+	}
+
+	classification := strings.ToLower(strings.TrimSpace(values["HIVE_MAX_CLASSIFICATION"]))
+	if classification != "internal" && classification != "restricted" {
+		return Config{}, errors.New("HIVE_MAX_CLASSIFICATION must be internal or restricted")
+	}
+
+	dataDirectory := ""
+	if rawDir := strings.TrimSpace(values["HIVE_DATA_DIR"]); rawDir != "" {
+		dataDirectory, err = validateDataDirectory(rawDir)
+		if err != nil {
+			return Config{}, err
 		}
+	} else if role == RoleWriter {
+		return Config{}, errors.New("missing required configuration HIVE_DATA_DIR for writer")
+	}
+
+	caFile := strings.TrimSpace(values["QDRANT_TLS_CA_FILE"])
+	serverName := strings.TrimSpace(values["QDRANT_TLS_SERVER_NAME"])
+	if !qdrantTLS && (caFile != "" || serverName != "") {
+		return Config{}, errors.New("QDRANT TLS options require an https QDRANT_URL")
+	}
+	if caFile != "" {
+		caFile, err = validateRegularReadableFile(caFile, "QDRANT_TLS_CA_FILE")
+		if err != nil {
+			return Config{}, err
+		}
+	}
+	if serverName != "" && !validServerName(serverName) {
+		return Config{}, errors.New("QDRANT_TLS_SERVER_NAME is invalid")
+	}
+
+	canonicalConfigPath := ""
+	if configPath != "" {
+		canonicalConfigPath, _ = filepath.Abs(configPath)
 	}
 
 	return Config{
-		QdrantHost:          host,
-		QdrantPort:          port,
-		CollectionName:      os.Getenv("QDRANT_COLLECTION"),
-		WatchDirectory:      os.Getenv("WATCH_DIRECTORY"),
-		OllamaHost:          os.Getenv("OLLAMA_HOST"),
-		EmbeddingModel:      os.Getenv("EMBEDDING_MODEL"),
-		DebounceDuration:    800 * time.Millisecond,
-		ExcludeDirs:         parseEnvArray("EXCLUDE_DIRS"),
-		IncludeHiddenDirs:   parseEnvArray("INCLUDE_HIDDEN_DIRS"),
-		ParserMode:          parserMode,
-		MaxEmbeddingWorkers: maxWorkers,
-		BatchSize:           batchSize,
-		BatchTimeout:        batchTimeout,
-		LogToFile:           logToFile,
-		SearchMode:          searchMode,
-		ExcludeExtensions:   excludeExts,
-		MaxFileSize:         maxFileSize,
-	}
+		HiveID: hiveID, DeviceID: deviceID, Role: role,
+		CollectionName: collection, ControlCollection: collection + "__control",
+		DataDirectory: dataDirectory, QdrantURL: qdrantURL,
+		QdrantAPIKey: newSecret(apiKey), QdrantTLSCAFile: caFile,
+		QdrantTLSServerName: serverName, QdrantUseTLS: qdrantTLS,
+		QdrantHost: qdrantHost, QdrantPort: qdrantPort,
+		OllamaURL: ollamaURL, EmbeddingModel: embeddingModel,
+		MaxClassification: classification, ConfigFile: canonicalConfigPath,
+
+		WatchDirectory: dataDirectory, OllamaHost: ollamaURL,
+		DebounceDuration: 800 * time.Millisecond, ParserMode: "doc",
+		MaxEmbeddingWorkers: 2, BatchSize: 100,
+		BatchTimeout: 200 * time.Millisecond, SearchMode: "dense",
+		MaxFileSize: 5 * 1024 * 1024,
+	}, nil
 }
 
-// Helper to look up specific slice elements quickly
-func sliceContains(slice []string, match string) bool {
-	for _, item := range slice {
-		if item == match {
-			return true
-		}
+func validateServiceURL(raw, key string, requireHTTP bool) (string, string, int, bool, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return "", "", 0, false, fmt.Errorf("%s must be an absolute URL with scheme", key)
 	}
-	return false
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", "", 0, false, fmt.Errorf("%s must use http or https", key)
+	}
+	if requireHTTP && parsed.Scheme != "http" {
+		return "", "", 0, false, fmt.Errorf("%s must use http for local Ollama", key)
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return "", "", 0, false, fmt.Errorf("%s must not contain credentials, path, query, or fragment", key)
+	}
+	host := parsed.Hostname()
+	port := 6334
+	if key == "OLLAMA_URL" {
+		port = 11434
+	}
+	if parsed.Port() != "" {
+		parsedPort, err := strconv.Atoi(parsed.Port())
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return "", "", 0, false, fmt.Errorf("%s contains an invalid port", key)
+		}
+		port = parsedPort
+	}
+	parsed.Path = ""
+	return strings.TrimSuffix(parsed.String(), "/"), host, port, parsed.Scheme == "https", nil
 }
 
-// PreprocessConfig parses command-line arguments for server configuration parameters
-// and auto-discovers configuration settings in files (.mcp.json, settings.local.json, etc.)
-// upward from the current directory, and user-level Claude settings.
-// Variables set through CLI flags override shell environment variables, which in turn
-// override auto-discovered configuration file settings.
-func PreprocessConfig() {
-	// 1. Keep track of what environment variables are already set by the terminal shell.
-	shellEnvVars := make(map[string]bool)
-	for _, env := range os.Environ() {
-		parts := strings.SplitN(env, "=", 2)
-		if len(parts) == 2 {
-			shellEnvVars[parts[0]] = true
-		}
-	}
-
-	// 2. Parse explicit CLI flags/parameters first.
-	cliEnvVars := ParseCLIFlags(os.Args[1:])
-
-	// Set CLI variables inside the process environment.
-	// We also record them so we know they were explicitly specified by the user.
-	for k, v := range cliEnvVars {
-		os.Setenv(k, v)
-	}
-
-	// 3. Auto-discover configuration files if any variables are still missing.
-	requiredKeys := []string{
-		"QDRANT_HOST", "QDRANT_PORT", "QDRANT_COLLECTION", "WATCH_DIRECTORY",
-		"OLLAMA_HOST", "EMBEDDING_MODEL", "EXCLUDE_DIRS", "INCLUDE_HIDDEN_DIRS",
-		"PARSER_MODE", "MAX_EMBEDDING_WORKERS",
-	}
-
-	hasMissing := false
-	for _, key := range requiredKeys {
-		if _, byCLI := cliEnvVars[key]; !byCLI {
-			if _, byShell := shellEnvVars[key]; !byShell {
-				hasMissing = true
-				break
-			}
-		}
-	}
-
-	if hasMissing {
-		discovered := discoverConfigs(cliEnvVars, shellEnvVars)
-		// Apply discovered variables to the environment ONLY if not set by CLI or Shell
-		for k, v := range discovered {
-			if _, byCLI := cliEnvVars[k]; !byCLI {
-				if _, byShell := shellEnvVars[k]; !byShell {
-					os.Setenv(k, v)
-				}
-			}
-		}
-	}
-}
-
-func ParseCLIFlags(args []string) map[string]string {
-	flags := make(map[string]string)
-	
-	// Map of flag names to environment variable names
-	flagMap := map[string]string{
-		"--collection":          "QDRANT_COLLECTION",
-		"-c":                   "QDRANT_COLLECTION",
-		"--watch-dir":           "WATCH_DIRECTORY",
-		"-w":                   "WATCH_DIRECTORY",
-		"--ollama":             "OLLAMA_HOST",
-		"-o":                   "OLLAMA_HOST",
-		"--embedding":          "EMBEDDING_MODEL",
-		"-e":                   "EMBEDDING_MODEL",
-		"--qdrant-host":        "QDRANT_HOST",
-		"-qh":                  "QDRANT_HOST",
-		"--qdrant-port":        "QDRANT_PORT",
-		"-qp":                  "QDRANT_PORT",
-		"--exclude-dirs":       "EXCLUDE_DIRS",
-		"-xd":                  "EXCLUDE_DIRS",
-		"--include-hidden-dirs": "INCLUDE_HIDDEN_DIRS",
-		"-ihd":                 "INCLUDE_HIDDEN_DIRS",
-		"--parser-mode":        "PARSER_MODE",
-		"-pm":                  "PARSER_MODE",
-		"--max-workers":        "MAX_EMBEDDING_WORKERS",
-		"-mw":                  "MAX_EMBEDDING_WORKERS",
-		"--batch-size":         "BATCH_SIZE",
-		"-bs":                  "BATCH_SIZE",
-		"--batch-timeout":      "BATCH_TIMEOUT",
-		"-bt":                  "BATCH_TIMEOUT",
-		"--log-to-file":        "LOG_TO_FILE",
-		"-lf":                  "LOG_TO_FILE",
-		"--search-mode":        "SEARCH_MODE",
-		"-sm":                  "SEARCH_MODE",
-	}
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if envKey, exists := flagMap[arg]; exists {
-			if i+1 < len(args) {
-				flags[envKey] = args[i+1]
-				// We don't remove from os.Args, just advance loop to consume the flag value
-				i++
-			}
-		} else if strings.Contains(arg, "=") {
-			// support --flag=value format
-			parts := strings.SplitN(arg, "=", 2)
-			if envKey, exists := flagMap[parts[0]]; exists {
-				flags[envKey] = parts[1]
-			}
-		}
-	}
-
-	return flags
-}
-
-func discoverConfigs(cliEnv map[string]string, shellEnv map[string]bool) map[string]string {
-	discovered := make(map[string]string)
-
-	// 1. Check user-level Claude settings (~/.claude/settings.json)
-	home, err := os.UserHomeDir()
-	if err == nil {
-		userClaudePath := filepath.Join(home, ".claude", "settings.json")
-		if vars := LoadJsonConfig(userClaudePath); len(vars) > 0 {
-			mergeMaps(discovered, vars)
-		}
-	}
-
-	// 2. Discover configs going upwards from current directory
-	cwd, err := os.Getwd()
-	if err == nil {
-		dir := cwd
-		for {
-			// Look for .mcp.json or mcp.json
-			mcpJsonPath := filepath.Join(dir, ".mcp.json")
-			if vars := LoadJsonConfig(mcpJsonPath); len(vars) > 0 {
-				mergeMaps(discovered, vars)
-				break
-			}
-			mcpJsonPath2 := filepath.Join(dir, "mcp.json")
-			if vars := LoadJsonConfig(mcpJsonPath2); len(vars) > 0 {
-				mergeMaps(discovered, vars)
-				break
-			}
-
-			// Look for .claude/settings.local.json
-			claudeLocalPath := filepath.Join(dir, ".claude", "settings.local.json")
-			if vars := LoadJsonConfig(claudeLocalPath); len(vars) > 0 {
-				mergeMaps(discovered, vars)
-				break
-			}
-
-			// Look for .codex/config.toml or config.toml
-			tomlPath := filepath.Join(dir, ".codex", "config.toml")
-			if vars := LoadTomlConfig(tomlPath); len(vars) > 0 {
-				mergeMaps(discovered, vars)
-				break
-			}
-			tomlPath2 := filepath.Join(dir, "config.toml")
-			if vars := LoadTomlConfig(tomlPath2); len(vars) > 0 {
-				mergeMaps(discovered, vars)
-				break
-			}
-
-			// Go to parent directory
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break // reached filesystem root
-			}
-			dir = parent
-		}
-	}
-
-	return discovered
-}
-
-func mergeMaps(dest, src map[string]string) {
-	for k, v := range src {
-		dest[k] = v
-	}
-}
-
-func LoadJsonConfig(path string) map[string]string {
-	vars := make(map[string]string)
-
-	file, err := os.Open(path)
+func validateDataDirectory(raw string) (string, error) {
+	abs, err := filepath.Abs(raw)
 	if err != nil {
-		return vars
+		return "", errors.New("HIVE_DATA_DIR cannot be resolved")
 	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return vars
+		return "", errors.New("HIVE_DATA_DIR does not exist or cannot be resolved")
 	}
-
-	// We use a generic interface to cleanly navigate arbitrary JSON shapes
-	var raw map[string]interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return vars
+	info, err := os.Stat(real)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("HIVE_DATA_DIR must be an existing directory")
 	}
-
-	// Look for mcpServers or similar key case-insensitively
-	var mcpServers interface{}
-	for k, v := range raw {
-		if strings.ToLower(k) == "mcpservers" || strings.ToLower(k) == "mcp_servers" {
-			mcpServers = v
-			break
-		}
+	dir, err := os.Open(real)
+	if err != nil {
+		return "", errors.New("HIVE_DATA_DIR is not readable")
 	}
-
-	if mcpServers == nil {
-		return vars
-	}
-
-	serversMap, ok := mcpServers.(map[string]interface{})
-	if !ok {
-		return vars
-	}
-
-	// Heuristic 1: Look for specific keys
-	candidates := []string{"qdrant-memory-rag", "qdrant-mcp-server", "qdrant"}
-	var targetServer interface{}
-
-	for _, cand := range candidates {
-		if s, exists := serversMap[cand]; exists {
-			targetServer = s
-			break
-		}
-	}
-
-	// Heuristic 2: Look for a server with a command containing "qdrant-mcp-server"
-	if targetServer == nil {
-		for _, s := range serversMap {
-			sMap, ok := s.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if cmd, exists := sMap["command"]; exists {
-				if cmdStr, ok := cmd.(string); ok && strings.Contains(cmdStr, "qdrant-mcp-server") {
-					targetServer = s
-					break
-				}
-			}
-		}
-	}
-
-	if targetServer == nil {
-		return vars
-	}
-
-	sMap, ok := targetServer.(map[string]interface{})
-	if !ok {
-		return vars
-	}
-
-	if envObj, exists := sMap["env"]; exists {
-		if envMap, ok := envObj.(map[string]interface{}); ok {
-			for k, v := range envMap {
-				if valStr, ok := v.(string); ok {
-					vars[k] = valStr
-				} else if valNum, ok := v.(float64); ok {
-					vars[k] = strconv.FormatFloat(valNum, 'f', -1, 64)
-				} else if valBool, ok := v.(bool); ok {
-					vars[k] = strconv.FormatBool(valBool)
-				}
-			}
-		}
-	}
-
-	if len(vars) > 0 {
-		log.Printf("Auto-Discovery: Loaded %d environment variables from %s", len(vars), path)
-	}
-
-	return vars
+	_ = dir.Close()
+	return filepath.Clean(real), nil
 }
 
-func LoadTomlConfig(path string) map[string]string {
-	vars := make(map[string]string)
-
-	file, err := os.Open(path)
+func validateRegularReadableFile(raw, key string) (string, error) {
+	abs, err := filepath.Abs(raw)
 	if err != nil {
-		return vars
+		return "", fmt.Errorf("%s cannot be resolved", key)
 	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return vars
+		return "", fmt.Errorf("%s does not exist or cannot be resolved", key)
 	}
+	info, err := os.Stat(real)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s must be a regular file", key)
+	}
+	file, err := os.Open(real)
+	if err != nil {
+		return "", fmt.Errorf("%s is not readable", key)
+	}
+	_ = file.Close()
+	return filepath.Clean(real), nil
+}
 
-	lines := strings.Split(string(data), "\n")
-	inTargetSection := false
+func validateSecretConfigFile(path, dataDirectory string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return errors.New("cannot inspect the explicit configuration file")
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return errors.New("configuration file containing QDRANT_API_KEY must not be accessible by group or others")
+	}
+	if dataDirectory == "" {
+		return nil
+	}
+	configReal, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return errors.New("cannot resolve the explicit configuration file")
+	}
+	rel, err := filepath.Rel(dataDirectory, configReal)
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return errors.New("configuration file containing QDRANT_API_KEY must be outside HIVE_DATA_DIR")
+	}
+	return nil
+}
 
-	// Target TOML headers (e.g. [mcp_servers.qdrant-memory-rag.env] or similar)
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+// QdrantTLSConfig constructs verified TLS settings without a skip-verification mode.
+func (c Config) QdrantTLSConfig() (*tls.Config, error) {
+	if !c.QdrantUseTLS {
+		return nil, nil
+	}
+	serverName := c.QdrantTLSServerName
+	if serverName == "" {
+		serverName = c.QdrantHost
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: serverName}
+	if c.QdrantTLSCAFile == "" {
+		return tlsConfig, nil
+	}
+	pem, err := os.ReadFile(c.QdrantTLSCAFile)
+	if err != nil {
+		return nil, errors.New("cannot read QDRANT_TLS_CA_FILE")
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, errors.New("QDRANT_TLS_CA_FILE contains no valid certificate")
+	}
+	tlsConfig.RootCAs = roots
+	return tlsConfig, nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func validServerName(value string) bool {
+	if containsControl(value) || strings.ContainsAny(value, "/:@ ") {
+		return false
+	}
+	if ip := net.ParseIP(value); ip != nil {
+		return true
+	}
+	return strings.Contains(value, ".") || validIdentifier(value, 64)
+}
+
+func containsControl(value string) bool {
+	return strings.IndexFunc(value, unicode.IsControl) >= 0
+}
+
+func validIdentifier(value string, maxLength int) bool {
+	if value == "" || len(value) > maxLength || !isLowerAlphaNumeric(value[0]) {
+		return false
+	}
+	for _, char := range value[1:] {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '_' || char == '-' {
 			continue
 		}
-
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			header := strings.ToLower(trimmed)
-			// Match headers like [mcp_servers.qdrant-memory-rag.env] or [mcp_servers.qdrant-mcp-server.env] or [mcp_servers.qdrant.env]
-			if strings.HasPrefix(header, "[mcp_servers.") && strings.HasSuffix(header, ".env]") {
-				serverName := header[len("[mcp_servers.") : len(header)-len(".env]")]
-				if strings.Contains(serverName, "qdrant") {
-					inTargetSection = true
-				} else {
-					inTargetSection = false
-				}
-			} else {
-				inTargetSection = false
-			}
-			continue
-		}
-
-		if inTargetSection {
-			parts := strings.SplitN(trimmed, "=", 2)
-			if len(parts) == 2 {
-				key := strings.TrimSpace(parts[0])
-				val := strings.TrimSpace(parts[1])
-				// Strip quotes from string values
-				val = strings.Trim(val, `"'`)
-				vars[key] = val
-			}
-		}
+		return false
 	}
+	return true
+}
 
-	if len(vars) > 0 {
-		log.Printf("Auto-Discovery: Loaded %d environment variables from %s", len(vars), path)
-	}
-
-	return vars
+func isLowerAlphaNumeric(char byte) bool {
+	return char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
 }

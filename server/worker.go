@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -36,6 +37,15 @@ type QdrantClient interface {
 	CreateCollection(ctx context.Context, in *qdrant.CreateCollection) error
 	Query(ctx context.Context, in *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
 	Scroll(ctx context.Context, in *qdrant.ScrollPoints) ([]*qdrant.RetrievedPoint, error)
+}
+
+func sliceContains(items []string, match string) bool {
+	for _, item := range items {
+		if item == match {
+			return true
+		}
+	}
+	return false
 }
 
 type BatchUpserter struct {
@@ -330,7 +340,9 @@ func NewIngestionWorker(cfg Config, qdrantClient QdrantClient, gitIgnore *GitIgn
 		GitignoreMatcher: gitIgnore,
 		CustomStopWords:  customStopWords,
 	}
-	iw.BatchUpserter = NewBatchUpserter(qdrantClient, cfg.CollectionName, cfg.BatchSize, cfg.BatchTimeout)
+	if cfg.IsWriter() {
+		iw.BatchUpserter = NewBatchUpserter(qdrantClient, cfg.CollectionName, cfg.BatchSize, cfg.BatchTimeout)
+	}
 	iw.ConcurrencyController = NewConcurrencyController(maxWorkers)
 	return iw
 }
@@ -419,6 +431,10 @@ type OllamaEmbedResp struct {
 }
 
 func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) {
+	if !iw.Cfg.IsWriter() {
+		log.Printf("Rejected file synchronization because HIVE_ROLE is not writer")
+		return
+	}
 	if iw.ShouldIgnoreFile(path, false) {
 		return
 	}
@@ -720,6 +736,9 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) {
 }
 
 func (iw *IngestionWorker) purgeFileVectors(ctx context.Context, path string) error {
+	if !iw.Cfg.IsWriter() {
+		return errors.New("file removal requires HIVE_ROLE=writer")
+	}
 	_, err := iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: iw.Cfg.CollectionName,
 		Points: qdrant.NewPointsSelectorFilter(&qdrant.Filter{
@@ -732,6 +751,9 @@ func (iw *IngestionWorker) purgeFileVectors(ctx context.Context, path string) er
 }
 
 func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (int, error) {
+	if !iw.Cfg.IsWriter() {
+		return 0, errors.New("workspace ingestion requires HIVE_ROLE=writer")
+	}
 	// 1. Ensure the dedicated collection exists
 	exists, err := iw.QdrantClient.CollectionExists(ctx, iw.Cfg.CollectionName)
 	if err != nil {

@@ -263,6 +263,7 @@ func TestSyncFileState_ContentHashing(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 
 	Cfg := server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      os.TempDir(),
 		OllamaHost:          "http://localhost:11434",
@@ -411,6 +412,7 @@ func TestConcurrencyController_AIMD(t *testing.T) {
 func TestFetchRemoteEmbedding_RetryAndThrottle(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 	Cfg := server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      os.TempDir(),
 		OllamaHost:          "http://localhost:11434",
@@ -466,6 +468,7 @@ func TestFetchRemoteEmbedding_RetryAndThrottle(t *testing.T) {
 func TestSyncFileState_IgnoreLogAndConfigFolder(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 	Cfg := server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      os.TempDir(),
 		OllamaHost:          "http://localhost:11434",
@@ -560,6 +563,7 @@ func TestComputeSparseVector(t *testing.T) {
 func TestExecuteVectorSearch_SearchModes(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 	Cfg := server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      os.TempDir(),
 		OllamaHost:          "http://localhost:11434",
@@ -691,6 +695,7 @@ func TestComputeSparseVector_CustomStopWords(t *testing.T) {
 func TestShouldIgnoreFile(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 	Cfg := server.Config{
+		Role:              server.RoleWriter,
 		ExcludeDirs:       []string{"node_modules"},
 		IncludeHiddenDirs: []string{".allowed-hidden"},
 		ExcludeExtensions: []string{".sql", "json"},
@@ -765,6 +770,7 @@ func TestSyncFileState_MaxFileSize(t *testing.T) {
 
 	mockClient := &MockQdrantClient{}
 	Cfg := server.Config{
+		Role:        server.RoleWriter,
 		MaxFileSize: 10, // set very small limit
 	}
 	worker := server.NewIngestionWorker(Cfg, mockClient, nil)
@@ -788,6 +794,7 @@ func TestWatchLoop_WatchesNewDirectories(t *testing.T) {
 
 	mockClient := &MockQdrantClient{}
 	worker := server.NewIngestionWorker(server.Config{
+		Role:                server.RoleWriter,
 		WatchDirectory:      rootDir,
 		DebounceDuration:    10 * time.Millisecond,
 		ExcludeExtensions:   []string{".sql"},
@@ -855,6 +862,7 @@ public class DtcFrameDecoderServiceTests
 
 	mockClient := &MockQdrantClient{}
 	worker := server.NewIngestionWorker(server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      rootDir,
 		OllamaHost:          "http://localhost:11434",
@@ -997,6 +1005,7 @@ func TestExecuteVectorSearch_ReranksUsingTags(t *testing.T) {
 	}
 
 	worker := server.NewIngestionWorker(server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      "/repo",
 		OllamaHost:          "http://localhost:11434",
@@ -1044,6 +1053,7 @@ func containsString(slice []string, target string) bool {
 
 func newTestWorker(rootDir string, mockClient *MockQdrantClient) *server.IngestionWorker {
 	worker := server.NewIngestionWorker(server.Config{
+		Role:                server.RoleWriter,
 		CollectionName:      "test-collection",
 		WatchDirectory:      rootDir,
 		OllamaHost:          "http://localhost:11434",
