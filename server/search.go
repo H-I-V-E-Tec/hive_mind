@@ -29,6 +29,7 @@ type HiveSearchArguments struct {
 	Classification       string   `json:"classification,omitempty"`
 	EffectiveScopeStatus string   `json:"effective_scope_status,omitempty"`
 	Limit                *int     `json:"limit,omitempty"`
+	AssetRef             string   `json:"-"`
 }
 
 type HiveSearchResult struct {
@@ -211,6 +212,9 @@ func (iw *IngestionWorker) hiveSearchFilter(args HiveSearchArguments, scopeRevis
 	if args.EffectiveScopeStatus != "" {
 		must = append(must, qdrant.NewMatchKeyword("effective_scope_status", args.EffectiveScopeStatus))
 	}
+	if args.AssetRef != "" {
+		must = append(must, qdrant.NewMatchKeyword("asset_refs", args.AssetRef))
+	}
 	return &qdrant.Filter{Must: must}
 }
 
@@ -244,6 +248,9 @@ func (iw *IngestionWorker) enforceSearchBoundary(points []*qdrant.ScoredPoint, a
 			}
 		}
 		if !allTags || (args.EffectiveScopeStatus != "" && payloadString(payload, "effective_scope_status", "unknown") != args.EffectiveScopeStatus) {
+			continue
+		}
+		if args.AssetRef != "" && !containsString(payloadStringList(payload, "asset_refs"), args.AssetRef) {
 			continue
 		}
 		filtered = append(filtered, point)

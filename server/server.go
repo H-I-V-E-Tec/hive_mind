@@ -327,6 +327,7 @@ func printCLIHelp() {
 	fmt.Println("  --ollama-url <url>             Loopback Ollama URL.")
 	fmt.Println("  --embedding-model <name>       Ollama embedding model.")
 	fmt.Println("  --max-classification <level>   internal (default) or restricted.")
+	fmt.Println("  --context-max-chars <n>        Serialized context budget (default 12000; range 1000-50000).")
 	fmt.Println("  --max-file-bytes <n>           Maximum document bytes (default 5242880; ceiling 50 MiB).")
 	fmt.Println("  --max-chunks-per-file <n>      Maximum chunks per document (default 1000; ceiling 5000).")
 	fmt.Println("  --chunk-max-chars <n>          Chunk size in characters (default 2000; ceiling 8000).")

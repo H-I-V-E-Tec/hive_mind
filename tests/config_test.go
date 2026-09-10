@@ -62,6 +62,9 @@ func TestHiveConfigCompleteWriter(t *testing.T) {
 	if cfg.MaxClassification != "internal" {
 		t.Fatalf("expected internal classification default, got %q", cfg.MaxClassification)
 	}
+	if cfg.ContextMaxChars != 12000 {
+		t.Fatalf("expected context character budget default 12000, got %d", cfg.ContextMaxChars)
+	}
 }
 
 func TestHiveConfigReaderDoesNotRequireDataDirectory(t *testing.T) {
@@ -75,6 +78,22 @@ func TestHiveConfigReaderDoesNotRequireDataDirectory(t *testing.T) {
 	}
 	if !cfg.IsReader() || cfg.DataDirectory != "" {
 		t.Fatalf("unexpected reader config: %+v", cfg)
+	}
+}
+
+func TestHiveContextCharacterBudgetValidation(t *testing.T) {
+	for _, value := range []string{"999", "50001", "not-a-number"} {
+		env := validHiveEnv(t.TempDir())
+		env["HIVE_CONTEXT_MAX_CHARS"] = value
+		if _, err := server.LoadConfigFrom(nil, env); err == nil {
+			t.Fatalf("invalid HIVE_CONTEXT_MAX_CHARS=%q was accepted", value)
+		}
+	}
+	env := validHiveEnv(t.TempDir())
+	env["HIVE_CONTEXT_MAX_CHARS"] = "50000"
+	cfg, err := server.LoadConfigFrom(nil, env)
+	if err != nil || cfg.ContextMaxChars != 50000 {
+		t.Fatalf("valid context budget was not applied: cfg=%+v err=%v", cfg, err)
 	}
 }
 

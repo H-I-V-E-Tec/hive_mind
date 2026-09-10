@@ -11,7 +11,10 @@ As an AI assistant reading this workspace, you have direct access to semantic se
 1. `hive_search`
    - **Description**: Performs a semantic, vector-based search across the codebase and Codex docs.
    - **Arguments**: `program_id` and `query` (required), with optional document type, tag, classification, scope, and limit filters.
-2. `get_sync_status`
+2. `hive_get_context`
+   - **Description**: Builds a bounded context package for an explicit program and asset, with authoritative scope before untrusted evidence.
+   - **Arguments**: `program_id`, `question`, and typed `asset` are required; search filters are optional.
+3. `get_sync_status`
    - **Description**: Checks the real-time status of the codebase and Codex indexing pipeline.
 
 ---

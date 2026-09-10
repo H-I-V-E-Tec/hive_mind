@@ -9,7 +9,10 @@ This workspace is integrated with a **Go Qdrant-RAG MCP Server** which monitors 
 1. `hive_search`
    - **Description**: Performs a semantic, vector-based search across the codebase.
    - **Arguments**: `program_id` and `query` (required), with optional document type, tag, classification, scope, and limit filters.
-2. `get_sync_status`
+2. `hive_get_context`
+   - **Description**: Builds a bounded context package for an explicit program and asset, with authoritative scope before untrusted evidence.
+   - **Arguments**: `program_id`, `question`, and typed `asset` are required; search filters are optional.
+3. `get_sync_status`
    - **Description**: Checks the real-time status of the codebase indexing pipeline.
 
 ---

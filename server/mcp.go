@@ -128,6 +128,38 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 				out, _ := json.Marshal(response)
 				fmt.Println(string(out))
 			}()
+		} else if params.Name == "hive_get_context" {
+			var args HiveContextArguments
+			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
+				iw.sendMCPError(req.ID, -32602, "Invalid context arguments format")
+				return
+			}
+			if _, _, _, err := iw.validateHiveContext(args); err != nil {
+				iw.sendMCPError(req.ID, -32602, err.Error())
+				return
+			}
+			go func() {
+				contextResponse, err := iw.HiveGetContext(context.Background(), args)
+				if err != nil {
+					if isSearchValidationError(err) {
+						iw.sendMCPError(req.ID, -32602, err.Error())
+						return
+					}
+					log.Printf("Hive context failed: %v", err)
+					iw.sendMCPError(req.ID, -32603, "Context assembly failed")
+					return
+				}
+				summary, _ := json.Marshal(map[string]interface{}{"scope": contextResponse.Scope.Status, "items_count": len(contextResponse.Items), "truncated": contextResponse.Truncated})
+				response := map[string]interface{}{
+					"jsonrpc": "2.0", "id": req.ID,
+					"result": map[string]interface{}{
+						"structuredContent": contextResponse,
+						"content":           []map[string]interface{}{{"type": "text", "text": string(summary)}},
+					},
+				}
+				out, _ := json.Marshal(response)
+				fmt.Println(string(out))
+			}()
 		} else if params.Name == "get_sync_status" {
 			iw.Mu.Lock()
 			status := "idle"
@@ -272,6 +304,38 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 			},
 		},
 		{
+			"name":        "hive_get_context",
+			"description": "Build a bounded context package for one explicit asset; scope authority is evaluated before untrusted evidence.",
+			"inputSchema": map[string]interface{}{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]interface{}{
+					"program_id": map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+					"question":   map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 2000},
+					"asset": map[string]interface{}{
+						"type": "object", "additionalProperties": false,
+						"properties": map[string]interface{}{
+							"type":  map[string]interface{}{"type": "string", "enum": []string{"host", "wildcard_domain", "ip", "cidr", "url_prefix"}},
+							"value": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 2048},
+						},
+						"required": []string{"type", "value"},
+					},
+					"document_types": map[string]interface{}{
+						"type": "array", "maxItems": 7, "uniqueItems": true,
+						"items": map[string]interface{}{"type": "string", "enum": []string{"scope", "rules", "asset", "endpoint", "note", "evidence", "unknown"}},
+					},
+					"tags": map[string]interface{}{
+						"type": "array", "maxItems": 64, "uniqueItems": true,
+						"items": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 100},
+					},
+					"classification":         map[string]interface{}{"type": "string", "enum": []string{"internal", "restricted", "unknown"}},
+					"effective_scope_status": map[string]interface{}{"type": "string", "enum": []string{"authorized", "out_of_scope", "unknown"}},
+					"limit":                  map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
+				},
+				"required": []string{"program_id", "question", "asset"},
+			},
+			"outputSchema": hiveContextOutputSchema(),
+		},
+		{
 			"name":        "get_sync_status",
 			"description": "Retrieve the local Hive ingestion status.",
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
@@ -285,6 +349,60 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 		})
 	}
 	return tools
+}
+
+func hiveContextOutputSchema() map[string]interface{} {
+	asset := map[string]interface{}{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"type": map[string]interface{}{"type": "string", "enum": []string{"host", "wildcard_domain", "ip", "cidr", "url_prefix"}},
+			"value": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"type", "value"},
+	}
+	matchedRule := map[string]interface{}{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"action": map[string]interface{}{"type": "string", "enum": []string{"include", "exclude"}},
+			"asset_type": map[string]interface{}{"type": "string"}, "value": map[string]interface{}{"type": "string"},
+			"reason": map[string]interface{}{"type": "string"},
+		},
+		"required": []string{"action", "asset_type", "value"},
+	}
+	scope := map[string]interface{}{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"status": map[string]interface{}{"type": "string", "enum": []string{"authorized", "out_of_scope", "unknown"}},
+			"confirmed": map[string]interface{}{"type": "boolean"}, "action_allowed": map[string]interface{}{"type": "boolean"},
+			"scope_revision": map[string]interface{}{"type": "string"}, "source": map[string]interface{}{"type": []string{"string", "null"}},
+			"collected_at": map[string]interface{}{"type": []string{"string", "null"}},
+			"matched_rules": map[string]interface{}{"type": "array", "items": matchedRule},
+		},
+		"required": []string{"status", "confirmed", "action_allowed", "scope_revision", "source", "collected_at", "matched_rules"},
+	}
+	item := map[string]interface{}{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"text": map[string]interface{}{"type": "string"}, "score": map[string]interface{}{"type": "number"},
+			"path": map[string]interface{}{"type": "string"}, "source": map[string]interface{}{"type": []string{"string", "null"}},
+			"collected_at": map[string]interface{}{"type": []string{"string", "null"}}, "document_type": map[string]interface{}{"type": "string"},
+			"effective_scope_status": map[string]interface{}{"type": "string"}, "classification": map[string]interface{}{"type": "string"},
+			"untrusted_content": map[string]interface{}{"type": "boolean", "const": true},
+		},
+		"required": []string{"text", "score", "path", "source", "collected_at", "document_type", "effective_scope_status", "classification", "untrusted_content"},
+	}
+	return map[string]interface{}{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"program_id": map[string]interface{}{"type": "string"},
+			"asset":      asset,
+			"scope":      scope,
+			"warnings":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"items":      map[string]interface{}{"type": "array", "items": item},
+			"truncated":  map[string]interface{}{"type": "boolean"},
+		},
+		"required": []string{"program_id", "asset", "scope", "warnings", "items", "truncated"},
+	}
 }
 
 func decodeStrictJSON(raw json.RawMessage, target any) error {

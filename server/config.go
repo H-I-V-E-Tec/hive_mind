@@ -72,6 +72,7 @@ type Config struct {
 	OllamaURL           string
 	EmbeddingModel      string
 	MaxClassification   string
+	ContextMaxChars     int
 	ConfigFile          string
 
 	WatchDirectory      string
@@ -171,7 +172,8 @@ var allowedConfigKeys = map[string]struct{}{
 	"HIVE_ID": {}, "HIVE_DEVICE_ID": {}, "HIVE_WRITER_APPROVAL_ID": {}, "HIVE_ROLE": {},
 	"HIVE_COLLECTION": {}, "HIVE_DATA_DIR": {},
 	"HIVE_MAX_CLASSIFICATION": {}, "QDRANT_URL": {},
-	"QDRANT_API_KEY": {}, "QDRANT_TLS_CA_FILE": {},
+	"HIVE_CONTEXT_MAX_CHARS": {},
+	"QDRANT_API_KEY":         {}, "QDRANT_TLS_CA_FILE": {},
 	"QDRANT_TLS_SERVER_NAME": {}, "OLLAMA_URL": {},
 	"EMBEDDING_MODEL":     {},
 	"HIVE_MAX_FILE_BYTES": {}, "HIVE_MAX_CHUNKS_PER_FILE": {},
@@ -188,6 +190,7 @@ var configFlagKeys = map[string]string{
 	"--collection":             "HIVE_COLLECTION",
 	"--data-dir":               "HIVE_DATA_DIR",
 	"--max-classification":     "HIVE_MAX_CLASSIFICATION",
+	"--context-max-chars":      "HIVE_CONTEXT_MAX_CHARS",
 	"--qdrant-url":             "QDRANT_URL",
 	"--qdrant-tls-ca-file":     "QDRANT_TLS_CA_FILE",
 	"--qdrant-tls-server-name": "QDRANT_TLS_SERVER_NAME",
@@ -478,6 +481,10 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	contextMaxChars, err := boundedInt(values, "HIVE_CONTEXT_MAX_CHARS", 12000, 1000, 50000)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		HiveID: hiveID, DeviceID: deviceID, WriterApprovalID: writerApprovalID, Role: role,
@@ -487,7 +494,7 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 		QdrantTLSServerName: serverName, QdrantUseTLS: qdrantTLS,
 		QdrantHost: qdrantHost, QdrantPort: qdrantPort,
 		OllamaURL: ollamaURL, EmbeddingModel: embeddingModel,
-		MaxClassification: classification, ConfigFile: canonicalConfigPath,
+		MaxClassification: classification, ContextMaxChars: contextMaxChars, ConfigFile: canonicalConfigPath,
 
 		WatchDirectory: dataDirectory, OllamaHost: ollamaURL,
 		DebounceDuration: 800 * time.Millisecond, ParserMode: "doc",

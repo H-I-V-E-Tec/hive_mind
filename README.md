@@ -33,7 +33,7 @@ O código já oferece:
 - metadados de recon normalizados e escopo efetivo calculado somente de manifestos aprovados;
 - aprovação local de `scope.json`, invalidação por hash e rematerialização sem recalcular embeddings;
 - busca densa, esparsa ou híbrida com filtros nativos de Hive, programa, escopo, classificação, tipo e tags;
-- ferramenta MCP `hive_search` com resposta JSON estruturada, além de `get_sync_status` e `ingest_workspace`;
+- ferramentas MCP estruturadas `hive_search` e `hive_get_context`, além de `get_sync_status` e `ingest_workspace`;
 - comandos `ingest [--prune]`, `remove`, `scope approve <program_id>` e `search <program_id> <query>`.
 
 A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
@@ -63,6 +63,7 @@ HIVE_ROLE=writer
 HIVE_WRITER_APPROVAL_ID=change-1042
 HIVE_COLLECTION=hive_mind_v01
 HIVE_DATA_DIR=/caminho/para/hive-data
+HIVE_CONTEXT_MAX_CHARS=12000
 OLLAMA_URL=http://127.0.0.1:11434
 EMBEDDING_MODEL=nomic-embed-text
 ```
@@ -78,7 +79,7 @@ go build -o hive-mind .
 go test ./...
 ```
 
-As specs 00 a 04 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado e busca MCP filtrada. Contexto compacto, implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+As specs 00 a 05 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado, busca MCP filtrada e contexto compacto por ativo. Implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 
@@ -143,6 +144,19 @@ O comando valida e normaliza as regras, rematerializa os chunks existentes sem r
 ```
 
 A resposta estruturada contém `results`, `warnings` e `truncated`. Cada resultado inclui texto, score, path relativo, proveniência, tipo, classificação, escopo efetivo e `untrusted_content: true`. O servidor filtra a revisão de escopo no Qdrant e confirma novamente isolamento, classificação e revisão ativa antes de retornar qualquer trecho.
+
+`hive_get_context` recebe uma pergunta e um ativo explícito, sem tentar inferir autorização do texto:
+
+```json
+{
+  "program_id": "acme-bugbounty",
+  "question": "o que sabemos sobre este host?",
+  "asset": {"type": "host", "value": "api.example.com"},
+  "limit": 8
+}
+```
+
+O pacote resultante apresenta primeiro a decisão do manifesto aprovado e as regras aplicáveis; documentos de regras e evidências não confiáveis vêm depois. Em estado `out_of_scope`, notas e endpoints acionáveis não são incluídos. `HIVE_CONTEXT_MAX_CHARS`, com padrão 12.000 e faixa 1.000–50.000 caracteres Unicode, limita toda a resposta serializada removendo itens inteiros menos relevantes.
 
 ## Segurança e uso autorizado
 
