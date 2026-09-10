@@ -25,6 +25,7 @@ type CallToolParams struct {
 
 type SearchArguments struct {
 	Query          string   `json:"query"`
+	ProgramID      string   `json:"program_id"`
 	FileExtensions []string `json:"file_extensions,omitempty"`
 	PathPrefix     string   `json:"path_prefix,omitempty"`
 }
@@ -103,7 +104,7 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 
 			// Process the RAG search query across the local network interface
 			go func() {
-				resultsText, err := iw.ExecuteVectorSearch(context.Background(), args.Query, args.FileExtensions, args.PathPrefix)
+				resultsText, err := iw.ExecuteVectorSearch(context.Background(), args.ProgramID, args.Query, args.FileExtensions, args.PathPrefix)
 				if err != nil {
 					log.Printf("Internal RAG search failed: %v", err)
 					iw.sendMCPError(req.ID, -32603, fmt.Sprintf("Search execution error: %v", err))
@@ -224,13 +225,17 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 						"type":        "string",
 						"description": "The semantic search query.",
 					},
+					"program_id": map[string]interface{}{
+						"type":        "string",
+						"description": "Program identifier used as a mandatory isolation boundary.",
+					},
 					"file_extensions": map[string]interface{}{
 						"type":  "array",
 						"items": map[string]interface{}{"type": "string"},
 					},
 					"path_prefix": map[string]interface{}{"type": "string"},
 				},
-				"required": []string{"query"},
+				"required": []string{"program_id", "query"},
 			},
 		},
 		{

@@ -57,6 +57,7 @@ func (s Secret) Format(state fmt.State, _ rune) {
 type Config struct {
 	HiveID              string
 	DeviceID            string
+	WriterApprovalID    string
 	Role                string
 	CollectionName      string
 	ControlCollection   string
@@ -86,6 +87,12 @@ type Config struct {
 	SearchMode          string
 	ExcludeExtensions   []string
 	MaxFileSize         int64
+	MaxChunksPerFile    int
+	ChunkMaxChars       int
+	ChunkOverlapChars   int
+	JSONMaxDepth        int
+	JSONMaxElements     int
+	DeleteGrace         time.Duration
 }
 
 func (c Config) IsWriter() bool { return c.Role == RoleWriter }
@@ -95,8 +102,8 @@ func (c Config) IsReader() bool { return c.Role == RoleReader }
 // Format is intentionally explicit and always redacts QdrantAPIKey.
 func (c Config) Format(state fmt.State, _ rune) {
 	_, _ = fmt.Fprintf(state,
-		"Config{HiveID:%q DeviceID:%q Role:%q CollectionName:%q ControlCollection:%q DataDirectory:%q QdrantURL:%q QdrantAPIKey:[REDACTED] OllamaURL:%q EmbeddingModel:%q MaxClassification:%q}",
-		c.HiveID, c.DeviceID, c.Role, c.CollectionName, c.ControlCollection,
+		"Config{HiveID:%q DeviceID:%q WriterApprovalID:%q Role:%q CollectionName:%q ControlCollection:%q DataDirectory:%q QdrantURL:%q QdrantAPIKey:[REDACTED] OllamaURL:%q EmbeddingModel:%q MaxClassification:%q}",
+		c.HiveID, c.DeviceID, c.WriterApprovalID, c.Role, c.CollectionName, c.ControlCollection,
 		c.DataDirectory, c.QdrantURL, c.OllamaURL, c.EmbeddingModel, c.MaxClassification,
 	)
 }
@@ -161,17 +168,22 @@ func LoadConfigFrom(args []string, env map[string]string) (Config, error) {
 }
 
 var allowedConfigKeys = map[string]struct{}{
-	"HIVE_ID": {}, "HIVE_DEVICE_ID": {}, "HIVE_ROLE": {},
+	"HIVE_ID": {}, "HIVE_DEVICE_ID": {}, "HIVE_WRITER_APPROVAL_ID": {}, "HIVE_ROLE": {},
 	"HIVE_COLLECTION": {}, "HIVE_DATA_DIR": {},
 	"HIVE_MAX_CLASSIFICATION": {}, "QDRANT_URL": {},
 	"QDRANT_API_KEY": {}, "QDRANT_TLS_CA_FILE": {},
 	"QDRANT_TLS_SERVER_NAME": {}, "OLLAMA_URL": {},
-	"EMBEDDING_MODEL": {},
+	"EMBEDDING_MODEL":     {},
+	"HIVE_MAX_FILE_BYTES": {}, "HIVE_MAX_CHUNKS_PER_FILE": {},
+	"HIVE_CHUNK_MAX_CHARS": {}, "HIVE_CHUNK_OVERLAP_CHARS": {},
+	"HIVE_JSON_MAX_DEPTH": {}, "HIVE_JSON_MAX_ELEMENTS": {},
+	"HIVE_MAX_EMBEDDING_WORKERS": {}, "HIVE_DELETE_GRACE_HOURS": {},
 }
 
 var configFlagKeys = map[string]string{
 	"--hive-id":                "HIVE_ID",
 	"--device-id":              "HIVE_DEVICE_ID",
+	"--writer-approval-id":     "HIVE_WRITER_APPROVAL_ID",
 	"--role":                   "HIVE_ROLE",
 	"--collection":             "HIVE_COLLECTION",
 	"--data-dir":               "HIVE_DATA_DIR",
@@ -181,6 +193,14 @@ var configFlagKeys = map[string]string{
 	"--qdrant-tls-server-name": "QDRANT_TLS_SERVER_NAME",
 	"--ollama-url":             "OLLAMA_URL",
 	"--embedding-model":        "EMBEDDING_MODEL",
+	"--max-file-bytes":         "HIVE_MAX_FILE_BYTES",
+	"--max-chunks-per-file":    "HIVE_MAX_CHUNKS_PER_FILE",
+	"--chunk-max-chars":        "HIVE_CHUNK_MAX_CHARS",
+	"--chunk-overlap-chars":    "HIVE_CHUNK_OVERLAP_CHARS",
+	"--json-max-depth":         "HIVE_JSON_MAX_DEPTH",
+	"--json-max-elements":      "HIVE_JSON_MAX_ELEMENTS",
+	"--max-embedding-workers":  "HIVE_MAX_EMBEDDING_WORKERS",
+	"--delete-grace-hours":     "HIVE_DELETE_GRACE_HOURS",
 }
 
 func parseConfigFlags(args []string) (map[string]string, string, error) {
@@ -188,6 +208,9 @@ func parseConfigFlags(args []string) (map[string]string, string, error) {
 	configPath := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--prune" {
+			continue
+		}
 		if arg == "--qdrant-api-key" || strings.HasPrefix(arg, "--qdrant-api-key=") {
 			return nil, "", errors.New("QDRANT_API_KEY is not accepted as a process argument; use the environment or protected config file")
 		}
@@ -355,6 +378,13 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 	if role != RoleWriter && role != RoleReader {
 		return Config{}, errors.New("HIVE_ROLE must be writer or reader")
 	}
+	writerApprovalID := strings.TrimSpace(values["HIVE_WRITER_APPROVAL_ID"])
+	if role == RoleWriter && writerApprovalID == "" {
+		return Config{}, errors.New("missing required configuration HIVE_WRITER_APPROVAL_ID for writer")
+	}
+	if writerApprovalID != "" && !validIdentifier(writerApprovalID, 64) {
+		return Config{}, errors.New("HIVE_WRITER_APPROVAL_ID must match [a-z0-9][a-z0-9_-]{0,63}")
+	}
 
 	qdrantURL, qdrantHost, qdrantPort, qdrantTLS, err := validateServiceURL(values["QDRANT_URL"], "QDRANT_URL", false)
 	if err != nil {
@@ -416,8 +446,41 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 		canonicalConfigPath, _ = filepath.Abs(configPath)
 	}
 
+	maxFileBytes, err := boundedInt(values, "HIVE_MAX_FILE_BYTES", 5*1024*1024, 1, 50*1024*1024)
+	if err != nil {
+		return Config{}, err
+	}
+	maxChunks, err := boundedInt(values, "HIVE_MAX_CHUNKS_PER_FILE", 1000, 1, 5000)
+	if err != nil {
+		return Config{}, err
+	}
+	chunkMax, err := boundedInt(values, "HIVE_CHUNK_MAX_CHARS", 2000, 1, 8000)
+	if err != nil {
+		return Config{}, err
+	}
+	overlap, err := boundedInt(values, "HIVE_CHUNK_OVERLAP_CHARS", 200, 0, chunkMax/2)
+	if err != nil {
+		return Config{}, err
+	}
+	jsonDepth, err := boundedInt(values, "HIVE_JSON_MAX_DEPTH", 64, 1, 64)
+	if err != nil {
+		return Config{}, err
+	}
+	jsonElements, err := boundedInt(values, "HIVE_JSON_MAX_ELEMENTS", 100000, 1, 100000)
+	if err != nil {
+		return Config{}, err
+	}
+	workers, err := boundedInt(values, "HIVE_MAX_EMBEDDING_WORKERS", 2, 1, 16)
+	if err != nil {
+		return Config{}, err
+	}
+	graceHours, err := boundedInt(values, "HIVE_DELETE_GRACE_HOURS", 24, 1, 24)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		HiveID: hiveID, DeviceID: deviceID, Role: role,
+		HiveID: hiveID, DeviceID: deviceID, WriterApprovalID: writerApprovalID, Role: role,
 		CollectionName: collection, ControlCollection: collection + "__control",
 		DataDirectory: dataDirectory, QdrantURL: qdrantURL,
 		QdrantAPIKey: newSecret(apiKey), QdrantTLSCAFile: caFile,
@@ -428,10 +491,25 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 
 		WatchDirectory: dataDirectory, OllamaHost: ollamaURL,
 		DebounceDuration: 800 * time.Millisecond, ParserMode: "doc",
-		MaxEmbeddingWorkers: 2, BatchSize: 100,
+		MaxEmbeddingWorkers: workers, BatchSize: 100,
 		BatchTimeout: 200 * time.Millisecond, SearchMode: "dense",
-		MaxFileSize: 5 * 1024 * 1024,
+		MaxFileSize: int64(maxFileBytes), MaxChunksPerFile: maxChunks,
+		ChunkMaxChars: chunkMax, ChunkOverlapChars: overlap,
+		JSONMaxDepth: jsonDepth, JSONMaxElements: jsonElements,
+		DeleteGrace: time.Duration(graceHours) * time.Hour,
 	}, nil
+}
+
+func boundedInt(values map[string]string, key string, defaultValue, minValue, maxValue int) (int, error) {
+	raw := strings.TrimSpace(values[key])
+	if raw == "" {
+		return defaultValue, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < minValue || value > maxValue {
+		return 0, fmt.Errorf("%s must be an integer between %d and %d", key, minValue, maxValue)
+	}
+	return value, nil
 }
 
 func validateServiceURL(raw, key string, requireHTTP bool) (string, string, int, bool, error) {

@@ -6,7 +6,7 @@ O binário aceita somente a configuração do Hive Mind e falha cedo quando ela 
 
 ## Contrato
 
-`HIVE_ID`, `HIVE_DEVICE_ID`, `HIVE_ROLE`, `HIVE_COLLECTION`, `QDRANT_URL`, `QDRANT_API_KEY`, `OLLAMA_URL` e `EMBEDDING_MODEL` são obrigatórios. `HIVE_DATA_DIR` é obrigatório para o writer e opcional, somente leitura, para readers. `HIVE_ROLE` aceita apenas `writer` ou `reader`. Não haverá `HIVE_MODE`, `WATCH_DIRECTORY`, `QDRANT_COLLECTION`, `QDRANT_HOST` ou `QDRANT_PORT` legados.
+`HIVE_ID`, `HIVE_DEVICE_ID`, `HIVE_ROLE`, `HIVE_COLLECTION`, `QDRANT_URL`, `QDRANT_API_KEY`, `OLLAMA_URL` e `EMBEDDING_MODEL` são obrigatórios. `HIVE_DATA_DIR` e `HIVE_WRITER_APPROVAL_ID` são obrigatórios para o writer; o primeiro é opcional e somente leitura para readers, e o segundo não é exigido deles. O identificador de aprovação referencia, sem dados sensíveis, o change/ticket operacional que atribuiu o writer. `HIVE_ROLE` aceita apenas `writer` ou `reader`. Não haverá `HIVE_MODE`, `WATCH_DIRECTORY`, `QDRANT_COLLECTION`, `QDRANT_HOST` ou `QDRANT_PORT` legados.
 
 Criar `.env.hive.example` sem segredos. O arquivo de configuração, quando usado, é TOML simples, com chaves na raiz e valores string, e somente é lido quando indicado por `--config`; não há descoberta automática. Chaves desconhecidas, repetidas ou seções são rejeitadas. Flags não sensíveis usam os mesmos nomes conceituais, e sua precedência é: flags, ambiente, arquivo indicado e padrão seguro. Segredos nunca são aceitos como flags. Valores obrigatórios não possuem padrão.
 

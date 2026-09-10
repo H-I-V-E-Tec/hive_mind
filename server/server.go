@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/qdrant/go-client/qdrant"
@@ -85,20 +86,45 @@ func Start(version string) {
 			if err != nil {
 				log.Fatalf("Error during manual ingestion: %v", err)
 			}
+			if sliceContains(os.Args[2:], "--prune") {
+				pruned, err := worker.PrunePending(context.Background(), time.Now())
+				if err != nil {
+					log.Fatalf("Error pruning pending documents: %v", err)
+				}
+				fmt.Printf("Pruned %d documents after the deletion grace period.\n", pruned)
+			}
 			fmt.Printf("🎉 Success! Ingested %d files into collection '%s'.\n", count, cfg.CollectionName)
 			return
+		case "remove":
+			if !cfg.IsWriter() {
+				fmt.Fprintln(os.Stderr, "authorization error: remove requires HIVE_ROLE=writer")
+				os.Exit(12)
+			}
+			if len(os.Args) != 3 {
+				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server remove <path>")
+				os.Exit(1)
+			}
+			client, worker := mustCreateWorker(cfg)
+			defer client.Close()
+			defer worker.Close()
+			if err := worker.RemoveDocument(context.Background(), os.Args[2], "operator_requested"); err != nil {
+				log.Fatalf("Remove failed: %v", err)
+			}
+			fmt.Println("Document tombstoned and removed.")
+			return
 		case "search", "-search", "--search":
-			if len(os.Args) < 3 {
-				fmt.Fprintln(os.Stderr, "Error: missing query.")
-				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server search <query>")
+			if len(os.Args) < 4 {
+				fmt.Fprintln(os.Stderr, "Error: missing program_id or query.")
+				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server search <program_id> <query>")
 				os.Exit(1)
 			}
 			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
 
-			query := strings.Join(os.Args[2:], " ")
-			results, err := worker.ExecuteVectorSearch(context.Background(), query, nil, "")
+			programID := os.Args[2]
+			query := strings.Join(os.Args[3:], " ")
+			results, err := worker.ExecuteVectorSearch(context.Background(), programID, query, nil, "")
 			if err != nil {
 				log.Fatalf("Search failed: %v", err)
 			}
@@ -121,7 +147,7 @@ func Start(version string) {
 			suites := defaultEvaluationQueries(cfg.WatchDirectory)
 			passed := 0
 			for _, suite := range suites {
-				result, err := worker.ExecuteVectorSearch(context.Background(), suite.Query, suite.FileExtensions, suite.PathPrefix)
+				result, err := worker.ExecuteVectorSearch(context.Background(), "default", suite.Query, suite.FileExtensions, suite.PathPrefix)
 				if err != nil {
 					log.Printf("Evaluation query failed for %q: %v", suite.Query, err)
 					continue
@@ -211,6 +237,17 @@ func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
 	}
 	worker := NewIngestionWorker(cfg, client, gitIgnore)
+	var validationErr error
+	if cfg.IsWriter() {
+		validationErr = worker.EnsureInfrastructure(context.Background())
+	} else {
+		validationErr = worker.ValidateInfrastructure(context.Background())
+	}
+	if validationErr != nil {
+		worker.Close()
+		client.Close()
+		log.Fatalf("Hive infrastructure validation failed: %v", validationErr)
+	}
 	return client, worker
 }
 
@@ -244,8 +281,9 @@ func printCLIHelp() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
-	fmt.Println("  ingest                         Ingest HIVE_DATA_DIR (writer only).")
-	fmt.Println("  search <query>                 Execute a direct semantic search from the CLI.")
+	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; optionally prune expired pending deletes.")
+	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
+	fmt.Println("  search <program_id> <query>    Execute an isolated semantic search from the CLI.")
 	fmt.Println("  evaluate-search                Ingest the workspace and run canned search quality checks.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
@@ -256,6 +294,7 @@ func printCLIHelp() {
 	fmt.Println("  --config <path>                Read the explicitly selected flat TOML file.")
 	fmt.Println("  --hive-id <id>                 Hive identifier.")
 	fmt.Println("  --device-id <id>               Authorized device identifier.")
+	fmt.Println("  --writer-approval-id <id>      Sanitized operational change/ticket for the writer.")
 	fmt.Println("  --role <writer|reader>         Immutable process role.")
 	fmt.Println("  --collection <name>            Qdrant data collection.")
 	fmt.Println("  --data-dir <path>              Hive data directory (writer only).")
@@ -265,11 +304,16 @@ func printCLIHelp() {
 	fmt.Println("  --ollama-url <url>             Loopback Ollama URL.")
 	fmt.Println("  --embedding-model <name>       Ollama embedding model.")
 	fmt.Println("  --max-classification <level>   internal (default) or restricted.")
+	fmt.Println("  --max-file-bytes <n>           Maximum document bytes (default 5242880; ceiling 50 MiB).")
+	fmt.Println("  --max-chunks-per-file <n>      Maximum chunks per document (default 1000; ceiling 5000).")
+	fmt.Println("  --chunk-max-chars <n>          Chunk size in characters (default 2000; ceiling 8000).")
+	fmt.Println("  --chunk-overlap-chars <n>      Text overlap, at most half the chunk size (default 200).")
+	fmt.Println("  --max-embedding-workers <n>    Concurrent embedding calls (default 2; ceiling 16).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")
 	fmt.Println("  QDRANT_URL, QDRANT_API_KEY, OLLAMA_URL, EMBEDDING_MODEL")
-	fmt.Println("  HIVE_DATA_DIR is required only for writer.")
+	fmt.Println("  HIVE_DATA_DIR and HIVE_WRITER_APPROVAL_ID are required only for writer.")
 	fmt.Println()
 	fmt.Println("QDRANT_API_KEY is never accepted as a process argument. Configuration files")
 	fmt.Println("containing it must be permission-restricted and outside HIVE_DATA_DIR.")

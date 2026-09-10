@@ -27,10 +27,12 @@ O código já oferece:
 
 - indexação recursiva e observação de alterações no diretório configurado;
 - embeddings locais via Ollama e armazenamento vetorial no Qdrant por gRPC;
-- parsing de código e documentos, chunking, hashes de conteúdo e respeito a `.gitignore`;
-- busca densa, esparsa ou híbrida por `qdrant_search`, com filtros por extensão e caminho;
+- ingestão restrita a Markdown, texto e JSON, com chunking limitado, hashes e respeito a `.gitignore`;
+- publicação revisionada: staging confirmado, verificação, `document_head` e limpeza posterior;
+- collections separadas de dados e controle, manifesto imutável e registro de writer único;
+- busca densa, esparsa ou híbrida isolada por Hive e programa, descartando revisões inativas;
 - ferramentas MCP `qdrant_search`, `get_sync_status` e `ingest_workspace`;
-- comandos `ingest`, `search` e `evaluate-search`.
+- comandos `ingest [--prune]`, `remove` e `search <program_id> <query>`.
 
 A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
 
@@ -56,6 +58,7 @@ QDRANT_TLS_CA_FILE=/caminho/para/hive-ca.pem
 HIVE_ID=research-team
 HIVE_DEVICE_ID=workstation-a
 HIVE_ROLE=writer
+HIVE_WRITER_APPROVAL_ID=change-1042
 HIVE_COLLECTION=hive_mind_v01
 HIVE_DATA_DIR=/caminho/para/hive-data
 OLLAMA_URL=http://127.0.0.1:11434
@@ -73,7 +76,7 @@ go build -o hive-mind .
 go test ./...
 ```
 
-O carregamento de configuração, os papéis locais e o transporte autenticado/TLS do cliente Qdrant já seguem a spec 01. As próximas etapas ainda precisam substituir a ingestão, os payloads, a busca e o protocolo de revisões herdados; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+As specs 00, 01 e 02 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura e ingestão revisionada. Metadados completos, aprovação de escopo, API final de busca, operação segura e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 
@@ -110,7 +113,7 @@ Exemplo de nota não autoritativa:
 O host expõe autenticação OAuth e endpoint de upload em `/v1/files`.
 ```
 
-Na versão atual, essas informações são pesquisáveis por estarem no texto. No produto alvo, a declaração da nota vira `claimed_scope_status` e nunca concede autorização. Somente o hash aprovado de `scope.json` produz `effective_scope_status=authorized`.
+Na versão atual, essas informações são pesquisáveis por estarem no texto, mas a declaração da nota permanece `unknown` e nunca concede autorização. A extração completa dos metadados e o fluxo de aprovação de `scope.json` pertencem às specs 03 e 07.
 
 ## Segurança e uso autorizado
 

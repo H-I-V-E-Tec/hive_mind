@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ---------------------------------------------------------------------------
   # 1. Qdrant Vector Database
@@ -8,12 +6,13 @@ services:
     image: qdrant/qdrant:v1.10.0
     container_name: qdrant
     ports:
-      - "6333:6333" # HTTP REST API & Web Dashboard (http://localhost:6333/dashboard)
-      - "6334:6334" # gRPC Interface (used by the MCP server for high-speed indexing)
+      - "127.0.0.1:6333:6333" # Local REST API and dashboard.
+      - "127.0.0.1:6334:6334" # Local gRPC endpoint.
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__API_KEY=${HIVE_QDRANT_API_KEY:?set HIVE_QDRANT_API_KEY}
       - RUST_LOG=info
     restart: unless-stopped
     healthcheck:
@@ -29,7 +28,7 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
-      - "11434:11434" # Ollama API Endpoint
+      - "127.0.0.1:11434:11434" # Local-only Ollama API.
     volumes:
       - ollama_storage:/root/.ollama
     restart: unless-stopped
@@ -78,18 +77,17 @@ services:
       dockerfile: Dockerfile
     container_name: qdrant-mcp-server
     environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6334
-      - QDRANT_COLLECTION=codebase_RAG
-      - OLLAMA_HOST=http://ollama:11434
+      - HIVE_ID=local-hive
+      - HIVE_DEVICE_ID=docker-writer
+      - HIVE_WRITER_APPROVAL_ID=local-compose
+      - HIVE_ROLE=writer
+      - HIVE_COLLECTION=hive_mind_v01
+      - HIVE_DATA_DIR=/workspace
+      - QDRANT_URL=http://127.0.0.1:6334
+      - QDRANT_API_KEY=${HIVE_QDRANT_API_KEY:?set HIVE_QDRANT_API_KEY}
+      - OLLAMA_URL=http://127.0.0.1:11434
       - EMBEDDING_MODEL=nomic-embed-text
-      - WATCH_DIRECTORY=/workspace
-      # Optional performance tuning configurations:
-      # - PARSER_MODE=full
-      # - MAX_EMBEDDING_WORKERS=5
-      # - BATCH_SIZE=100
-      # - SEARCH_MODE=dense
-      # - LOG_TO_FILE=false
+    network_mode: host
     volumes:
       # Mount the project workspace or directories you want to index.
       # By default, mounts the current folder into '/workspace' inside the container.

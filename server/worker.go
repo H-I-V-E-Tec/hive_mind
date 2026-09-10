@@ -37,6 +37,7 @@ type QdrantClient interface {
 	CreateCollection(ctx context.Context, in *qdrant.CreateCollection) error
 	Query(ctx context.Context, in *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
 	Scroll(ctx context.Context, in *qdrant.ScrollPoints) ([]*qdrant.RetrievedPoint, error)
+	Count(ctx context.Context, in *qdrant.CountPoints) (uint64, error)
 }
 
 func sliceContains(items []string, match string) bool {
@@ -299,6 +300,8 @@ type IngestionWorker struct {
 	BatchUpserter         *BatchUpserter
 	ConcurrencyController *ConcurrencyController
 	CustomStopWords       map[string]struct{}
+	infrastructureMu      sync.Mutex
+	infrastructureReady   bool
 }
 
 func NewIngestionWorker(cfg Config, qdrantClient QdrantClient, gitIgnore *GitIgnoreMatcher) *IngestionWorker {
@@ -341,6 +344,8 @@ func NewIngestionWorker(cfg Config, qdrantClient QdrantClient, gitIgnore *GitIgn
 		CustomStopWords:  customStopWords,
 	}
 	if cfg.IsWriter() {
+		// Retained for compatibility with the legacy code-indexing helpers. The
+		// revisioned document pipeline uses confirmed direct writes instead.
 		iw.BatchUpserter = NewBatchUpserter(qdrantClient, cfg.CollectionName, cfg.BatchSize, cfg.BatchTimeout)
 	}
 	iw.ConcurrencyController = NewConcurrencyController(maxWorkers)
@@ -430,7 +435,7 @@ type OllamaEmbedResp struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) {
+func (iw *IngestionWorker) syncFileStateLegacy(ctx context.Context, path string) {
 	if !iw.Cfg.IsWriter() {
 		log.Printf("Rejected file synchronization because HIVE_ROLE is not writer")
 		return
@@ -750,7 +755,7 @@ func (iw *IngestionWorker) purgeFileVectors(ctx context.Context, path string) er
 	return err
 }
 
-func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (int, error) {
+func (iw *IngestionWorker) syncWorkspaceLegacy(ctx context.Context) (int, error) {
 	if !iw.Cfg.IsWriter() {
 		return 0, errors.New("workspace ingestion requires HIVE_ROLE=writer")
 	}
@@ -989,9 +994,27 @@ func (iw *IngestionWorker) chunkText(text string, size int) []string {
 	return chunks
 }
 
-func (iw *IngestionWorker) ExecuteVectorSearch(ctx context.Context, query string, fileExtensions []string, pathPrefix string) (string, error) {
+func (iw *IngestionWorker) ExecuteVectorSearch(ctx context.Context, programID, query string, fileExtensions []string, pathPrefix string) (string, error) {
+	if !validIdentifier(programID, 64) {
+		return "", errors.New("a valid program_id is required for every search")
+	}
 	intent := detectQueryIntent(query, fileExtensions, pathPrefix)
 	qdrantFilter := buildSearchFilter(fileExtensions, pathPrefix)
+	if qdrantFilter == nil {
+		qdrantFilter = &qdrant.Filter{}
+	}
+	qdrantFilter.Must = append(qdrantFilter.Must,
+		qdrant.NewMatchKeyword("record_type", "chunk"),
+		qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+		qdrant.NewMatchKeyword("program_id", programID),
+	)
+	if iw.Cfg.MaxClassification == "restricted" {
+		qdrantFilter.Must = append(qdrantFilter.Must, qdrant.NewFilterAsCondition(&qdrant.Filter{Should: []*qdrant.Condition{
+			qdrant.NewMatchKeyword("classification", "internal"), qdrant.NewMatchKeyword("classification", "restricted"),
+		}}))
+	} else {
+		qdrantFilter.Must = append(qdrantFilter.Must, qdrant.NewMatchKeyword("classification", "internal"))
+	}
 	candidateLimit := uint64(40)
 	finalLimit := 5
 
@@ -1001,6 +1024,10 @@ func (iw *IngestionWorker) ExecuteVectorSearch(ctx context.Context, query string
 		results, err := iw.queryVariant(ctx, variant, qdrantFilter, candidateLimit)
 		if err != nil {
 			return "", fmt.Errorf("qdrant search operation failed for variant %q: %w", variant, err)
+		}
+		results, err = iw.filterActiveCandidates(ctx, results)
+		if err != nil {
+			return "", fmt.Errorf("validate active revisions: %w", err)
 		}
 		variantResults[variant] = results
 	}

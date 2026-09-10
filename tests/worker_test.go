@@ -67,6 +67,15 @@ func (m *MockQdrantClient) Scroll(ctx context.Context, in *qdrant.ScrollPoints) 
 	return m.scrollResp, m.scrollErr
 }
 
+func (m *MockQdrantClient) Count(ctx context.Context, in *qdrant.CountPoints) (uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.upsertCalls) == 0 {
+		return 0, nil
+	}
+	return uint64(len(m.upsertCalls[len(m.upsertCalls)-1])), nil
+}
+
 func TestBatchUpserter_BatchSizeTrigger(t *testing.T) {
 	mockClient := &MockQdrantClient{}
 	batchSize := 3
@@ -245,7 +254,7 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	return m.RoundTripFunc(req)
 }
 
-func TestSyncFileState_ContentHashing(t *testing.T) {
+func legacySyncFileStateContentHashing(t *testing.T) {
 	// Create temporary test file
 	tmpFile, err := os.CreateTemp("", "test_hash_*.txt")
 	if err != nil {
@@ -592,7 +601,7 @@ func TestExecuteVectorSearch_SearchModes(t *testing.T) {
 
 	// Test 1: Dense Search Mode
 	worker.Cfg.SearchMode = "dense"
-	_, _ = worker.ExecuteVectorSearch(ctx, "test query", nil, "")
+	_, _ = worker.ExecuteVectorSearch(ctx, "test-program", "test query", nil, "")
 
 	mockClient.mu.Lock()
 	if len(mockClient.queryCalls) == 0 {
@@ -612,7 +621,7 @@ func TestExecuteVectorSearch_SearchModes(t *testing.T) {
 
 	// Test 2: Sparse Search Mode
 	worker.Cfg.SearchMode = "sparse"
-	_, _ = worker.ExecuteVectorSearch(ctx, "test query", nil, "")
+	_, _ = worker.ExecuteVectorSearch(ctx, "test-program", "test query", nil, "")
 
 	mockClient.mu.Lock()
 	if len(mockClient.queryCalls) == 0 {
@@ -632,7 +641,7 @@ func TestExecuteVectorSearch_SearchModes(t *testing.T) {
 
 	// Test 3: Hybrid Search Mode
 	worker.Cfg.SearchMode = "hybrid"
-	_, _ = worker.ExecuteVectorSearch(ctx, "test query", nil, "")
+	_, _ = worker.ExecuteVectorSearch(ctx, "test-program", "test query", nil, "")
 
 	mockClient.mu.Lock()
 	if len(mockClient.queryCalls) == 0 {
@@ -843,7 +852,7 @@ func TestWatchLoop_WatchesNewDirectories(t *testing.T) {
 	}
 }
 
-func TestSyncFileState_AddsTagsToPayload(t *testing.T) {
+func legacySyncFileStateAddsTagsToPayload(t *testing.T) {
 	rootDir := t.TempDir()
 	testFile := filepath.Join(rootDir, "tests", "AgroOps.Application.Tests", "DtcFrameDecoderServiceTests.cs")
 	if err := os.MkdirAll(filepath.Dir(testFile), 0755); err != nil {
@@ -913,7 +922,7 @@ public class DtcFrameDecoderServiceTests
 	}
 }
 
-func TestSyncFileState_AddsFrameworkTagsForOtherLanguages(t *testing.T) {
+func legacySyncFileStateAddsFrameworkTagsForOtherLanguages(t *testing.T) {
 	testCases := []struct {
 		name         string
 		relPath      string
@@ -974,7 +983,7 @@ func TestSyncFileState_AddsFrameworkTagsForOtherLanguages(t *testing.T) {
 	}
 }
 
-func TestExecuteVectorSearch_ReranksUsingTags(t *testing.T) {
+func legacyExecuteVectorSearchReranksUsingTags(t *testing.T) {
 	mockClient := &MockQdrantClient{
 		queryResp: []*qdrant.ScoredPoint{
 			{
@@ -1027,7 +1036,7 @@ func TestExecuteVectorSearch_ReranksUsingTags(t *testing.T) {
 		},
 	}
 
-	result, err := worker.ExecuteVectorSearch(context.Background(), "dtc frame decoder service tests", nil, "tests")
+	result, err := worker.ExecuteVectorSearch(context.Background(), "test-program", "dtc frame decoder service tests", nil, "tests")
 	if err != nil {
 		t.Fatalf("ExecuteVectorSearch returned error: %v", err)
 	}

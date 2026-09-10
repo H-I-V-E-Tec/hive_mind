@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"qdrant-mcp-server/server"
 )
@@ -16,15 +17,16 @@ const sentinelAPIKey = "spec01-sentinel-api-key"
 
 func validHiveEnv(dataDir string) map[string]string {
 	return map[string]string{
-		"HIVE_ID":         "research-team",
-		"HIVE_DEVICE_ID":  "workstation-a",
-		"HIVE_ROLE":       "writer",
-		"HIVE_COLLECTION": "hive_mind_v01",
-		"HIVE_DATA_DIR":   dataDir,
-		"QDRANT_URL":      "http://127.0.0.1:6334",
-		"QDRANT_API_KEY":  sentinelAPIKey,
-		"OLLAMA_URL":      "http://127.0.0.1:11434",
-		"EMBEDDING_MODEL": "nomic-embed-text",
+		"HIVE_ID":                 "research-team",
+		"HIVE_DEVICE_ID":          "workstation-a",
+		"HIVE_WRITER_APPROVAL_ID": "change-1042",
+		"HIVE_ROLE":               "writer",
+		"HIVE_COLLECTION":         "hive_mind_v01",
+		"HIVE_DATA_DIR":           dataDir,
+		"QDRANT_URL":              "http://127.0.0.1:6334",
+		"QDRANT_API_KEY":          sentinelAPIKey,
+		"OLLAMA_URL":              "http://127.0.0.1:11434",
+		"EMBEDDING_MODEL":         "nomic-embed-text",
 	}
 }
 
@@ -53,6 +55,9 @@ func TestHiveConfigCompleteWriter(t *testing.T) {
 	}
 	if cfg.ParserMode != "doc" || cfg.MaxEmbeddingWorkers != 2 || cfg.MaxFileSize != 5*1024*1024 {
 		t.Fatalf("safe defaults were not applied: %+v", cfg)
+	}
+	if cfg.MaxChunksPerFile != 1000 || cfg.ChunkMaxChars != 2000 || cfg.ChunkOverlapChars != 200 || cfg.JSONMaxDepth != 64 || cfg.JSONMaxElements != 100000 || cfg.DeleteGrace != 24*time.Hour {
+		t.Fatalf("spec-002 defaults were not applied: %+v", cfg)
 	}
 	if cfg.MaxClassification != "internal" {
 		t.Fatalf("expected internal classification default, got %q", cfg.MaxClassification)
@@ -102,6 +107,7 @@ func TestHiveConfigPrecedenceFlagsEnvironmentFileDefaults(t *testing.T) {
 		`HIVE_ID = "from-file"`,
 		`HIVE_DEVICE_ID = "file-device"`,
 		`HIVE_ROLE = "writer"`,
+		`HIVE_WRITER_APPROVAL_ID = "change-1042"`,
 		`HIVE_COLLECTION = "file_collection"`,
 		`HIVE_DATA_DIR = "` + dataDir + `"`,
 		`QDRANT_URL = "http://127.0.0.1:6334"`,
@@ -184,11 +190,21 @@ func TestHiveConfigRejectsInvalidOrMissingValues(t *testing.T) {
 		{"invalid role", func(env map[string]string) { env["HIVE_ROLE"] = "admin" }, "HIVE_ROLE"},
 		{"long collection", func(env map[string]string) { env["HIVE_COLLECTION"] = strings.Repeat("a", 56) }, "HIVE_COLLECTION"},
 		{"missing writer dir", func(env map[string]string) { delete(env, "HIVE_DATA_DIR") }, "HIVE_DATA_DIR"},
+		{"missing writer approval", func(env map[string]string) { delete(env, "HIVE_WRITER_APPROVAL_ID") }, "HIVE_WRITER_APPROVAL_ID"},
 		{"missing directory", func(env map[string]string) { env["HIVE_DATA_DIR"] = filepath.Join(t.TempDir(), "missing") }, "HIVE_DATA_DIR"},
 		{"qdrant path", func(env map[string]string) { env["QDRANT_URL"] = "https://qdrant.example/private" }, "QDRANT_URL"},
 		{"remote plaintext qdrant", func(env map[string]string) { env["QDRANT_URL"] = "http://10.0.0.10:6334" }, "https"},
 		{"remote ollama", func(env map[string]string) { env["OLLAMA_URL"] = "http://10.0.0.11:11434" }, "loopback"},
 		{"invalid classification", func(env map[string]string) { env["HIVE_MAX_CLASSIFICATION"] = "public" }, "HIVE_MAX_CLASSIFICATION"},
+		{"excessive file bytes", func(env map[string]string) { env["HIVE_MAX_FILE_BYTES"] = "52428801" }, "HIVE_MAX_FILE_BYTES"},
+		{"excessive chunks", func(env map[string]string) { env["HIVE_MAX_CHUNKS_PER_FILE"] = "5001" }, "HIVE_MAX_CHUNKS_PER_FILE"},
+		{"overlap over half", func(env map[string]string) {
+			env["HIVE_CHUNK_MAX_CHARS"] = "100"
+			env["HIVE_CHUNK_OVERLAP_CHARS"] = "51"
+		}, "HIVE_CHUNK_OVERLAP_CHARS"},
+		{"excessive JSON depth", func(env map[string]string) { env["HIVE_JSON_MAX_DEPTH"] = "65" }, "HIVE_JSON_MAX_DEPTH"},
+		{"excessive workers", func(env map[string]string) { env["HIVE_MAX_EMBEDDING_WORKERS"] = "17" }, "HIVE_MAX_EMBEDDING_WORKERS"},
+		{"excessive delete grace", func(env map[string]string) { env["HIVE_DELETE_GRACE_HOURS"] = "25" }, "HIVE_DELETE_GRACE_HOURS"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -303,6 +319,7 @@ func completeTOML(dataDir, apiKey string) string {
 		`HIVE_ID = "research-team"`,
 		`HIVE_DEVICE_ID = "workstation-a"`,
 		`HIVE_ROLE = "writer"`,
+		`HIVE_WRITER_APPROVAL_ID = "change-1042"`,
 		`HIVE_COLLECTION = "hive_mind_v01"`,
 		`HIVE_DATA_DIR = "` + dataDir + `"`,
 		`QDRANT_URL = "http://127.0.0.1:6334"`,
