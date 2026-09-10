@@ -28,9 +28,8 @@ This document outlines the planned improvements, architectural enhancements, and
 ## 🔍 Advanced Querying & Filtering
 
 - [x] **Metadata-Driven Filter Arguments**
-  - Enhance the `qdrant_search` tool parameters to accept optional filtering parameters:
-    * `file_extensions` (e.g., limit queries to `.go` or `.cs`).
-    * `path_prefix` (e.g., search strictly inside a `src/auth/` directory).
+  - Expose the `hive_search` tool with optional filters for document types, tags, classification, and effective scope.
+  - Enforce Hive, program, approved scope revision, and classification boundaries in native Qdrant filters.
   - Use Qdrant's high-speed payload keyword matching filters.
 - [x] **Hybrid Search (Dense + Sparse)**
   - Combine semantic dense vector search (Ollama embeddings) with sparse vector representations (like BM25).

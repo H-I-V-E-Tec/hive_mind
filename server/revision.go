@@ -607,7 +607,8 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 			scopeCache[programID] = expectedScope
 		}
 		if head == nil || head.State == "deleted" || head.ProgramID != programID ||
-			head.DocumentRevision != payloadString(payload, "document_revision", "") || expectedScope != payloadString(payload, "scope_revision", "") {
+			head.DocumentRevision != payloadString(payload, "document_revision", "") ||
+			head.ScopeRevision != payloadString(payload, "scope_revision", "") || expectedScope != payloadString(payload, "scope_revision", "") {
 			continue
 		}
 		filtered = append(filtered, point)

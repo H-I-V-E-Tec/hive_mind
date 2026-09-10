@@ -6,9 +6,9 @@ This workspace is integrated with a **Go Qdrant-RAG MCP Server** which monitors 
 
 ## 🛠️ Available MCP Tools
 
-1. `qdrant_search`
+1. `hive_search`
    - **Description**: Performs a semantic, vector-based search across the codebase.
-   - **Arguments**: `query` (string, required) - The natural language query or concept.
+   - **Arguments**: `program_id` and `query` (required), with optional document type, tag, classification, scope, and limit filters.
 2. `get_sync_status`
    - **Description**: Checks the real-time status of the codebase indexing pipeline.
 
@@ -17,7 +17,7 @@ This workspace is integrated with a **Go Qdrant-RAG MCP Server** which monitors 
 ## 💡 Guidelines & Best Practices for Tool Usage
 
 ### 1. Search Before You Build or Declare Missing
-- **Avoid Duplication**: Before writing a new utility, middleware, database logic, or component, always execute a semantic search via `qdrant_search` to check if a similar or helper implementation already exists.
+- **Avoid Duplication**: Before writing a new utility, middleware, database logic, or component, always execute a semantic search via `hive_search` to check if a similar or helper implementation already exists.
 - **Verification**: If you believe a feature, package, or function is missing, run a semantic query first to confirm. Do not assume something does not exist based only on visible tree structures.
 
 ### 2. Formulate Semantic Queries (Not Keywords)

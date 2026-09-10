@@ -8,9 +8,9 @@ As an AI assistant reading this workspace, you have direct access to semantic se
 
 ## 🛠️ Available MCP Tools
 
-1. `qdrant_search`
+1. `hive_search`
    - **Description**: Performs a semantic, vector-based search across the codebase and Codex docs.
-   - **Arguments**: `query` (string, required) - The natural language query or concept.
+   - **Arguments**: `program_id` and `query` (required), with optional document type, tag, classification, scope, and limit filters.
 2. `get_sync_status`
    - **Description**: Checks the real-time status of the codebase and Codex indexing pipeline.
 
@@ -18,16 +18,16 @@ As an AI assistant reading this workspace, you have direct access to semantic se
 
 ## 💡 How to Query the Codex
 
-When you need to look up documentation, guidelines, specifications, or standards, use the `qdrant_search` tool with a semantic natural language query.
+When you need to look up documentation, guidelines, specifications, or standards, use the `hive_search` tool with a semantic natural language query.
 
 ### Examples:
 - To find architecture specifications: 
-  `qdrant_search("What is the database connection strategy documented in the wiki?")`
+  `hive_search({"program_id":"example-program","query":"What is the database connection strategy documented in the wiki?"})`
 - To find team styling guides: 
-  `qdrant_search("Find the guidelines for writing telemetry logs")`
+  `hive_search({"program_id":"example-program","query":"Find the guidelines for writing telemetry logs"})`
 - To find feature requirements: 
-  `qdrant_search("How should the new user-onboarding flows behave according to Codex specs?")`
+  `hive_search({"program_id":"example-program","query":"How should the new user-onboarding flows behave according to Codex specs?"})`
 
 ### Best Practices:
 - Keep queries descriptive and phrased as complete questions or conceptual statements.
-- Before claiming a document or standard does not exist in the Codex, always run a search via `qdrant_search` to verify.
+- Before claiming a document or standard does not exist in the Codex, always run a search via `hive_search` to verify.

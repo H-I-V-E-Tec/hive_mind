@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,13 +22,6 @@ type MCPRequest struct {
 type CallToolParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
-}
-
-type SearchArguments struct {
-	Query          string   `json:"query"`
-	ProgramID      string   `json:"program_id"`
-	FileExtensions []string `json:"file_extensions,omitempty"`
-	PathPrefix     string   `json:"path_prefix,omitempty"`
 }
 
 func (iw *IngestionWorker) ListenToMCPClient(ctx context.Context) {
@@ -95,31 +89,38 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 			return
 		}
 
-		if params.Name == "qdrant_search" {
-			var args SearchArguments
-			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+		if params.Name == "hive_search" {
+			var args HiveSearchArguments
+			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
 				iw.sendMCPError(req.ID, -32602, "Invalid search arguments format")
 				return
 			}
+			if _, _, err := iw.validateHiveSearch(args); err != nil {
+				iw.sendMCPError(req.ID, -32602, err.Error())
+				return
+			}
 
-			// Process the RAG search query across the local network interface
 			go func() {
-				resultsText, err := iw.ExecuteVectorSearch(context.Background(), args.ProgramID, args.Query, args.FileExtensions, args.PathPrefix)
+				searchResponse, err := iw.HiveSearch(context.Background(), args)
 				if err != nil {
-					log.Printf("Internal RAG search failed: %v", err)
-					iw.sendMCPError(req.ID, -32603, fmt.Sprintf("Search execution error: %v", err))
+					if isSearchValidationError(err) {
+						iw.sendMCPError(req.ID, -32602, err.Error())
+						return
+					}
+					log.Printf("Hive search failed: %v", err)
+					iw.sendMCPError(req.ID, -32603, "Search execution failed")
 					return
 				}
-
-				// Respond directly to the active IDE context stream window
+				summary, _ := json.Marshal(map[string]interface{}{"results_count": len(searchResponse.Results), "truncated": searchResponse.Truncated})
 				response := map[string]interface{}{
 					"jsonrpc": "2.0",
 					"id":      req.ID,
 					"result": map[string]interface{}{
+						"structuredContent": searchResponse,
 						"content": []map[string]interface{}{
 							{
 								"type": "text",
-								"text": resultsText,
+								"text": string(summary),
 							},
 						},
 					},
@@ -216,26 +217,58 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
 		{
-			"name":        "qdrant_search",
-			"description": "Search the configured Hive collection using semantic vector retrieval.",
+			"name":        "hive_search",
+			"description": "Search untrusted recon documents within one program and the configured Hive security boundary.",
 			"inputSchema": map[string]interface{}{
-				"type": "object",
+				"type":                 "object",
+				"additionalProperties": false,
 				"properties": map[string]interface{}{
 					"query": map[string]interface{}{
 						"type":        "string",
 						"description": "The semantic search query.",
+						"minLength":   1,
+						"maxLength":   2000,
 					},
 					"program_id": map[string]interface{}{
 						"type":        "string",
 						"description": "Program identifier used as a mandatory isolation boundary.",
+						"pattern":     "^[a-z0-9][a-z0-9_-]{0,63}$",
 					},
-					"file_extensions": map[string]interface{}{
-						"type":  "array",
-						"items": map[string]interface{}{"type": "string"},
+					"document_types": map[string]interface{}{
+						"type": "array", "maxItems": 7, "uniqueItems": true,
+						"items": map[string]interface{}{"type": "string", "enum": []string{"scope", "rules", "asset", "endpoint", "note", "evidence", "unknown"}},
 					},
-					"path_prefix": map[string]interface{}{"type": "string"},
+					"tags": map[string]interface{}{
+						"type": "array", "maxItems": 64, "uniqueItems": true,
+						"items": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 100},
+					},
+					"classification":         map[string]interface{}{"type": "string", "enum": []string{"internal", "restricted", "unknown"}},
+					"effective_scope_status": map[string]interface{}{"type": "string", "enum": []string{"authorized", "out_of_scope", "unknown"}},
+					"limit":                  map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
 				},
 				"required": []string{"program_id", "query"},
+			},
+			"outputSchema": map[string]interface{}{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]interface{}{
+					"results": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object", "additionalProperties": false,
+							"properties": map[string]interface{}{
+								"text": map[string]interface{}{"type": "string"}, "score": map[string]interface{}{"type": "number"},
+								"path": map[string]interface{}{"type": "string"}, "source": map[string]interface{}{"type": []string{"string", "null"}},
+								"collected_at": map[string]interface{}{"type": []string{"string", "null"}}, "document_type": map[string]interface{}{"type": "string"},
+								"effective_scope_status": map[string]interface{}{"type": "string"}, "classification": map[string]interface{}{"type": "string"},
+								"untrusted_content": map[string]interface{}{"type": "boolean", "const": true},
+							},
+							"required": []string{"text", "score", "path", "source", "collected_at", "document_type", "effective_scope_status", "classification", "untrusted_content"},
+						},
+					},
+					"warnings":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+					"truncated": map[string]interface{}{"type": "boolean"},
+				},
+				"required": []string{"results", "warnings", "truncated"},
 			},
 		},
 		{
@@ -252,6 +285,19 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 		})
 	}
 	return tools
+}
+
+func decodeStrictJSON(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("trailing JSON value")
+	}
+	return nil
 }
 
 // Helper tool to safely write standardized JSON-RPC protocol error contexts

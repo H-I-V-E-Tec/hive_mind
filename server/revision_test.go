@@ -24,6 +24,8 @@ type memoryQdrant struct {
 	deleteErr   error
 	countErr    error
 	indexes     map[string]map[string]qdrant.FieldType
+	queryCalls  []*qdrant.QueryPoints
+	queryResp   []*qdrant.ScoredPoint
 }
 
 func newMemoryQdrant() *memoryQdrant {
@@ -96,8 +98,11 @@ func (m *memoryQdrant) CreateFieldIndex(_ context.Context, in *qdrant.CreateFiel
 	m.indexes[in.CollectionName][in.FieldName] = in.GetFieldType()
 	return &qdrant.UpdateResult{Status: qdrant.UpdateStatus_Completed}, nil
 }
-func (m *memoryQdrant) Query(context.Context, *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
-	return nil, nil
+func (m *memoryQdrant) Query(_ context.Context, in *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.queryCalls = append(m.queryCalls, in)
+	return m.queryResp, nil
 }
 func (m *memoryQdrant) Scroll(_ context.Context, in *qdrant.ScrollPoints) ([]*qdrant.RetrievedPoint, error) {
 	m.mu.Lock()

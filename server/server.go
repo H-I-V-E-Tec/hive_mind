@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -141,11 +142,15 @@ func Start(version string) {
 
 			programID := os.Args[2]
 			query := strings.Join(os.Args[3:], " ")
-			results, err := worker.ExecuteVectorSearch(context.Background(), programID, query, nil, "")
+			results, err := worker.HiveSearch(context.Background(), HiveSearchArguments{ProgramID: programID, Query: query})
 			if err != nil {
 				log.Fatalf("Search failed: %v", err)
 			}
-			fmt.Println(results)
+			encoded, err := json.MarshalIndent(results, "", "  ")
+			if err != nil {
+				log.Fatalf("Search response encoding failed")
+			}
+			fmt.Println(string(encoded))
 			return
 		case "evaluate-search", "eval-search", "eval":
 			if !cfg.IsWriter() {

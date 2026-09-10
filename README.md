@@ -32,8 +32,8 @@ O código já oferece:
 - collections separadas de dados e controle, manifesto imutável e registro de writer único;
 - metadados de recon normalizados e escopo efetivo calculado somente de manifestos aprovados;
 - aprovação local de `scope.json`, invalidação por hash e rematerialização sem recalcular embeddings;
-- busca densa, esparsa ou híbrida isolada por Hive e programa, descartando revisões inativas;
-- ferramentas MCP `qdrant_search`, `get_sync_status` e `ingest_workspace`;
+- busca densa, esparsa ou híbrida com filtros nativos de Hive, programa, escopo, classificação, tipo e tags;
+- ferramenta MCP `hive_search` com resposta JSON estruturada, além de `get_sync_status` e `ingest_workspace`;
 - comandos `ingest [--prune]`, `remove`, `scope approve <program_id>` e `search <program_id> <query>`.
 
 A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
@@ -78,7 +78,7 @@ go build -o hive-mind .
 go test ./...
 ```
 
-As specs 00, 01, 02 e 03 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados e autorização de escopo baseada em manifesto aprovado. API final de busca, contexto, implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+As specs 00 a 04 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado e busca MCP filtrada. Contexto compacto, implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 
@@ -126,6 +126,23 @@ hive-mind scope approve acme-bugbounty
 ```
 
 O comando valida e normaliza as regras, rematerializa os chunks existentes sem recalcular embeddings e só então publica o hash exato do manifesto. Alterar ou remover `scope.json` invalida a aprovação e faz o programa falhar fechado como `unknown` até uma nova aprovação.
+
+## Busca MCP
+
+`hive_search` exige `query` e `program_id`. Também aceita `document_types`, `tags` (semântica `ALL`), `classification`, `effective_scope_status` e `limit` de 1 a 20, com padrão 8. Hive, collection, revisão e elevação de classificação são sempre definidos pelo servidor e não podem ser enviados pelo cliente.
+
+```json
+{
+  "query": "hosts autorizados com OAuth",
+  "program_id": "acme-bugbounty",
+  "document_types": ["asset", "endpoint"],
+  "tags": ["oauth"],
+  "effective_scope_status": "authorized",
+  "limit": 8
+}
+```
+
+A resposta estruturada contém `results`, `warnings` e `truncated`. Cada resultado inclui texto, score, path relativo, proveniência, tipo, classificação, escopo efetivo e `untrusted_content: true`. O servidor filtra a revisão de escopo no Qdrant e confirma novamente isolamento, classificação e revisão ativa antes de retornar qualquer trecho.
 
 ## Segurança e uso autorizado
 
