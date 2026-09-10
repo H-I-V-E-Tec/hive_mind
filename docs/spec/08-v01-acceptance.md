@@ -20,4 +20,5 @@ Preparar duas máquinas com mesma versão/modelo de embeddings, um Qdrant exclus
 - A busca apresenta trecho curto, caminho e fonte corretos.
 - Nenhuma consulta cruza `hive_id` ou programa.
 - Não há MCP público, Qdrant público, chave versionada ou tráfego remoto inseguro.
+- Todos os gates da [validação de segurança](security/10-security-verification.md) estão aprovados.
 - Todos os testes automatizados passam e um registro sanitizado da execução é armazenado em `docs/`.

@@ -115,7 +115,7 @@ Use Hive Mind somente para ativos e programas explicitamente autorizados. Não e
 
 ## Planejamento
 
-As especificações em [docs/spec/](docs/spec/README.md) dividem a implementação em etapas verificáveis. As [decisões de projeto](docs/decisions/README.md) registram as regras que orientam todas as etapas. Ambas devem ser atualizadas na mesma alteração que modificar o comportamento do produto.
+As especificações em [docs/spec/](docs/spec/README.md) dividem a implementação em etapas verificáveis, incluindo um conjunto próprio de [specs de segurança](docs/spec/security/README.md). As [decisões de projeto](docs/decisions/README.md) registram as regras que orientam todas as etapas. Esses documentos devem ser atualizados na mesma alteração que modificar o comportamento do produto.
 
 ## Desenvolvimento
 

@@ -13,4 +13,8 @@ Estas specs definem um novo produto Hive Mind. Nada nelas exige compatibilidade 
 | [07](07-operational-cli.md) | Operação, validação e diagnóstico seguros. |
 | [08](08-v01-acceptance.md) | Aceitação ponta a ponta em duas máquinas. |
 
+## Segurança transversal
+
+As [specs de segurança](security/README.md) detalham os controles obrigatórios para todas as etapas. Uma funcionalidade que manipule dados, rede, credenciais ou respostas MCP só pode ser concluída quando também cumprir a spec de segurança correspondente.
+
 Cada implementação deve seguir as decisões [001](../decisions/001-tests-are-required.md) e [002](../decisions/002-security-is-primary.md), atualizar o README quando mudar o produto e manter `go test ./...` verde.
