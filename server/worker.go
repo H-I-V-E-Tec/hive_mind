@@ -35,6 +35,7 @@ type QdrantClient interface {
 	Delete(ctx context.Context, in *qdrant.DeletePoints) (*qdrant.UpdateResult, error)
 	CollectionExists(ctx context.Context, collectionName string) (bool, error)
 	CreateCollection(ctx context.Context, in *qdrant.CreateCollection) error
+	CreateFieldIndex(ctx context.Context, in *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error)
 	Query(ctx context.Context, in *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
 	Scroll(ctx context.Context, in *qdrant.ScrollPoints) ([]*qdrant.RetrievedPoint, error)
 	Count(ctx context.Context, in *qdrant.CountPoints) (uint64, error)

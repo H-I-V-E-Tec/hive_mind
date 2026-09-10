@@ -23,10 +23,11 @@ type memoryQdrant struct {
 	upsertErr   error
 	deleteErr   error
 	countErr    error
+	indexes     map[string]map[string]qdrant.FieldType
 }
 
 func newMemoryQdrant() *memoryQdrant {
-	return &memoryQdrant{collections: map[string]bool{}, points: map[string]map[string]*qdrant.PointStruct{}}
+	return &memoryQdrant{collections: map[string]bool{}, points: map[string]map[string]*qdrant.PointStruct{}, indexes: map[string]map[string]qdrant.FieldType{}}
 }
 
 func (m *memoryQdrant) Upsert(_ context.Context, in *qdrant.UpsertPoints) (*qdrant.UpdateResult, error) {
@@ -83,6 +84,18 @@ func (m *memoryQdrant) CreateCollection(_ context.Context, in *qdrant.CreateColl
 	m.events = append(m.events, "create:"+in.CollectionName)
 	return nil
 }
+func (m *memoryQdrant) CreateFieldIndex(_ context.Context, in *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !in.GetWait() {
+		return nil, errors.New("index creation did not request wait=true")
+	}
+	if m.indexes[in.CollectionName] == nil {
+		m.indexes[in.CollectionName] = map[string]qdrant.FieldType{}
+	}
+	m.indexes[in.CollectionName][in.FieldName] = in.GetFieldType()
+	return &qdrant.UpdateResult{Status: qdrant.UpdateStatus_Completed}, nil
+}
 func (m *memoryQdrant) Query(context.Context, *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
 	return nil, nil
 }
@@ -92,10 +105,38 @@ func (m *memoryQdrant) Scroll(_ context.Context, in *qdrant.ScrollPoints) ([]*qd
 	var out []*qdrant.RetrievedPoint
 	for _, point := range m.points[in.CollectionName] {
 		if matchesFilter(point.Payload, in.Filter) {
-			out = append(out, &qdrant.RetrievedPoint{Id: point.Id, Payload: point.Payload})
+			retrieved := &qdrant.RetrievedPoint{Id: point.Id, Payload: point.Payload}
+			if in.GetWithVectors().GetEnable() {
+				retrieved.Vectors = testVectorsOutput(point.Vectors)
+			}
+			out = append(out, retrieved)
 		}
 	}
 	return out, nil
+}
+
+func testVectorsOutput(input *qdrant.Vectors) *qdrant.VectorsOutput {
+	if input == nil {
+		return nil
+	}
+	if vector := input.GetVector(); vector != nil {
+		return &qdrant.VectorsOutput{VectorsOptions: &qdrant.VectorsOutput_Vector{Vector: testVectorOutput(vector)}}
+	}
+	named := map[string]*qdrant.VectorOutput{}
+	for name, vector := range input.GetVectors().GetVectors() {
+		named[name] = testVectorOutput(vector)
+	}
+	return &qdrant.VectorsOutput{VectorsOptions: &qdrant.VectorsOutput_Vectors{Vectors: &qdrant.NamedVectorsOutput{Vectors: named}}}
+}
+
+func testVectorOutput(input *qdrant.Vector) *qdrant.VectorOutput {
+	if dense := input.GetDense(); dense != nil {
+		return &qdrant.VectorOutput{Vector: &qdrant.VectorOutput_Dense{Dense: dense}}
+	}
+	if sparse := input.GetSparse(); sparse != nil {
+		return &qdrant.VectorOutput{Vector: &qdrant.VectorOutput_Sparse{Sparse: sparse}}
+	}
+	return &qdrant.VectorOutput{}
 }
 func (m *memoryQdrant) Count(_ context.Context, in *qdrant.CountPoints) (uint64, error) {
 	m.mu.Lock()

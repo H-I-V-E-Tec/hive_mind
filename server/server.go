@@ -112,6 +112,23 @@ func Start(version string) {
 			}
 			fmt.Println("Document tombstoned and removed.")
 			return
+		case "scope":
+			if !cfg.IsWriter() {
+				fmt.Fprintln(os.Stderr, "authorization error: scope operations require HIVE_ROLE=writer")
+				os.Exit(12)
+			}
+			if len(os.Args) != 4 || strings.ToLower(os.Args[2]) != "approve" {
+				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server scope approve <program_id>")
+				os.Exit(1)
+			}
+			client, worker := mustCreateWorker(cfg)
+			defer client.Close()
+			defer worker.Close()
+			if err := worker.ApproveScope(context.Background(), os.Args[3]); err != nil {
+				log.Fatalf("Scope approval failed: %v", err)
+			}
+			fmt.Printf("Scope manifest approved for program %q.\n", os.Args[3])
+			return
 		case "search", "-search", "--search":
 			if len(os.Args) < 4 {
 				fmt.Fprintln(os.Stderr, "Error: missing program_id or query.")
@@ -283,6 +300,7 @@ func printCLIHelp() {
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
 	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; optionally prune expired pending deletes.")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
+	fmt.Println("  scope approve <program_id>     Validate and approve the canonical scope manifest.")
 	fmt.Println("  search <program_id> <query>    Execute an isolated semantic search from the CLI.")
 	fmt.Println("  evaluate-search                Ingest the workspace and run canned search quality checks.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")

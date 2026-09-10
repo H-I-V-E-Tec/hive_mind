@@ -54,6 +54,10 @@ func (m *MockQdrantClient) CreateCollection(ctx context.Context, in *qdrant.Crea
 	return nil
 }
 
+func (m *MockQdrantClient) CreateFieldIndex(context.Context, *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error) {
+	return &qdrant.UpdateResult{}, nil
+}
+
 func (m *MockQdrantClient) Query(ctx context.Context, in *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

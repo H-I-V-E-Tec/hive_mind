@@ -30,9 +30,11 @@ O código já oferece:
 - ingestão restrita a Markdown, texto e JSON, com chunking limitado, hashes e respeito a `.gitignore`;
 - publicação revisionada: staging confirmado, verificação, `document_head` e limpeza posterior;
 - collections separadas de dados e controle, manifesto imutável e registro de writer único;
+- metadados de recon normalizados e escopo efetivo calculado somente de manifestos aprovados;
+- aprovação local de `scope.json`, invalidação por hash e rematerialização sem recalcular embeddings;
 - busca densa, esparsa ou híbrida isolada por Hive e programa, descartando revisões inativas;
 - ferramentas MCP `qdrant_search`, `get_sync_status` e `ingest_workspace`;
-- comandos `ingest [--prune]`, `remove` e `search <program_id> <query>`.
+- comandos `ingest [--prune]`, `remove`, `scope approve <program_id>` e `search <program_id> <query>`.
 
 A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
 
@@ -76,7 +78,7 @@ go build -o hive-mind .
 go test ./...
 ```
 
-As specs 00, 01 e 02 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura e ingestão revisionada. Metadados completos, aprovação de escopo, API final de busca, operação segura e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+As specs 00, 01, 02 e 03 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados e autorização de escopo baseada em manifesto aprovado. API final de busca, contexto, implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 
@@ -97,23 +99,33 @@ hive-data/
         endpoint-api-example-com.md
 ```
 
-Exemplo de nota não autoritativa:
+Exemplo de nota não autoritativa (o front matter é extraído para cada chunk):
 
 ```markdown
+---
+program_id: acme-bugbounty
+document_type: note
+claimed_scope_status: authorized
+classification: internal
+source: httpx
+collected_at: 2026-09-09T12:00:00Z
+tags: [recon, http, oauth]
+asset_refs: [api.example.com]
+---
 # API: api.example.com
-
-- Programa: acme-bugbounty
-- Escopo declarado: autorizado
-- Classificação: interno
-- Fonte: httpx em 2026-09-09
-- Tags: recon, http, oauth
 
 ## Observações
 
 O host expõe autenticação OAuth e endpoint de upload em `/v1/files`.
 ```
 
-Na versão atual, essas informações são pesquisáveis por estarem no texto, mas a declaração da nota permanece `unknown` e nunca concede autorização. A extração completa dos metadados e o fluxo de aprovação de `scope.json` pertencem às specs 03 e 07.
+`claimed_scope_status` nunca concede autorização. Para ativar um manifesto válido em `programs/<program_id>/scope.json`, execute no writer:
+
+```bash
+hive-mind scope approve acme-bugbounty
+```
+
+O comando valida e normaliza as regras, rematerializa os chunks existentes sem recalcular embeddings e só então publica o hash exato do manifesto. Alterar ou remover `scope.json` invalida a aprovação e faz o programa falhar fechado como `unknown` até uma nova aprovação.
 
 ## Segurança e uso autorizado
 

@@ -103,6 +103,9 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 	} else if err := iw.validateExistingCollection(ctx, iw.Cfg.ControlCollection, 0, true); err != nil {
 		return err
 	}
+	if err := iw.ensurePayloadIndexes(ctx); err != nil {
+		return err
+	}
 
 	manifest := iw.expectedManifest(len(dimensionVector), digest)
 	if err := iw.ensureImmutableControl(ctx, "collection_manifest", iw.Cfg.HiveID, manifest); err != nil {
@@ -116,6 +119,38 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 		return fmt.Errorf("writer registration: %w", err)
 	}
 	iw.infrastructureReady = true
+	return nil
+}
+
+func (iw *IngestionWorker) ensurePayloadIndexes(ctx context.Context) error {
+	dataIndexes := map[string]qdrant.FieldType{
+		"hive_id": qdrant.FieldType_FieldTypeKeyword, "program_id": qdrant.FieldType_FieldTypeKeyword,
+		"record_type": qdrant.FieldType_FieldTypeKeyword, "document_type": qdrant.FieldType_FieldTypeKeyword,
+		"claimed_scope_status": qdrant.FieldType_FieldTypeKeyword, "effective_scope_status": qdrant.FieldType_FieldTypeKeyword,
+		"classification": qdrant.FieldType_FieldTypeKeyword, "source": qdrant.FieldType_FieldTypeKeyword,
+		"collected_at": qdrant.FieldType_FieldTypeDatetime, "tags": qdrant.FieldType_FieldTypeKeyword,
+		"asset_refs": qdrant.FieldType_FieldTypeKeyword, "path": qdrant.FieldType_FieldTypeKeyword,
+		"document_id": qdrant.FieldType_FieldTypeKeyword, "document_revision": qdrant.FieldType_FieldTypeKeyword,
+		"scope_revision": qdrant.FieldType_FieldTypeKeyword, "chunk_ordinal": qdrant.FieldType_FieldTypeInteger,
+	}
+	controlIndexes := map[string]qdrant.FieldType{
+		"hive_id": qdrant.FieldType_FieldTypeKeyword, "record_type": qdrant.FieldType_FieldTypeKeyword,
+		"logical_key": qdrant.FieldType_FieldTypeKeyword, "program_id": qdrant.FieldType_FieldTypeKeyword,
+		"state": qdrant.FieldType_FieldTypeKeyword, "status": qdrant.FieldType_FieldTypeKeyword,
+	}
+	for collection, indexes := range map[string]map[string]qdrant.FieldType{iw.Cfg.CollectionName: dataIndexes, iw.Cfg.ControlCollection: controlIndexes} {
+		fields := make([]string, 0, len(indexes))
+		for field := range indexes {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			fieldType := indexes[field]
+			if _, err := iw.QdrantClient.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{CollectionName: collection, Wait: qdrant.PtrOf(true), FieldName: field, FieldType: &fieldType}); err != nil {
+				return fmt.Errorf("create payload index %s.%s: %w", collection, field, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -383,6 +418,14 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	if err != nil {
 		return err
 	}
+	scopeRevision, scopeManifest, err := iw.resolveActiveScope(ctx, programID)
+	if err != nil {
+		return err
+	}
+	metadata, err := extractReconMetadata(relPath, programID, content)
+	if err != nil {
+		return fmt.Errorf("extract recon metadata: %w", err)
+	}
 	chunks, err := iw.parseDocument(relPath, content)
 	if err != nil {
 		return err
@@ -397,10 +440,7 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	contentHash := sha256Hex(content)
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, relPath)
 	documentRevision := sha256Hex([]byte(strings.Join([]string{contentHash, iw.parserFingerprint(), iw.chunkerFingerprint()}, "\x00")))
-	scopeRevision, err := iw.activeScopeRevision(ctx, programID)
-	if err != nil {
-		return err
-	}
+	effectiveScope := effectiveScopeStatus(scopeManifest, metadata.AssetRefs)
 	head, err := iw.readDocumentHead(ctx, documentID)
 	if err != nil {
 		return err
@@ -440,10 +480,10 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 		pointID := deterministicUUID("chunk", documentID, documentRevision, scopeRevision, fmt.Sprint(ordinal))
 		payload := map[string]any{
 			"record_type": "chunk", "hive_id": iw.Cfg.HiveID, "program_id": programID,
-			"document_type":        strings.TrimPrefix(strings.ToLower(filepath.Ext(relPath)), "."),
-			"claimed_scope_status": "unknown", "effective_scope_status": scopeStatus(scopeRevision),
-			"classification": "internal", "source": nil, "collected_at": nil,
-			"tags": convertStringSlice(nil), "asset_refs": convertStringSlice(nil), "path": relPath,
+			"document_type":        metadata.DocumentType,
+			"claimed_scope_status": metadata.ClaimedScope, "effective_scope_status": effectiveScope,
+			"classification": metadata.Classification, "source": metadata.Source, "collected_at": metadata.CollectedAt,
+			"tags": convertStringSlice(metadata.Tags), "asset_refs": convertStringSlice(metadata.AssetRefPayload), "path": relPath,
 			"file_path": relPath, "relative_path": relPath, "content": chunk,
 			"document_id": documentID, "document_revision": documentRevision,
 			"scope_revision": scopeRevision, "chunk_ordinal": int64(ordinal),
@@ -487,43 +527,11 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	return nil
 }
 
-func scopeStatus(revision string) string {
-	if revision == "unapproved" {
-		return "unknown"
-	}
-	return "authorized"
-}
-
 func revisionFilter(documentID, documentRevision, scopeRevision string) *qdrant.Filter {
 	return &qdrant.Filter{Must: []*qdrant.Condition{
 		qdrant.NewMatchKeyword("record_type", "chunk"), qdrant.NewMatchKeyword("document_id", documentID),
 		qdrant.NewMatchKeyword("document_revision", documentRevision), qdrant.NewMatchKeyword("scope_revision", scopeRevision),
 	}}
-}
-
-func (iw *IngestionWorker) activeScopeRevision(ctx context.Context, programID string) (string, error) {
-	rows, err := iw.controlRows(ctx, "scope_approval", programID)
-	if err != nil {
-		return "", err
-	}
-	if len(rows) == 0 {
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		if err := iw.upsertControl(ctx, "scope_approval", programID, map[string]any{
-			"program_id": programID, "status": "unapproved", "scope_revision": "unapproved",
-			"schema_version": int64(1), "updated_at": now,
-		}); err != nil {
-			return "", fmt.Errorf("initialize scope approval: %w", err)
-		}
-		return "unapproved", nil
-	}
-	if len(rows) != 1 || payloadString(rows[0].Payload, "status", "") != "approved" {
-		return "unapproved", nil
-	}
-	revision := payloadString(rows[0].Payload, "scope_revision", "")
-	if len(revision) != 64 {
-		return "", errors.New("invalid approved scope revision")
-	}
-	return revision, nil
 }
 
 func (iw *IngestionWorker) readDocumentHead(ctx context.Context, documentID string) (*documentHead, error) {
@@ -559,6 +567,7 @@ func (iw *IngestionWorker) isTombstoned(ctx context.Context, documentID string) 
 func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []*qdrant.ScoredPoint) ([]*qdrant.ScoredPoint, error) {
 	cache := make(map[string]*documentHead)
 	tombstoneCache := make(map[string]bool)
+	scopeCache := make(map[string]string)
 	filtered := make([]*qdrant.ScoredPoint, 0, len(points))
 	for _, point := range points {
 		payload := point.Payload
@@ -587,8 +596,18 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 			}
 			cache[documentID] = head
 		}
-		if head == nil || head.State == "deleted" || head.ProgramID != payloadString(payload, "program_id", "") ||
-			head.DocumentRevision != payloadString(payload, "document_revision", "") || head.ScopeRevision != payloadString(payload, "scope_revision", "") {
+		programID := payloadString(payload, "program_id", "")
+		expectedScope, checked := scopeCache[programID]
+		if !checked {
+			var err error
+			expectedScope, err = iw.controlScopeRevision(ctx, programID)
+			if err != nil {
+				return nil, err
+			}
+			scopeCache[programID] = expectedScope
+		}
+		if head == nil || head.State == "deleted" || head.ProgramID != programID ||
+			head.DocumentRevision != payloadString(payload, "document_revision", "") || expectedScope != payloadString(payload, "scope_revision", "") {
 			continue
 		}
 		filtered = append(filtered, point)
@@ -826,6 +845,11 @@ func (iw *IngestionWorker) MarkPendingDelete(ctx context.Context, path string) e
 	rel, programID, err := iw.logicalDocumentPath(path)
 	if err != nil {
 		return err
+	}
+	if rel == filepath.ToSlash(filepath.Join("programs", programID, "scope.json")) {
+		if _, _, err := iw.resolveActiveScope(ctx, programID); err != nil {
+			return err
+		}
 	}
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, rel)
 	head, err := iw.readDocumentHead(ctx, documentID)
