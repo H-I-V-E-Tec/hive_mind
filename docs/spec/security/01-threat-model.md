@@ -15,14 +15,18 @@ Manter um modelo de ameaças versionado que oriente arquitetura, implementação
 ## Limites de confiança
 
 ```text
-Agente ─stdio─ MCP local ─TLS/VPN─ Qdrant privado
+Agente ─stdio─ MCP reader ─TLS/VPN─ Qdrant privado
+                  │                       ▲
+             Ollama local                 │
+                                          │
+Operador ─CLI─ MCP writer ────────────────┘
                   │
              Ollama local
                   │
-             hive-data local
+        hive-data canônico/sincronizado
 ```
 
-`stdio` não torna automaticamente o cliente confiável. Arquivos sincronizados e conteúdo indexado são entradas não confiáveis. Rede privada reduz exposição, mas não substitui autenticação nem criptografia.
+`stdio` não torna automaticamente o cliente confiável. Arquivos sincronizados e conteúdo indexado são entradas não confiáveis. Somente um manifesto de escopo validado e com hash aprovado fora do fluxo MCP pode conceder autorização. Rede privada reduz exposição, mas não substitui autenticação nem criptografia.
 
 ## Ameaças mínimas
 
@@ -33,11 +37,12 @@ Agente ─stdio─ MCP local ─TLS/VPN─ Qdrant privado
 - documento malicioso tentando instruir o agente;
 - path traversal, symlink e leitura fora de `HIVE_DATA_DIR`;
 - adulteração, replay ou resultados obsoletos;
+- disputa entre writers, atraso de sincronização ou publicação parcial;
 - dependência comprometida e binário adulterado;
 - perda de dados ou indisponibilidade do Qdrant/Ollama.
 
 ## Aceite
 
-- Cada ameaça possui ao menos um controle referenciado nas demais specs.
+- Cada ameaça possui ao menos um controle e teste referenciados em uma matriz de rastreabilidade mantida na validação de segurança.
 - Mudanças de arquitetura atualizam este documento antes da implementação.
 - A revisão de release registra ameaças novas, mitigadas e aceitas.

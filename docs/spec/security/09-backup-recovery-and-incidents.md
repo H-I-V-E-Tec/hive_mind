@@ -6,9 +6,9 @@ Recuperar dados íntegros e responder rapidamente a perda, vazamento ou acesso i
 
 ## Backup e restauração
 
-- Definir RPO e RTO antes do uso real.
+- Definir RPO, RTO e retenções como valores numéricos no [perfil operacional](../../operations/deployment-profile.md) antes do uso real; valor ausente reprova o gate de release.
 - Backups são criptografados, autenticados, versionados, retidos pelo prazo definido e acessíveis somente aos operadores autorizados.
-- Procedimento de restauração verifica integridade, collection, `hive_id`, metadados e compatibilidade de embedding.
+- Procedimento de restauração verifica integridade, collections de dados e controle, `hive_id`, revisões/tombstones, aprovações, metadados e fingerprint de embedding/schema.
 - Teste periódico prova que o backup pode ser restaurado; existência do arquivo não é evidência suficiente.
 
 ## Incidentes
@@ -19,4 +19,4 @@ O runbook cobre perda de dispositivo, chave exposta, certificado comprometido, Q
 
 - Rotação e restauração são ensaiadas antes da v0.1.
 - Responsáveis e canais de acionamento estão definidos fora de dados sensíveis.
-- O teste registra data, resultado, RPO/RTO observado e correções necessárias.
+- O teste registra data, resultado, RPO/RTO alvo e observado, retenção aplicada e correções necessárias.

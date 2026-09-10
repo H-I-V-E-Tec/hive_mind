@@ -1,5 +1,7 @@
 # Hive Mind v0.1 — MCP de Recon Compartilhado
 
+> Documento histórico de concepção. Os contratos normativos e atuais estão em [`docs/spec/`](docs/spec/README.md), especialmente nas [invariantes do sistema](docs/spec/00-system-invariants.md). Em caso de divergência — incluindo writers, configuração, revisões ou autorização de escopo — prevalecem as specs.
+
 ## Objetivo da primeira versão
 
 Disponibilizar uma memória coletiva simples para **dois computadores autorizados**, usando este projeto como base. O resultado deve ser um servidor MCP capaz de indexar e pesquisar notas e dados de recon com busca semântica, retornando contexto curto e relevante para reduzir o consumo de tokens de agentes como Claude e Codex.

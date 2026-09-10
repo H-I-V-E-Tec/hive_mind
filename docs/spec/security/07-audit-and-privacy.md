@@ -6,9 +6,9 @@ Registrar ações suficientes para investigar acesso e alterações sem criar um
 
 ## Eventos mínimos
 
-- início/fim, versão e identificador do dispositivo/processo;
+- início/fim, versão, `HIVE_DEVICE_ID`, papel e identificador do processo;
 - validação de configuração, autenticação e TLS, sem valores secretos;
-- ingestão, atualização e remoção por `hive_id`, `program_id`, hash e path relativo;
+- ingestão, commit de revisão, atualização, tombstone, remoção e aprovação/invalidação de escopo por `hive_id`, `program_id`, hash e path relativo;
 - consulta por ferramenta, filtros, quantidade e duração, sem pergunta ou trechos por padrão;
 - falhas de autorização, integridade e configuração;
 - rotação/revogação de credencial e restauração de backup.
@@ -21,4 +21,4 @@ Logs são locais, estruturados, protegidos por permissão e rotação. Timestamp
 
 - Testes com dados sentinela confirmam que conteúdo e segredos não aparecem.
 - Eventos possuem correlação suficiente para reconstruir operação e origem da mudança.
-- Falha ao escrever auditoria essencial deve ser visível; ações sensíveis definidas pelo modelo de ameaças falham fechado.
+- Falha ao auditar aprovação de escopo, commit/tombstone, mudança de papel/credencial ou restauração falha fechado. Falha em evento apenas diagnóstico fica visível no `status` e não é ocultada.

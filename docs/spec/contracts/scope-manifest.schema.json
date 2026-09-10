@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive-mind.local/schemas/scope-manifest-v1.json",
+  "title": "Hive Mind scope manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "program_id", "source", "collected_at", "rules"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "program_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "collected_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "asset_type", "value"],
+      "properties": {
+        "action": {
+          "enum": ["include", "exclude"]
+        },
+        "asset_type": {
+          "enum": ["host", "wildcard_domain", "ip", "cidr", "url_prefix"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

@@ -9,17 +9,17 @@ O primeiro objetivo é simples: uma nota ou evidência de recon registrada em um
 ## Como funciona
 
 ```text
-Computador A                                  Computador B
-────────────                                  ────────────
-hive-data/ ── MCP local ── Ollama local       hive-data/ ── MCP local ── Ollama local
-                  │                                      │
-                  └──────── rede privada/VPN ────────────┘
-                                      │
-                         Qdrant privado compartilhado
-                         collection: hive_mind_v01
+Computador A (writer)                         Computador B (reader)
+─────────────────────                         ─────────────────────
+hive-data canônico ─ MCP local                MCP local ─ Ollama local
+       │                │                         │
+  Ollama local          └────── TLS/VPN ─────────┤
+                                                 │
+                                    Qdrant privado compartilhado
+                                    dados + controle de revisões
 ```
 
-Os arquivos de `hive-data/` são sincronizados por um meio privado escolhido pela equipe, como Git privado ou Syncthing. Em cada máquina, o processo local observa e indexa os arquivos. Os dois processos usam a mesma collection e o mesmo modelo de embeddings. O agente conecta-se somente ao MCP local via `stdio`; o componente compartilhado é o Qdrant, protegido por LAN confiável ou VPN.
+Os arquivos de `hive-data/` podem ser sincronizados por um meio privado, como Git privado ou Syncthing, mas somente o writer observa a cópia canônica e altera o Qdrant. O reader apenas pesquisa. Ambos usam o mesmo fingerprint de embeddings. O agente conecta-se somente ao MCP local via `stdio`; o componente compartilhado é o Qdrant, protegido por TLS sobre LAN/VPN e por credenciais distintas de menor privilégio.
 
 ## Estado atual
 
@@ -43,34 +43,37 @@ A implementação será substituída gradualmente pelos componentes descritos na
 
 Todos os computadores devem usar o mesmo `EMBEDDING_MODEL`. Vetores gerados por modelos ou dimensões diferentes são incompatíveis com a mesma collection.
 
-## Configuração inicial
+## Contrato alvo da v0.1
 
-Use variáveis de ambiente ou a configuração MCP do seu cliente. Esta é uma configuração de referência para o alvo v0.1:
+> A configuração abaixo ainda não é aceita pela implementação atual. Ela documenta o alvo definido nas specs; a migração do código legado ainda está pendente.
+
+Exemplo do writer:
 
 ```bash
-QDRANT_HOST=10.0.0.10
-QDRANT_PORT=6334
+QDRANT_URL=https://qdrant.hive.internal:6334
+QDRANT_API_KEY=<injetada-por-secret-manager>
+QDRANT_TLS_CA_FILE=/caminho/para/hive-ca.pem
 HIVE_ID=research-team
+HIVE_DEVICE_ID=workstation-a
+HIVE_ROLE=writer
 HIVE_COLLECTION=hive_mind_v01
 HIVE_DATA_DIR=/caminho/para/hive-data
-OLLAMA_HOST=http://127.0.0.1:11434
+OLLAMA_URL=http://127.0.0.1:11434
 EMBEDDING_MODEL=nomic-embed-text
-PARSER_MODE=doc
-SEARCH_MODE=dense
-EXCLUDE_DIRS=.git,node_modules
 ```
 
-`HIVE_ID`, `HIVE_COLLECTION`, `HIVE_DATA_DIR`, `OLLAMA_HOST` e `EMBEDDING_MODEL` serão obrigatórias no produto Hive Mind. O contrato completo está na [spec de configuração](docs/spec/01-hive-configuration.md).
+O reader usa `HIVE_ROLE=reader`, outro `HIVE_DEVICE_ID`, credencial read-only própria e não precisa de `HIVE_DATA_DIR`. O contrato completo está na [spec de configuração](docs/spec/01-hive-configuration.md) e as invariantes estão na [spec 00](docs/spec/00-system-invariants.md).
 
-Compile e faça a primeira ingestão:
+## Executando a base legada
+
+O código atual ainda usa `QDRANT_COLLECTION`, `WATCH_DIRECTORY` e `OLLAMA_HOST`. Ele pode ser compilado e seus testes podem ser executados para desenvolvimento da migração:
 
 ```bash
 go build -o hive-mind .
-./hive-mind ingest
-./hive-mind search "hosts autorizados com OAuth e upload"
+go test ./...
 ```
 
-Sem argumentos, o binário inicia o servidor MCP e a observação do diretório. O MCP também permite iniciar uma ingestão por `ingest_workspace` e consultar o andamento por `get_sync_status`.
+Não trate a base legada como implementação segura das specs Hive. Em particular, ela ainda não implementa os papéis writer/reader, revisões recuperáveis, manifesto de escopo aprovado ou credenciais distintas.
 
 ## Formato inicial dos documentos
 
@@ -80,7 +83,7 @@ Prefira documentos pequenos, específicos e legíveis. A estrutura de referênci
 hive-data/
   programs/
     acme-bugbounty/
-      scope.md
+      scope.json
       rules.md
       recon/
         assets.md
@@ -91,13 +94,13 @@ hive-data/
         endpoint-api-example-com.md
 ```
 
-Exemplo de nota:
+Exemplo de nota não autoritativa:
 
 ```markdown
 # API: api.example.com
 
 - Programa: acme-bugbounty
-- Escopo: autorizado
+- Escopo declarado: autorizado
 - Classificação: interno
 - Fonte: httpx em 2026-09-09
 - Tags: recon, http, oauth
@@ -107,7 +110,7 @@ Exemplo de nota:
 O host expõe autenticação OAuth e endpoint de upload em `/v1/files`.
 ```
 
-Na versão atual, essas informações são pesquisáveis por estarem no texto. As próximas etapas vão extraí-las para metadados filtráveis.
+Na versão atual, essas informações são pesquisáveis por estarem no texto. No produto alvo, a declaração da nota vira `claimed_scope_status` e nunca concede autorização. Somente o hash aprovado de `scope.json` produz `effective_scope_status=authorized`.
 
 ## Segurança e uso autorizado
 
