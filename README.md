@@ -23,6 +23,8 @@ Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda 
 
 ## Passo a passo para usar
 
+Para um roteiro completo e copiável de laboratório, incluindo tokens writer/reader e integração com Codex, consulte [Configurar Qdrant e Codex](CONFIGURAR_QDRANT_E_CODEX.md).
+
 ### 1. Preparar requisitos e compilar
 
 É necessário Go 1.25 ou superior, compilador C/C++ (CGO/tree-sitter), Git, Ollama local e Qdrant privado. Para containers, use Docker com Compose. Backup requer Python 3.10+ e restic instalado separadamente.
