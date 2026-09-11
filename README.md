@@ -34,7 +34,7 @@ O código já oferece:
 - aprovação local de `scope.json`, invalidação por hash e rematerialização sem recalcular embeddings;
 - busca densa, esparsa ou híbrida com filtros nativos de Hive, programa, escopo, classificação, tipo e tags;
 - ferramentas MCP estruturadas `hive_search` e `hive_get_context`, além de `get_sync_status` e `ingest_workspace`;
-- comandos `ingest [--prune]`, `remove`, `scope approve <program_id>` e `search <program_id> <query>`.
+- comandos `ingest [--prune]`, `remove`, `scope approve <program_id> [--yes]`, `search`, `status` e `validate`.
 
 A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
 
@@ -79,7 +79,7 @@ go build -o hive-mind .
 go test ./...
 ```
 
-As specs 00 a 05 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado, busca MCP filtrada e contexto compacto por ativo. Implantação privada, operação completa e aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+As specs 00 a 06 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado, busca MCP filtrada, contexto compacto por ativo e acesso privado/autenticado ao Qdrant. A operação completa e o aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
 
 ## Formato inicial dos documentos
 
@@ -120,10 +120,16 @@ asset_refs: [api.example.com]
 O host expõe autenticação OAuth e endpoint de upload em `/v1/files`.
 ```
 
-`claimed_scope_status` nunca concede autorização. Para ativar um manifesto válido em `programs/<program_id>/scope.json`, execute no writer:
+`claimed_scope_status` nunca concede autorização. Para revisar o resumo e o hash de um manifesto válido em `programs/<program_id>/scope.json`, execute no writer:
 
 ```bash
 hive-mind scope approve acme-bugbounty
+```
+
+Depois de conferir o hash, confirme explicitamente sem expor o conteúdo do manifesto:
+
+```bash
+hive-mind scope approve acme-bugbounty --yes
 ```
 
 O comando valida e normaliza as regras, rematerializa os chunks existentes sem recalcular embeddings e só então publica o hash exato do manifesto. Alterar ou remover `scope.json` invalida a aprovação e faz o programa falhar fechado como `unknown` até uma nova aprovação.
@@ -157,6 +163,18 @@ A resposta estruturada contém `results`, `warnings` e `truncated`. Cada resulta
 ```
 
 O pacote resultante apresenta primeiro a decisão do manifesto aprovado e as regras aplicáveis; documentos de regras e evidências não confiáveis vêm depois. Em estado `out_of_scope`, notas e endpoints acionáveis não são incluídos. `HIVE_CONTEXT_MAX_CHARS`, com padrão 12.000 e faixa 1.000–50.000 caracteres Unicode, limita toda a resposta serializada removendo itens inteiros menos relevantes.
+
+## Operação pelo CLI
+
+`hive-mind status` imprime JSON sanitizado com papel, collections, modelo/dimensão, política de classificação, última sincronização e documentos pendentes. `hive-mind validate` verifica configuração, diretório do writer, conectividade/TLS, fingerprint completo e se a credencial possui exatamente as capacidades esperadas para o papel.
+
+O comando `search` aceita filtros repetíveis sem permitir que o cliente substitua Hive ou collection:
+
+```bash
+hive-mind search acme-bugbounty "hosts oauth" --document-type=asset --tag=oauth --classification=internal --scope-status=authorized --limit=8
+```
+
+Os códigos de saída operacionais são `0` (sucesso), `2` (uso/entrada), `10` (configuração), `11` (conectividade), `12` (autenticação/autorização), `13` (TLS), `14` (fingerprint/schema) e `15` (falha parcial recuperável).
 
 ## Segurança e uso autorizado
 

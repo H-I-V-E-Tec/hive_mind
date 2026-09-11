@@ -51,7 +51,7 @@ This document outlines the planned improvements, architectural enhancements, and
 
 ## 🔒 Production, Security & Resiliency
 
-- [ ] **Authenticated Qdrant Cloud Integration**
+- [x] **Authenticated Qdrant Cloud Integration**
   - Support TLS/HTTPS connections.
   - Handle `QDRANT_API_KEY` configurations to connect safely to hosted Qdrant Cloud nodes.
 - [ ] **Exponential Backoff Connection Retries**

@@ -42,6 +42,38 @@ type scopeManifest struct {
 	Rules         []scopeRule `json:"rules"`
 }
 
+type ScopeApprovalSummary struct {
+	ProgramID string `json:"program_id"`
+	SHA256    string `json:"sha256"`
+	Rules     int    `json:"rules"`
+	Includes  int    `json:"includes"`
+	Excludes  int    `json:"excludes"`
+}
+
+// ScopeApprovalPreview validates the canonical file without changing Qdrant
+// and returns only non-sensitive counts and the exact byte hash to approve.
+func (iw *IngestionWorker) ScopeApprovalPreview(programID string) (ScopeApprovalSummary, error) {
+	if !iw.Cfg.IsWriter() {
+		return ScopeApprovalSummary{}, errors.New("scope approval requires HIVE_ROLE=writer")
+	}
+	if !validIdentifier(programID, 64) {
+		return ScopeApprovalSummary{}, errors.New("invalid program_id")
+	}
+	content, manifest, err := iw.loadScopeManifest(programID)
+	if err != nil {
+		return ScopeApprovalSummary{}, err
+	}
+	summary := ScopeApprovalSummary{ProgramID: programID, SHA256: sha256Hex(content), Rules: len(manifest.Rules)}
+	for _, rule := range manifest.Rules {
+		if rule.Action == "include" {
+			summary.Includes++
+		} else {
+			summary.Excludes++
+		}
+	}
+	return summary, nil
+}
+
 func parseScopeManifest(content []byte, pathProgramID string) (*scopeManifest, error) {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()

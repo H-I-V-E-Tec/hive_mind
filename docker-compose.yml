@@ -6,8 +6,8 @@ services:
     image: qdrant/qdrant:v1.10.0
     container_name: qdrant
     ports:
-      - "${HIVE_QDRANT_BIND_IP:-127.0.0.1}:6333:6333" # Loopback by default; set only to an approved VPN interface.
-      - "${HIVE_QDRANT_BIND_IP:-127.0.0.1}:6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
@@ -91,10 +91,17 @@ services:
       - OLLAMA_URL=http://127.0.0.1:11434
       - EMBEDDING_MODEL=nomic-embed-text
     network_mode: host
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     volumes:
       # Mount the project workspace or directories you want to index.
       # By default, mounts the current folder into '/workspace' inside the container.
-      - .:/workspace
+      - .:/workspace:ro
     depends_on:
       qdrant:
         condition: service_healthy

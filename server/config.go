@@ -211,7 +211,7 @@ func parseConfigFlags(args []string) (map[string]string, string, error) {
 	configPath := ""
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-		if arg == "--prune" {
+		if arg == "--prune" || arg == "--yes" || isOperationalFlag(arg) {
 			continue
 		}
 		if arg == "--qdrant-api-key" || strings.HasPrefix(arg, "--qdrant-api-key=") {
@@ -248,6 +248,19 @@ func parseConfigFlags(args []string) (map[string]string, string, error) {
 		}
 	}
 	return values, configPath, nil
+}
+
+func isOperationalFlag(arg string) bool {
+	name, _, hasValue := strings.Cut(arg, "=")
+	if !hasValue {
+		return false
+	}
+	switch name {
+	case "--document-type", "--tag", "--classification", "--scope-status", "--limit":
+		return true
+	default:
+		return false
+	}
 }
 
 func flagValue(name, inlineValue string, hasInlineValue bool, args []string, index int) (string, bool, error) {

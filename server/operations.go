@@ -18,9 +18,9 @@ const (
 	ExitConfiguration  = 10
 	ExitConnectivity   = 11
 	ExitAuthorization  = 12
-	ExitTLS             = 13
-	ExitCompatibility   = 14
-	ExitPartialFailure  = 15
+	ExitTLS            = 13
+	ExitCompatibility  = 14
+	ExitPartialFailure = 15
 )
 
 type OperationalStatus struct {
@@ -115,6 +115,21 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 		}
 		report.Checks = append(report.Checks, check)
 	}
+	add("configuration", validateOperationalConfig(iw.Cfg))
+	if iw.Cfg.IsWriter() {
+		_, err := validateDataDirectory(iw.Cfg.DataDirectory)
+		add("writer_data_directory", err)
+	}
+
+	var qdrantErr error
+	for _, collection := range []string{iw.Cfg.CollectionName, iw.Cfg.ControlCollection} {
+		if _, err := iw.QdrantClient.CollectionExists(ctx, collection); err != nil {
+			qdrantErr = err
+			break
+		}
+	}
+	add("qdrant_connectivity_and_tls", qdrantErr)
+
 	var infrastructureErr error
 	if iw.Cfg.IsWriter() {
 		infrastructureErr = iw.EnsureInfrastructure(ctx)
@@ -122,12 +137,24 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 		infrastructureErr = iw.ValidateInfrastructure(ctx)
 	}
 	add("infrastructure_and_fingerprint", infrastructureErr)
-	if infrastructureErr == nil {
+	if infrastructureErr == nil && qdrantErr == nil {
 		add("credential_capabilities", iw.ValidateCredentialCapabilities(ctx))
 	} else {
-		add("credential_capabilities", errors.New("not checked because infrastructure validation failed"))
+		report.Checks = append(report.Checks, ValidationCheck{Name: "credential_capabilities", Status: "skipped", Detail: "prerequisite validation failed"})
 	}
 	return report
+}
+
+func validateOperationalConfig(cfg Config) error {
+	if !validIdentifier(cfg.HiveID, 64) || !validIdentifier(cfg.DeviceID, 64) ||
+		(cfg.Role != RoleWriter && cfg.Role != RoleReader) || cfg.CollectionName == "" ||
+		!cfg.QdrantAPIKey.IsSet() {
+		return errors.New("configuration is invalid")
+	}
+	if !cfg.QdrantUseTLS && !isLoopbackHost(cfg.QdrantHost) {
+		return errors.New("TLS is required for remote Qdrant")
+	}
+	return nil
 }
 
 func classifyOperationalError(err error) int {
@@ -140,6 +167,8 @@ func classifyOperationalError(err error) int {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "configuration"):
+		return ExitConfiguration
 	case strings.Contains(message, "credential"), strings.Contains(message, "permission"), strings.Contains(message, "authorization"), strings.Contains(message, "authenticated"):
 		return ExitAuthorization
 	case strings.Contains(message, "tls"), strings.Contains(message, "certificate"), strings.Contains(message, "x509"):
@@ -156,6 +185,8 @@ func classifyOperationalError(err error) int {
 func sanitizeOperationalError(err error) string {
 	code := classifyOperationalError(err)
 	switch code {
+	case ExitConfiguration:
+		return "configuration is invalid"
 	case ExitAuthorization:
 		return "Qdrant authentication or authorization failed"
 	case ExitTLS:

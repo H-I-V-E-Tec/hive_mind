@@ -27,11 +27,16 @@ FROM alpine:3.19
 # Add CA certificates for secure connections (essential for HTTPS calls to Qdrant Cloud or external APIs)
 RUN apk add --no-cache ca-certificates tzdata
 
+# The MCP process has no reason to run with administrative privileges.
+RUN addgroup -S hive && adduser -S -D -H -u 10001 -G hive hive
+
 # Set the working directory
 WORKDIR /app
 
 # Copy the pre-compiled binary from the builder stage
 COPY --from=builder /app/qdrant-mcp-server /app/qdrant-mcp-server
+
+USER hive
 
 # Define the entrypoint to run the server
 ENTRYPOINT ["/app/qdrant-mcp-server"]
