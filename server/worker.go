@@ -289,6 +289,10 @@ func (c *ConcurrencyController) decreaseLimit(reason string) {
 }
 
 type IngestionWorker struct {
+	Audit                 AuditSink
+	auditFailed           atomic.Bool
+	auditOwned            bool
+	auditClose            sync.Once
 	Cfg                   Config
 	QdrantClient          QdrantClient
 	HTTPClient            *http.Client
@@ -356,6 +360,13 @@ func NewIngestionWorker(cfg Config, qdrantClient QdrantClient, gitIgnore *GitIgn
 func (iw *IngestionWorker) Close() {
 	if iw.BatchUpserter != nil {
 		iw.BatchUpserter.Close()
+	}
+	if iw.auditOwned {
+		iw.auditClose.Do(func() {
+			if a, ok := iw.Audit.(*FileAudit); ok {
+				_ = a.Close()
+			}
+		})
 	}
 }
 

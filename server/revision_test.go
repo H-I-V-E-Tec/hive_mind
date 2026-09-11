@@ -162,6 +162,12 @@ func matchesFilter(payload map[string]*qdrant.Value, filter *qdrant.Filter) bool
 	if filter == nil {
 		return true
 	}
+	for _, condition := range filter.MustNot {
+		field := condition.GetField()
+		if field != nil && payloadString(payload, field.Key, "") == field.Match.GetKeyword() {
+			return false
+		}
+	}
 	for _, condition := range filter.Must {
 		field := condition.GetField()
 		if field == nil {
@@ -193,6 +199,14 @@ func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 		OllamaHost: "http://localhost:11434", EmbeddingModel: "embed-model", MaxEmbeddingWorkers: 1, MaxFileSize: 5 << 20, MaxChunksPerFile: 1000,
 		ChunkMaxChars: 2000, ChunkOverlapChars: 200, JSONMaxDepth: 64, JSONMaxElements: 100000, DeleteGrace: 24 * time.Hour, BatchSize: 100, BatchTimeout: time.Hour}
 	worker := NewIngestionWorker(cfg, q, nil)
+	auditCfg := cfg
+	auditCfg.AuditDirectory = filepath.Join(t.TempDir(), "audit")
+	worker.Audit, err = OpenFileAudit(auditCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileAudit:=worker.Audit.(*FileAudit)
+	t.Cleanup(func() { _ = fileAudit.Close() })
 	worker.HTTPClient.Transport = transportFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"embedding":[0.1,0.2,0.3]}`
 		if req.URL.Path == "/api/tags" {

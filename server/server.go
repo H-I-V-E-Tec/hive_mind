@@ -17,6 +17,7 @@ import (
 )
 
 var Version = "1.0.0"
+var SourceRevision = "development"
 
 func Start(version string) {
 	Version = version
@@ -139,9 +140,6 @@ func Start(version string) {
 			defer worker.Close()
 			if err := worker.RemoveDocument(context.Background(), os.Args[2], "operator_requested"); err != nil {
 				code := classifyOperationalError(err)
-				if code == ExitConnectivity {
-					code = ExitUsage
-				}
 				failCommandWithCode(client, worker, "remove", err, code)
 			}
 			fmt.Println("Document tombstoned and removed.")
@@ -169,7 +167,7 @@ func Start(version string) {
 			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
-			if err := worker.ApproveScope(context.Background(), os.Args[3]); err != nil {
+			if err := worker.ApproveScopeRevision(context.Background(), os.Args[3], summary.SHA256); err != nil {
 				failCommand(client, worker, "scope approval", err)
 			}
 			fmt.Printf("Scope manifest approved for program %q.\n", os.Args[3])
@@ -241,18 +239,12 @@ func Start(version string) {
 
 	log.Println("Starting Go Qdrant-RAG MCP Server...")
 
-	client, err := newQdrantClient(cfg)
+	client, worker, err := createWorker(cfg)
 	if err != nil {
 		log.Fatalf("Failed to establish Qdrant connection: %v", err)
 	}
 	defer client.Close()
 
-	var gitIgnore *GitIgnoreMatcher
-	if cfg.IsWriter() {
-		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
-	}
-
-	worker := NewIngestionWorker(cfg, client, gitIgnore)
 	defer worker.Close()
 	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		log.Fatalf("Hive startup validation failed: %v", err)
@@ -314,15 +306,31 @@ func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 }
 
 func createWorker(cfg Config) (*qdrant.Client, *IngestionWorker, error) {
+	if cfg.AuditDirectory == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			return nil, nil, &operationalError{ExitConfiguration, "HIVE_AUDIT_DIR is required"}
+		}
+		cfg.AuditDirectory = filepath.Join(cache, "hive-mind", "audit")
+	}
+	audit, err := OpenFileAudit(cfg)
+	if err != nil {
+		return nil, nil, &operationalError{ExitConfiguration, "audit storage configuration is invalid"}
+	}
 	client, err := newQdrantClient(cfg)
 	if err != nil {
+		_ = audit.Close()
 		return nil, nil, err
 	}
 	var gitIgnore *GitIgnoreMatcher
 	if cfg.IsWriter() {
 		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
 	}
-	return client, NewIngestionWorker(cfg, client, gitIgnore), nil
+	worker := NewIngestionWorker(cfg, client, gitIgnore)
+	worker.Audit = audit
+	worker.auditOwned = true
+	log.SetOutput(privateDiagnosticWriter{worker})
+	return client, worker, nil
 }
 
 func printJSON(value any) {
@@ -369,14 +377,7 @@ func sanitizeOperationalErrorForCode(err error, code int) string {
 }
 
 func sanitizeCLIInputError(err error) string {
-	if err == nil {
-		return "invalid input"
-	}
-	message := err.Error()
-	if len(message) > 300 || containsControl(message) {
-		return "invalid input"
-	}
-	return message
+	return "invalid input; check the command arguments and document format"
 }
 
 func validateWorkerStartup(ctx context.Context, worker *IngestionWorker) error {

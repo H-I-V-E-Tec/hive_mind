@@ -55,6 +55,7 @@ func (s Secret) Format(state fmt.State, _ rune) {
 // the bottom are temporary internal adapters for code replaced by later specs;
 // legacy environment variables and flags are never accepted.
 type Config struct {
+	AuditDirectory      string
 	HiveID              string
 	DeviceID            string
 	WriterApprovalID    string
@@ -169,7 +170,8 @@ func LoadConfigFrom(args []string, env map[string]string) (Config, error) {
 }
 
 var allowedConfigKeys = map[string]struct{}{
-	"HIVE_ID": {}, "HIVE_DEVICE_ID": {}, "HIVE_WRITER_APPROVAL_ID": {}, "HIVE_ROLE": {},
+	"HIVE_AUDIT_DIR": {},
+	"HIVE_ID":        {}, "HIVE_DEVICE_ID": {}, "HIVE_WRITER_APPROVAL_ID": {}, "HIVE_ROLE": {},
 	"HIVE_COLLECTION": {}, "HIVE_DATA_DIR": {},
 	"HIVE_MAX_CLASSIFICATION": {}, "QDRANT_URL": {},
 	"HIVE_CONTEXT_MAX_CHARS": {},
@@ -500,7 +502,8 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 	}
 
 	return Config{
-		HiveID: hiveID, DeviceID: deviceID, WriterApprovalID: writerApprovalID, Role: role,
+		AuditDirectory: strings.TrimSpace(values["HIVE_AUDIT_DIR"]),
+		HiveID:         hiveID, DeviceID: deviceID, WriterApprovalID: writerApprovalID, Role: role,
 		CollectionName: collection, ControlCollection: collection + "__control",
 		DataDirectory: dataDirectory, QdrantURL: qdrantURL,
 		QdrantAPIKey: newSecret(apiKey), QdrantTLSCAFile: caFile,

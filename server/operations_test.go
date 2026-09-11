@@ -61,6 +61,10 @@ func TestSpec007ValidateReportsRolePermissionsAndFingerprint(t *testing.T) {
 	worker, _ := specWorker(t, q)
 	worker.Cfg.QdrantAPIKey = newSecret("synthetic-writer-token")
 	worker.Cfg.QdrantHost = "127.0.0.1"
+	if err := worker.EnsureInfrastructure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	worker.infrastructureReady = false
 	report := worker.ValidateOperational(context.Background())
 	if !report.OK || report.ExitCode != ExitOK {
 		t.Fatalf("healthy writer validation failed: %+v", report)

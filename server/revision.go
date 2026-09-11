@@ -238,6 +238,9 @@ func (iw *IngestionWorker) ValidateInfrastructure(ctx context.Context) error {
 // permission-introspection endpoint, so readers use a payload-only probe in the
 // vectorless control collection and require an explicit PermissionDenied.
 func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) error {
+	if !iw.Cfg.IsWriter() && !iw.Cfg.IsReader() {
+		return errors.New("authorization requires a valid Hive role")
+	}
 	for _, collection := range []string{iw.Cfg.CollectionName, iw.Cfg.ControlCollection} {
 		if _, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: collection, Exact: qdrant.PtrOf(true)}); err != nil {
 			if status.Code(err) == codes.Unauthenticated || status.Code(err) == codes.PermissionDenied {
@@ -245,6 +248,28 @@ func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) e
 			}
 			return errors.New("Qdrant capability check could not reach a required Hive collection")
 		}
+		// Contradictory predicates can never match a point. Qdrant still
+		// authorizes the write at collection level, without changing any data.
+		_, err := iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{
+			CollectionName: collection, Wait: qdrant.PtrOf(true),
+			Points: qdrant.NewPointsSelectorFilter(&qdrant.Filter{
+				Must:    []*qdrant.Condition{qdrant.NewMatchKeyword("record_type", "credential_probe")},
+				MustNot: []*qdrant.Condition{qdrant.NewMatchKeyword("record_type", "credential_probe")},
+			}),
+		})
+		if iw.Cfg.IsReader() {
+			if err == nil {
+				return errors.New("Qdrant reader credential permits writes")
+			}
+			if status.Code(err) != codes.PermissionDenied {
+				return fmt.Errorf("reader write-denial check failed: %w", safeServiceError(err))
+			}
+		} else if err != nil {
+			return fmt.Errorf("writer write check failed: %w", safeServiceError(err))
+		}
+	}
+	if iw.Cfg.IsReader() {
+		return nil
 	}
 
 	probeID := deterministicUUID("credential-probe", iw.Cfg.HiveID, iw.Cfg.DeviceID)
@@ -425,6 +450,9 @@ func (iw *IngestionWorker) upsertControl(ctx context.Context, recordType, key st
 	}
 	payload["record_type"], payload["hive_id"], payload["logical_key"] = recordType, iw.Cfg.HiveID, key
 	payload["control_version"] = version
+	if err := iw.auditControl(recordType, payload, "prepared"); err != nil {
+		return err
+	}
 	id := deterministicUUID("control", iw.Cfg.HiveID, recordType, key)
 	_, err = iw.QdrantClient.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true),
@@ -445,7 +473,7 @@ func (iw *IngestionWorker) upsertControl(ctx context.Context, recordType, key st
 			return errors.New("optimistic control write conflicted")
 		}
 	}
-	return nil
+	return iw.auditControl(recordType, payload, "committed")
 }
 
 func deterministicUUID(parts ...string) string {
@@ -935,7 +963,7 @@ func (iw *IngestionWorker) RemoveDocument(ctx context.Context, path, reason stri
 	}
 	rel, programID, err := iw.logicalDocumentPath(path)
 	if err != nil {
-		return err
+		return &operationalError{ExitUsage, "invalid document path"}
 	}
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, rel)
 	head, err := iw.readDocumentHead(ctx, documentID)
@@ -944,6 +972,7 @@ func (iw *IngestionWorker) RemoveDocument(ctx context.Context, path, reason stri
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := iw.upsertControl(ctx, "tombstone", documentID, map[string]any{
+		"program_id": head.ProgramID, "path": head.Path,
 		"document_id": documentID, "last_document_revision": head.DocumentRevision,
 		"reason": reason, "deleted_by_device_id": iw.Cfg.DeviceID, "deleted_at": now,
 	}); err != nil {
@@ -957,7 +986,14 @@ func (iw *IngestionWorker) RemoveDocument(ctx context.Context, path, reason stri
 		return fmt.Errorf("commit deleted head: %w", err)
 	}
 	_, err = iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.CollectionName, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(&qdrant.Filter{Must: []*qdrant.Condition{qdrant.NewMatchKeyword("document_id", documentID)}})})
-	return err
+	if err != nil {
+		return &operationalError{ExitPartialFailure, "tombstone committed; deletion incomplete"}
+	}
+	remaining, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.CollectionName, Exact: qdrant.PtrOf(true), Filter: &qdrant.Filter{Must: []*qdrant.Condition{qdrant.NewMatchKeyword("document_id", documentID)}}})
+	if err != nil || remaining != 0 {
+		return &operationalError{ExitPartialFailure, "tombstone committed; deletion verification incomplete"}
+	}
+	return iw.audit(AuditEvent{Action: "document_removal", Outcome: "committed", Document: documentID, Program: programID, Path: rel}, true)
 }
 
 // PrunePending removes only heads whose grace period has elapsed.

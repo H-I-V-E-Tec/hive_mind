@@ -1,0 +1,44 @@
+name: Security checks
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go mod verify
+      - run: go test -race ./...
+      - run: go vet ./...
+      - name: Vulnerability analysis
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck ./...
+      - name: Scan secrets in history and working files
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
+          gitleaks git --redact --no-banner --log-opts="--all" .
+          gitleaks dir --redact --no-banner .
+      - name: Backup tooling tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Verify container build
+        run: docker build --build-arg HIVE_VERSION=ci --build-arg HIVE_SOURCE_REVISION="$GITHUB_SHA" -t hive-security-check .
+      - name: Inspect runtime permissions and scan final image
+        run: |
+          test "$(docker image inspect hive-security-check --format '{{.Config.User}}')" = hive
+          staging=$(mktemp -d)
+          container=$(docker create hive-security-check)
+          trap 'docker rm "$container"' EXIT
+          docker export "$container" | tar -x -C "$staging"
+          gitleaks dir --redact --no-banner "$staging"

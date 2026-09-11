@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -63,7 +64,19 @@ func isSearchValidationError(err error) bool {
 
 func invalidSearch(message string) error { return &searchValidationError{message: message} }
 
-func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArguments) (HiveSearchResponse, error) {
+func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArguments) (out HiveSearchResponse, resultErr error) {
+	started := time.Now()
+	defer func() {
+		outcome := "completed"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		filters, _ := json.Marshal(struct {
+			Types, Tags           []string
+			Classification, Scope string
+		}{args.DocumentTypes, args.Tags, args.Classification, args.EffectiveScopeStatus})
+		_ = iw.audit(AuditEvent{Action: "hive_search", Outcome: outcome, Program: args.ProgramID, Count: len(out.Results), DurationMS: time.Since(started).Milliseconds(), FilterHash: sha256Hex(filters)}, false)
+	}()
 	args, limit, err := iw.validateHiveSearch(args)
 	if err != nil {
 		return HiveSearchResponse{}, err

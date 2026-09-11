@@ -361,6 +361,10 @@ func (iw *IngestionWorker) controlScopeRevision(ctx context.Context, programID s
 // ApproveScope validates the canonical manifest. Full no-reembedding
 // rematerialization is delegated to rematerializeProgramScope below.
 func (iw *IngestionWorker) ApproveScope(ctx context.Context, programID string) error {
+	return iw.ApproveScopeRevision(ctx, programID, "")
+}
+
+func (iw *IngestionWorker) ApproveScopeRevision(ctx context.Context, programID, confirmedHash string) error {
 	if !iw.Cfg.IsWriter() {
 		return errors.New("scope approval requires HIVE_ROLE=writer")
 	}
@@ -375,9 +379,19 @@ func (iw *IngestionWorker) ApproveScope(ctx context.Context, programID string) e
 		return err
 	}
 	revision := sha256Hex(content)
+	if confirmedHash != "" && revision != confirmedHash {
+		return &operationalError{ExitUsage, "scope manifest changed since confirmation"}
+	}
+	if err := iw.audit(AuditEvent{Action: "scope_approval", Outcome: "prepared", Program: programID, Revision: revision}, true); err != nil {
+		return err
+	}
 	staged, err := iw.rematerializeProgramScope(ctx, programID, revision, manifest)
 	if err != nil {
 		return err
+	}
+	current, _, err := iw.loadScopeManifest(programID)
+	if err != nil || sha256Hex(current) != revision {
+		return &operationalError{ExitPartialFailure, "scope manifest changed during staging"}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	committedHeads := make([]*documentHead, 0, len(staged))

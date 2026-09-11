@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -54,7 +55,15 @@ type HiveContextResponse struct {
 	Truncated bool               `json:"truncated"`
 }
 
-func (iw *IngestionWorker) HiveGetContext(ctx context.Context, args HiveContextArguments) (HiveContextResponse, error) {
+func (iw *IngestionWorker) HiveGetContext(ctx context.Context, args HiveContextArguments) (out HiveContextResponse, resultErr error) {
+	started := time.Now()
+	defer func() {
+		outcome := "completed"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		_ = iw.audit(AuditEvent{Action: "hive_get_context", Outcome: outcome, Program: args.ProgramID, Count: len(out.Items), DurationMS: time.Since(started).Milliseconds()}, false)
+	}()
 	args, asset, limit, err := iw.validateHiveContext(args)
 	if err != nil {
 		return HiveContextResponse{}, err

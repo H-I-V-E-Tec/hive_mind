@@ -143,6 +143,13 @@ func (q *permissionQdrant) Upsert(ctx context.Context, in *qdrant.UpsertPoints) 
 	return q.memoryQdrant.Upsert(ctx, in)
 }
 
+func (q *permissionQdrant) Delete(ctx context.Context, in *qdrant.DeletePoints) (*qdrant.UpdateResult, error) {
+	if q.writeErr != nil {
+		return nil, q.writeErr
+	}
+	return q.memoryQdrant.Delete(ctx, in)
+}
+
 func TestSpec006CredentialCapabilitiesMatchRole(t *testing.T) {
 	q := newMemoryQdrant()
 	writer, _ := specWorker(t, q)

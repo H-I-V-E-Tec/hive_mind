@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,9 @@ func (iw *IngestionWorker) OperationalStatus(ctx context.Context) (OperationalSt
 		DataCollection: iw.Cfg.CollectionName, ControlCollection: iw.Cfg.ControlCollection,
 		EmbeddingModel: iw.Cfg.EmbeddingModel, MaxClassification: iw.Cfg.MaxClassification,
 		QdrantTLS: iw.Cfg.QdrantUseTLS, Credential: "[REDACTED]", Warnings: []string{},
+	}
+	if iw.auditFailed.Load() {
+		report.Warnings = append(report.Warnings, "audit unavailable; critical operations are blocked")
 	}
 	manifests, err := iw.controlRows(ctx, "collection_manifest", iw.Cfg.HiveID)
 	if err != nil || len(manifests) != 1 {
@@ -115,7 +119,11 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 		}
 		report.Checks = append(report.Checks, check)
 	}
-	add("configuration", validateOperationalConfig(iw.Cfg))
+	configErr := validateOperationalConfig(iw.Cfg)
+	add("configuration", configErr)
+	if configErr != nil {
+		return report
+	}
 	if iw.Cfg.IsWriter() {
 		_, err := validateDataDirectory(iw.Cfg.DataDirectory)
 		add("writer_data_directory", err)
@@ -130,12 +138,7 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 	}
 	add("qdrant_connectivity_and_tls", qdrantErr)
 
-	var infrastructureErr error
-	if iw.Cfg.IsWriter() {
-		infrastructureErr = iw.EnsureInfrastructure(ctx)
-	} else {
-		infrastructureErr = iw.ValidateInfrastructure(ctx)
-	}
+	infrastructureErr := iw.ValidateInfrastructure(ctx)
 	add("infrastructure_and_fingerprint", infrastructureErr)
 	if infrastructureErr == nil && qdrantErr == nil {
 		add("credential_capabilities", iw.ValidateCredentialCapabilities(ctx))
@@ -160,6 +163,10 @@ func validateOperationalConfig(cfg Config) error {
 func classifyOperationalError(err error) int {
 	if err == nil {
 		return ExitOK
+	}
+	var coded *operationalError
+	if errors.As(err, &coded) {
+		return coded.code
 	}
 	code := status.Code(err)
 	if code == codes.Unauthenticated || code == codes.PermissionDenied {
@@ -236,17 +243,23 @@ func parseSearchCLI(args []string) (HiveSearchArguments, error) {
 }
 
 func parsePositiveInt(value string) (int, error) {
-	if value == "" {
-		return 0, errors.New("empty integer")
+	result, err := strconv.ParseUint(value, 10, 31)
+	if err != nil || result == 0 {
+		return 0, errors.New("invalid positive integer")
 	}
-	result := 0
-	for _, char := range value {
-		if char < '0' || char > '9' {
-			return 0, errors.New("invalid integer")
-		}
-		result = result*10 + int(char-'0')
-	}
-	return result, nil
+	return int(result), nil
+}
+
+// Preserve machine-readable failure categories without propagating service
+// messages, which may contain credentials, content or private endpoints.
+type operationalError struct {
+	code    int
+	message string
+}
+
+func (e *operationalError) Error() string { return e.message }
+func safeServiceError(err error) error {
+	return &operationalError{classifyOperationalError(err), sanitizeOperationalError(err)}
 }
 
 func sortedPendingPaths(paths map[string]time.Time) []string {

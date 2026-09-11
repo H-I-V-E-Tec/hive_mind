@@ -32,3 +32,13 @@ temp/
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Credentials and local data must never enter the build context.
+.env*
+*.local.toml
+*.key
+*.pem
+secrets/
+hive-data/
+.qdrant-mcp-server/
+docs/operations/evidence/

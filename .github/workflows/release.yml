@@ -10,9 +10,11 @@ on:
         default: 'v1.0.0'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  security:
+    uses: ./.github/workflows/security.yml
   test_and_verify:
     name: Test & Verify
     runs-on: ubuntu-latest
@@ -37,9 +39,14 @@ jobs:
       - name: Run Tests
         run: go test -v ./...
 
+      - name: Require operational security evidence
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: go run ./cmd/security-gate --version "$RELEASE_VERSION"
+
   build_matrix:
     name: Build Binaries (${{ matrix.goos }}, ${{ matrix.goarch }})
-    needs: test_and_verify
+    needs: [test_and_verify, security]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -84,6 +91,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 1
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           BINARY_NAME="qdrant-mcp-server"
           if [ "${{ matrix.goos }}" = "windows" ]; then
@@ -95,15 +103,15 @@ jobs:
             export CC="aarch64-linux-gnu-gcc"
           fi
           
-          go build -v -ldflags="-X main.Version=${{ github.event.inputs.version }} -s -w" -o "dist/${BINARY_NAME}" .
+          go build -trimpath -buildvcs=true -v -ldflags="-X main.Version=${RELEASE_VERSION} -X main.SourceRevision=${GITHUB_SHA} -s -w" -o "dist/${BINARY_NAME}" .
           
           # Compress binary for distribution
           cd dist
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            powershell -Command "Compress-Archive -Path '${BINARY_NAME}' -DestinationPath 'qdrant-mcp-server-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip'"
+            powershell -Command "Compress-Archive -Path '${BINARY_NAME}' -DestinationPath 'qdrant-mcp-server-${RELEASE_VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.zip'"
             rm "${BINARY_NAME}"
           else
-            tar -czf "qdrant-mcp-server-${{ github.event.inputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" "${BINARY_NAME}"
+            tar -czf "qdrant-mcp-server-${RELEASE_VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" "${BINARY_NAME}"
             rm "${BINARY_NAME}"
           fi
 
@@ -118,6 +126,8 @@ jobs:
     name: Publish Release
     needs: build_matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -132,20 +142,28 @@ jobs:
           merge-multiple: true
 
       - name: Tag and Push Git Release
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          VERSION="${{ github.event.inputs.version }}"
-          
           # Check if tag already exists on remote
-          if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}"; then
-            echo "Tag ${VERSION} already exists on origin. Reusing existing tag."
+          if git rev-parse --verify "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$VERSION")" = "$GITHUB_SHA"
           else
             echo "Creating and pushing tag ${VERSION}..."
             git tag -a "${VERSION}" -m "Release ${VERSION}"
             git push origin "${VERSION}"
           fi
+
+      - name: Generate release checksums and source provenance
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
+          cd dist
+          sha256sum ./* > SHA256SUMS
 
       - name: Create GitHub Release & Upload Assets
         uses: softprops/action-gh-release@v2

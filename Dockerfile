@@ -4,7 +4,7 @@
 FROM golang:1.25-alpine AS builder
 
 # Install system dependencies needed for building
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates build-base
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -19,7 +19,9 @@ COPY . .
 # Build the Go app as a highly optimized static binary
 # -ldflags="-s -w" strips debug symbols for a smaller, faster binary
 # CGO_ENABLED=0 ensures the binary is fully static and runs in minimal environments
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o qdrant-mcp-server main.go
+ARG HIVE_VERSION=development
+ARG HIVE_SOURCE_REVISION=unknown
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w -X main.Version=${HIVE_VERSION} -X main.SourceRevision=${HIVE_SOURCE_REVISION}" -o qdrant-mcp-server main.go
 
 # --- Runtime Stage ---
 FROM alpine:3.19
@@ -37,6 +39,7 @@ WORKDIR /app
 COPY --from=builder /app/qdrant-mcp-server /app/qdrant-mcp-server
 
 USER hive
+ENV HIVE_AUDIT_DIR=/var/lib/hive/audit
 
 # Define the entrypoint to run the server
 ENTRYPOINT ["/app/qdrant-mcp-server"]
