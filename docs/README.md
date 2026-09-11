@@ -1,5 +1,6 @@
 # Documentação do Hive Mind
 
+- [Visão estratégica](vision/hive-mind-strategic-vision.md): tese do produto, arquitetura organizacional e hipóteses a validar.
 - [Specs](spec/README.md): etapas e contratos de implementação da v0.1.
 - [Contratos](spec/contracts/): schemas e registros persistidos pelas specs.
 - [Segurança](spec/security/README.md): ameaças, controles e gates obrigatórios.
