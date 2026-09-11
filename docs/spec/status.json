@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "last_executed_spec": "05",
+  "last_verification": {
+    "verified_at": "2026-09-11T00:50:00Z",
+    "source_revision": "working-tree@95db8d9",
+    "commands": [
+      "go test ./server -run ^TestSpec004 -count=1 -v",
+      "go test ./..."
+    ],
+    "result": "passed",
+    "verified_specs": ["00", "01", "02", "03", "04", "05"]
+  },
+  "specs": [
+    {
+      "id": "00",
+      "file": "00-system-invariants.md",
+      "version": "1.0.0",
+      "sha256": "20a0d058e89651090cc35267f0dbe93916628a67e9474ced1e9f80bac88de035",
+      "status": "completed",
+      "executed_at": "2026-09-10T15:59:35-03:00",
+      "commit": "f5151d4",
+      "evidence": ["server/revision_test.go:TestSpec000CreatesControlTopologyAndRegistersWriter"]
+    },
+    {
+      "id": "01",
+      "file": "01-hive-configuration.md",
+      "version": "1.0.0",
+      "sha256": "7ffa8440e7e194ccf4de48888218a29a97fd08ec9efb5c009b05edf34063c848",
+      "status": "completed",
+      "executed_at": "2026-09-10T14:40:04-03:00",
+      "commit": "074e593",
+      "evidence": ["tests/config_test.go"]
+    },
+    {
+      "id": "02",
+      "file": "02-document-ingestion.md",
+      "version": "1.0.0",
+      "sha256": "455c8806a20ffa77e59b30f27eb7c73ad7a27d32cf814e59c7b4c65e531c34ad",
+      "status": "completed",
+      "executed_at": "2026-09-10T15:59:35-03:00",
+      "commit": "f5151d4",
+      "evidence": ["server/revision_test.go:TestSpec002PublishesCompleteRevisionAndIsIdempotent"]
+    },
+    {
+      "id": "03",
+      "file": "03-recon-metadata.md",
+      "version": "1.0.0",
+      "sha256": "bf194e88f0760c654f29ab0aace7d4323ebcc41a27e152fc65c2c9febfd4d8b3",
+      "status": "completed",
+      "executed_at": "2026-09-10T16:32:50-03:00",
+      "commit": "3baa272",
+      "evidence": ["server/metadata_scope_test.go:TestSpec003ExtractsNormalizesAndSharesMetadata"]
+    },
+    {
+      "id": "04",
+      "file": "04-filtered-search.md",
+      "version": "1.0.0",
+      "sha256": "492fd9a3651ff09e0457958a55d35e14cc08379aad5dbac722b1d1fa87f1cad6",
+      "status": "completed",
+      "executed_at": "2026-09-10T18:04:23-03:00",
+      "commit": "497f7fd",
+      "evidence": ["server/search_test.go:TestSpec004ValidatesSearchContract", "server/search_test.go:TestSpec004FiltersOrdersDeduplicatesAndStructuresResults", "server/search_test.go:TestSpec004AdvertisesOnlyHiveSearchContract", "server/search_test.go:TestSpec004CapsAndSafelyEncodesUntrustedContent"]
+    },
+    {
+      "id": "05",
+      "file": "05-hive-context.md",
+      "version": "1.0.0",
+      "sha256": "7b6b5553eb418092e50a27e6200ef5a412334d668e6a574f9e7fbe6b3377fa05",
+      "status": "completed",
+      "executed_at": "2026-09-10T18:12:41-03:00",
+      "commit": "941ee39",
+      "evidence": ["server/context_test.go"]
+    },
+    {
+      "id": "06",
+      "file": "06-private-qdrant.md",
+      "version": "1.0.0",
+      "sha256": "6413ec511e58aabf70a8be017f5e3e00d4e749379d316d3f6419996210822cc3",
+      "status": "pending",
+      "executed_at": null,
+      "commit": null,
+      "evidence": []
+    },
+    {
+      "id": "07",
+      "file": "07-operational-cli.md",
+      "version": "1.0.0",
+      "sha256": "565aaa1a965fe5cc8a43cd05d322ffe19966ff95960720772d974672a8e06b1a",
+      "status": "pending",
+      "executed_at": null,
+      "commit": null,
+      "evidence": []
+    },
+    {
+      "id": "08",
+      "file": "08-v01-acceptance.md",
+      "version": "1.0.0",
+      "sha256": "1b5a3a451bb19e0085edaf7b109decd15971eba6dfee0d30b64d92dd531102db",
+      "status": "pending",
+      "executed_at": null,
+      "commit": null,
+      "evidence": []
+    }
+  ]
+}

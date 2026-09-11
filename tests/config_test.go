@@ -40,6 +40,10 @@ func cloneEnv(input map[string]string) map[string]string {
 
 func TestHiveConfigCompleteWriter(t *testing.T) {
 	dataDir := t.TempDir()
+	canonicalDataDir, err := filepath.EvalSymlinks(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := server.LoadConfigFrom(nil, validHiveEnv(dataDir))
 	if err != nil {
 		t.Fatalf("LoadConfigFrom returned error: %v", err)
@@ -50,7 +54,7 @@ func TestHiveConfigCompleteWriter(t *testing.T) {
 	if cfg.CollectionName != "hive_mind_v01" || cfg.ControlCollection != "hive_mind_v01__control" {
 		t.Fatalf("unexpected collections: %+v", cfg)
 	}
-	if cfg.DataDirectory != dataDir || cfg.WatchDirectory != dataDir {
+	if cfg.DataDirectory != canonicalDataDir || cfg.WatchDirectory != canonicalDataDir {
 		t.Fatalf("data directory was not canonicalized as expected: %q", cfg.DataDirectory)
 	}
 	if cfg.ParserMode != "doc" || cfg.MaxEmbeddingWorkers != 2 || cfg.MaxFileSize != 5*1024*1024 {

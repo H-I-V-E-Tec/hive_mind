@@ -181,6 +181,11 @@ func (f transportFunc) RoundTrip(req *http.Request) (*http.Response, error) { re
 func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 	t.Helper()
 	root := t.TempDir()
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = canonicalRoot
 	if err := os.MkdirAll(filepath.Join(root, "programs", "acme"), 0o755); err != nil {
 		t.Fatal(err)
 	}

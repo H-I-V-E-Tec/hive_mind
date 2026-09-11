@@ -21,3 +21,14 @@ As [specs de segurança](security/README.md) detalham os controles obrigatórios
 Cada implementação deve seguir as decisões [001](../decisions/001-tests-are-required.md) e [002](../decisions/002-security-is-primary.md), atualizar o README quando mudar o produto e manter `go test ./...` verde.
 
 As etapas são dependentes: nenhuma implementação pode contrariar as invariantes da etapa 00. Em especial, a v0.1 usa writer único, autorização de escopo aprovada fora do conteúdo comum e publicação por revisão recuperável.
+
+## Controle de versão e execução
+
+O estado verificável de cada etapa fica em [`status.json`](status.json). Cada registro contém a versão normativa, o hash SHA-256 do arquivo da spec, o estado, quando foi executado e o commit que contém a implementação. O hash liga a execução ao texto exato: qualquer alteração na spec faz `go test ./...` falhar até que a versão e o estado sejam revisados e a etapa seja executada novamente.
+
+Estados válidos:
+
+- `completed`: implementação e aceite da versão registrada foram executados;
+- `pending`: ainda não executada; datas, commit e evidências permanecem vazios.
+
+`last_executed_spec` é derivado pela data mais recente entre registros concluídos e também é validado pelos testes. Não deve ser atualizado apenas por intenção ou trabalho parcial.
