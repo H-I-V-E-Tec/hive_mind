@@ -42,6 +42,8 @@ type HiveSearchResult struct {
 	EffectiveScopeStatus string  `json:"effective_scope_status"`
 	Classification       string  `json:"classification"`
 	UntrustedContent     bool    `json:"untrusted_content"`
+	documentID           string
+	chunkOrdinal         int64
 }
 
 type HiveSearchResponse struct {
@@ -121,6 +123,7 @@ func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArgume
 			DocumentType:         payloadString(point.Payload, "document_type", "unknown"),
 			EffectiveScopeStatus: payloadString(point.Payload, "effective_scope_status", "unknown"),
 			Classification:       payloadString(point.Payload, "classification", "unknown"), UntrustedContent: true,
+			documentID: payloadString(point.Payload, "document_id", ""), chunkOrdinal: payloadInt(point.Payload, "chunk_ordinal"),
 		})
 		if remainingText == 0 {
 			break

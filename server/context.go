@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -88,9 +89,7 @@ func (iw *IngestionWorker) HiveGetContext(ctx context.Context, args HiveContextA
 
 	query := args.Question + " " + asset.Type + ":" + asset.Value
 	groups := []string{"rules"}
-	if status == "out_of_scope" {
-		groups = append(groups, "evidence")
-	} else {
+	if status != "out_of_scope" {
 		groups = append(groups, "asset", "endpoint", "note", "evidence")
 	}
 	requestedTypes := sliceToSet(args.DocumentTypes)
@@ -267,16 +266,23 @@ func contextMatchedRules(manifest *scopeManifest, asset normalizedAsset) []Conte
 func appendUniqueContextItems(current, candidates []HiveSearchResult, limit int) []HiveSearchResult {
 	seen := make(map[string]bool, len(current))
 	for _, item := range current {
-		seen[item.Path+"\x00"+item.Text] = true
+		seen[contextItemIdentity(item)] = true
 	}
 	for _, item := range candidates {
-		key := item.Path + "\x00" + item.Text
+		key := contextItemIdentity(item)
 		if !seen[key] && len(current) < limit {
 			seen[key] = true
 			current = append(current, item)
 		}
 	}
 	return current
+}
+
+func contextItemIdentity(item HiveSearchResult) string {
+	if item.documentID != "" {
+		return item.documentID + "\x00" + strconv.FormatInt(item.chunkOrdinal, 10)
+	}
+	return item.Path + "\x00" + item.Text
 }
 
 func (iw *IngestionWorker) fitHiveContext(response HiveContextResponse) (HiveContextResponse, error) {
