@@ -20,6 +20,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/qdrant/go-client/qdrant"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -228,6 +230,57 @@ func (iw *IngestionWorker) ValidateInfrastructure(ctx context.Context) error {
 		return errors.New("exactly one writer registration is required")
 	}
 	iw.infrastructureReady = true
+	return nil
+}
+
+// ValidateCredentialCapabilities actively proves that the configured Qdrant
+// credential matches the immutable process role. Qdrant exposes no portable
+// permission-introspection endpoint, so readers use a payload-only probe in the
+// vectorless control collection and require an explicit PermissionDenied.
+func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) error {
+	for _, collection := range []string{iw.Cfg.CollectionName, iw.Cfg.ControlCollection} {
+		if _, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: collection, Exact: qdrant.PtrOf(true)}); err != nil {
+			if status.Code(err) == codes.Unauthenticated || status.Code(err) == codes.PermissionDenied {
+				return errors.New("Qdrant credential cannot read the required Hive collections")
+			}
+			return errors.New("Qdrant capability check could not reach a required Hive collection")
+		}
+	}
+
+	probeID := deterministicUUID("credential-probe", iw.Cfg.HiveID, iw.Cfg.DeviceID)
+	probeFilter := &qdrant.Filter{Must: []*qdrant.Condition{
+		qdrant.NewMatchKeyword("record_type", "credential_probe"),
+		qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+		qdrant.NewMatchKeyword("device_id", iw.Cfg.DeviceID),
+	}}
+	_, writeErr := iw.QdrantClient.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true),
+		Points: []*qdrant.PointStruct{{Id: qdrant.NewIDUUID(probeID), Payload: qdrant.NewValueMap(map[string]any{
+			"record_type": "credential_probe", "hive_id": iw.Cfg.HiveID, "device_id": iw.Cfg.DeviceID,
+		})}},
+	})
+	if iw.Cfg.IsReader() {
+		if status.Code(writeErr) == codes.PermissionDenied {
+			return nil
+		}
+		if writeErr != nil {
+			if status.Code(writeErr) == codes.Unauthenticated {
+				return errors.New("Qdrant reader credential is not authenticated")
+			}
+			return errors.New("Qdrant reader write-denial check was inconclusive")
+		}
+		_, _ = iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(probeFilter)})
+		return errors.New("Qdrant reader credential permits writes")
+	}
+	if writeErr != nil {
+		if status.Code(writeErr) == codes.Unauthenticated || status.Code(writeErr) == codes.PermissionDenied {
+			return errors.New("Qdrant writer credential lacks read-write permission")
+		}
+		return errors.New("Qdrant writer write check failed")
+	}
+	if _, err := iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(probeFilter)}); err != nil {
+		return errors.New("Qdrant writer credential cannot remove its capability probe")
+	}
 	return nil
 }
 

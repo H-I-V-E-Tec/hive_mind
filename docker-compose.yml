@@ -6,13 +6,14 @@ services:
     image: qdrant/qdrant:v1.10.0
     container_name: qdrant
     ports:
-      - "127.0.0.1:6333:6333" # Local REST API and dashboard.
-      - "127.0.0.1:6334:6334" # Local gRPC endpoint.
+      - "${HIVE_QDRANT_BIND_IP:-127.0.0.1}:6333:6333" # Loopback by default; set only to an approved VPN interface.
+      - "${HIVE_QDRANT_BIND_IP:-127.0.0.1}:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__SERVICE__API_KEY=${HIVE_QDRANT_API_KEY:?set HIVE_QDRANT_API_KEY}
+      - QDRANT__SERVICE__API_KEY=${HIVE_QDRANT_ADMIN_KEY:?set HIVE_QDRANT_ADMIN_KEY}
+      - QDRANT__SERVICE__JWT_RBAC=true
       - RUST_LOG=info
     restart: unless-stopped
     healthcheck:
@@ -84,7 +85,9 @@ services:
       - HIVE_COLLECTION=hive_mind_v01
       - HIVE_DATA_DIR=/workspace
       - QDRANT_URL=http://127.0.0.1:6334
-      - QDRANT_API_KEY=${HIVE_QDRANT_API_KEY:?set HIVE_QDRANT_API_KEY}
+      # A JWT restricted to rw on hive_mind_v01 and hive_mind_v01__control.
+      # Never pass HIVE_QDRANT_ADMIN_KEY to this process.
+      - QDRANT_API_KEY=${HIVE_QDRANT_WRITER_TOKEN:?set HIVE_QDRANT_WRITER_TOKEN}
       - OLLAMA_URL=http://127.0.0.1:11434
       - EMBEDDING_MODEL=nomic-embed-text
     network_mode: host

@@ -203,6 +203,9 @@ func Start(version string) {
 
 	worker := NewIngestionWorker(cfg, client, gitIgnore)
 	defer worker.Close()
+	if err := validateWorkerStartup(context.Background(), worker); err != nil {
+		log.Fatalf("Hive startup validation failed: %v", err)
+	}
 	if cfg.IsReader() {
 		worker.ListenToMCPClient(context.Background())
 		return
@@ -259,18 +262,25 @@ func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 		gitIgnore = NewGitIgnoreMatcher(cfg.WatchDirectory)
 	}
 	worker := NewIngestionWorker(cfg, client, gitIgnore)
-	var validationErr error
-	if cfg.IsWriter() {
-		validationErr = worker.EnsureInfrastructure(context.Background())
-	} else {
-		validationErr = worker.ValidateInfrastructure(context.Background())
-	}
-	if validationErr != nil {
+	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		worker.Close()
 		client.Close()
-		log.Fatalf("Hive infrastructure validation failed: %v", validationErr)
+		log.Fatalf("Hive infrastructure validation failed: %v", err)
 	}
 	return client, worker
+}
+
+func validateWorkerStartup(ctx context.Context, worker *IngestionWorker) error {
+	var err error
+	if worker.Cfg.IsWriter() {
+		err = worker.EnsureInfrastructure(ctx)
+	} else {
+		err = worker.ValidateInfrastructure(ctx)
+	}
+	if err != nil {
+		return err
+	}
+	return worker.ValidateCredentialCapabilities(ctx)
 }
 
 func newQdrantClient(cfg Config) (*qdrant.Client, error) {
