@@ -37,6 +37,22 @@ func TestReleaseRequiresCurrentCompleteEvidence(t *testing.T) {
 	if failures := Validate(root, r, "v0.1.0", digest, now); len(failures) != 0 {
 		t.Fatal(failures)
 	}
+	// Evidence must remain inside the checkout, including parent symlinks.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "drill.md"), body, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "docs/operations/evidence/external")); err != nil {
+		t.Fatal(err)
+	}
+	r.Gates["paired_restore"] = Evidence{"passed", "docs/operations/evidence/external/drill.md", hex.EncodeToString(sum[:])}
+	if failures := Validate(root, r, "v0.1.0", digest, now); len(failures) == 0 {
+		t.Fatal("escaped evidence accepted")
+	}
+	r.Gates["paired_restore"] = Evidence{"passed", path, strings.Repeat("0", 64)}
+	if failures := Validate(root, r, "v0.1.0", digest, now); len(failures) == 0 {
+		t.Fatal("tampered evidence accepted")
+	}
 	r.Gates["paired_restore"] = Evidence{Status: "pending"}
 	r.Profile["rpo_hours"] = 0
 	r.ExecutedAt = now.Add(-31 * 24 * time.Hour)

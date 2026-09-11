@@ -14,6 +14,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/qdrant/go-client/qdrant"
+	"google.golang.org/grpc"
 )
 
 var Version = "1.0.0"
@@ -21,40 +22,47 @@ var SourceRevision = "development"
 
 func Start(version string) {
 	Version = version
+	args, err := splitCLIArgs(os.Args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "invalid command arguments")
+		os.Exit(ExitUsage)
+	}
 
 	// Setup localized logs redirected away from stdout to keep MCP channel clean
 	log.SetOutput(os.Stderr)
-	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help") {
+	if len(args) > 1 && (args[1] == "help" || args[1] == "-h" || args[1] == "--help") {
 		printCLIHelp()
 		return
 	}
 
 	cfg, err := LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
-		os.Exit(10)
-	}
-
-	// Configure physical log file if option enabled by a future operational spec.
-	if cfg.LogToFile {
-		dirPath := ".qdrant-mcp-server"
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			log.Printf("Warning: Failed to create log directory '%s': %v", dirPath, err)
-		}
-		logFilePath := filepath.Join(dirPath, "qdrant-mcp-server.log")
-		logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			log.Printf("Warning: Failed to open log file '%s': %v", logFilePath, err)
-		} else {
-			log.SetOutput(logFile)
-			log.Println("--- Log Session Started ---")
-		}
+		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: "configuration is invalid; check required Hive settings"}}})
+		os.Exit(ExitConfiguration)
 	}
 
 	// Intercept command line arguments for skill generation
-	if len(os.Args) > 1 {
-		cmd := strings.ToLower(os.Args[1])
+	if len(args) > 1 {
+		cmd := strings.ToLower(args[1])
 		switch cmd {
+		case "audit":
+			if cfg.AuditDirectory == "" {
+				fmt.Fprintln(os.Stderr, "HIVE_AUDIT_DIR required for operator events")
+				os.Exit(ExitConfiguration)
+			}
+			a, err := OpenFileAudit(cfg)
+			if err != nil {
+				printOperationalFailure("audit", err)
+			}
+			if err := a.Record(AuditEvent{Action: args[3], Outcome: "operator_recorded", ChangeID: args[4]}); err != nil {
+				_ = a.Close()
+				printOperationalFailure("audit", err)
+			}
+			if err := a.Close(); err != nil {
+				printOperationalFailure("audit", err)
+			}
+			printJSON(map[string]any{"ok": true, "action": args[3], "change_id": args[4]})
+			return
 		case "status":
 			client, worker, err := createWorker(cfg)
 			if err != nil {
@@ -88,15 +96,15 @@ func Start(version string) {
 			ListSkills()
 			return
 		case "install-skill", "-install", "--install", "install":
-			if len(os.Args) < 3 {
+			if len(args) < 3 {
 				fmt.Fprintln(os.Stderr, "Error: missing agent name.")
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server install-skill <agent|all> [destination_directory]")
 				os.Exit(ExitUsage)
 			}
-			agent := os.Args[2]
+			agent := args[2]
 			destDir := ""
-			if len(os.Args) > 3 {
-				destDir = os.Args[3]
+			if len(args) > 3 {
+				destDir = args[3]
 			}
 			if err := InstallSkill(agent, destDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error installing skill: %v\n", err)
@@ -117,7 +125,7 @@ func Start(version string) {
 			if err != nil {
 				failCommand(client, worker, "ingest", err)
 			}
-			if sliceContains(os.Args[2:], "--prune") {
+			if sliceContains(args[2:], "--prune") {
 				pruned, err := worker.PrunePending(context.Background(), time.Now())
 				if err != nil {
 					failCommand(client, worker, "ingest prune", err)
@@ -131,14 +139,14 @@ func Start(version string) {
 				fmt.Fprintln(os.Stderr, "authorization error: remove requires HIVE_ROLE=writer")
 				os.Exit(12)
 			}
-			if len(os.Args) != 3 {
+			if len(args) != 3 {
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server remove <path>")
 				os.Exit(ExitUsage)
 			}
 			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
-			if err := worker.RemoveDocument(context.Background(), os.Args[2], "operator_requested"); err != nil {
+			if err := worker.RemoveDocument(context.Background(), args[2], "operator_requested"); err != nil {
 				code := classifyOperationalError(err)
 				failCommandWithCode(client, worker, "remove", err, code)
 			}
@@ -149,36 +157,39 @@ func Start(version string) {
 				fmt.Fprintln(os.Stderr, "authorization error: scope operations require HIVE_ROLE=writer")
 				os.Exit(12)
 			}
-			if (len(os.Args) != 4 && len(os.Args) != 5) || strings.ToLower(os.Args[2]) != "approve" || (len(os.Args) == 5 && os.Args[4] != "--yes") {
+			if (len(args) != 4 && len(args) != 5) || strings.ToLower(args[2]) != "approve" || (len(args) == 5 && args[4] != "--yes") {
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server scope approve <program_id> [--yes]")
 				os.Exit(ExitUsage)
 			}
 			previewWorker := &IngestionWorker{Cfg: cfg}
-			summary, err := previewWorker.ScopeApprovalPreview(os.Args[3])
+			summary, err := previewWorker.ScopeApprovalPreview(args[3])
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "scope approval input error: %s\n", sanitizeCLIInputError(err))
 				os.Exit(ExitUsage)
 			}
 			printJSON(summary)
-			if len(os.Args) != 5 {
+			if len(args) != 5 {
 				fmt.Fprintln(os.Stderr, "Approval not applied. Review the hash and repeat with --yes to confirm explicitly.")
 				os.Exit(ExitUsage)
 			}
 			client, worker := mustCreateWorker(cfg)
 			defer client.Close()
 			defer worker.Close()
-			if err := worker.ApproveScopeRevision(context.Background(), os.Args[3], summary.SHA256); err != nil {
+			if err := worker.ApproveScopeRevision(context.Background(), args[3], summary.SHA256); err != nil {
 				failCommand(client, worker, "scope approval", err)
 			}
-			fmt.Printf("Scope manifest approved for program %q.\n", os.Args[3])
+			fmt.Printf("Scope manifest approved for program %q.\n", args[3])
 			return
 		case "search", "-search", "--search":
-			if len(os.Args) < 4 {
+			if len(args) < 4 {
 				fmt.Fprintln(os.Stderr, "Error: missing program_id or query.")
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server search <program_id> <query> [--document-type=value] [--tag=value] [--classification=value] [--scope-status=value] [--limit=N]")
 				os.Exit(ExitUsage)
 			}
-			searchArgs, err := parseSearchCLI(os.Args[2:])
+			searchArgs, err := parseSearchCLI(args[2:])
+			if err == nil {
+				_, _, err = (&IngestionWorker{Cfg: cfg}).validateHiveSearch(searchArgs)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "search input error: %v\n", err)
 				os.Exit(ExitUsage)
@@ -401,11 +412,22 @@ func validateStatusStartup(ctx context.Context, worker *IngestionWorker) error {
 }
 
 func newQdrantClient(cfg Config) (*qdrant.Client, error) {
+	return newQdrantClientWithOptions(cfg, nil)
+}
+
+func newQdrantClientWithOptions(cfg Config, options []grpc.DialOption) (*qdrant.Client, error) {
 	tlsConfig, err := cfg.QdrantTLSConfig()
 	if err != nil {
 		return nil, err
 	}
 	return qdrant.NewClient(&qdrant.Config{
+		PoolSize:               1,
+		SkipCompatibilityCheck: true,
+		GrpcOptions: append([]grpc.DialOption{grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			return invoker(bounded, method, req, reply, cc, opts...)
+		})}, options...),
 		Host:      cfg.QdrantHost,
 		Port:      cfg.QdrantPort,
 		APIKey:    cfg.QdrantAPIKey.Reveal(),
@@ -434,9 +456,9 @@ func printCLIHelp() {
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")
+	fmt.Println("  audit record <event> <change>  Record credential_rotation, credential_revocation or writer_promotion.")
 	fmt.Println("  scope approve <program_id>     Preview the manifest hash; add --yes to approve it.")
 	fmt.Println("  search <program_id> <query>    Search; filters use --tag=value and related flags.")
-	fmt.Println("  evaluate-search                Ingest the workspace and run canned search quality checks.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
 	fmt.Println("                                 Options: cursor, windsurf, cline, copilot, generic, codex, all.")

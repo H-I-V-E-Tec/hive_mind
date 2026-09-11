@@ -19,6 +19,22 @@ Para um reader, substitua os dois valores `rw` por `r` e use um `sub` próprio. 
 
 ## Provisionamento e validação
 
+Use a API REST privada do cliente administrativo (normalmente porta `6333`, não a porta gRPC usada pelo Hive). Descubra a dimensão do modelo local pela resposta de `POST /api/embed` do Ollama e conte os elementos de `embeddings[0]`; não presuma a dimensão de outro modelo.
+
+Crie a collection de dados com distância cosseno e vetor esparso nomeado `sparse`. Substitua `768` pela dimensão conferida:
+
+```json
+{"vectors":{"size":768,"distance":"Cosine"},"sparse_vectors":{"sparse":{}}}
+```
+
+Crie `<HIVE_COLLECTION>__control` sem vetores:
+
+```json
+{"vectors":{}}
+```
+
+Essas são operações administrativas de criação. Confira que o destino está vazio e pertence ao Hive correto. Não exclua uma collection existente para contornar incompatibilidade. O writer cria índices de payload e grava manifesto/registro no primeiro `ingest`; seu token normal permanece restrito às duas collections.
+
 1. Um operador provisiona as duas collections e índices em uma janela administrativa quando ainda não existem. O writer pode reconciliar infraestrutura existente, mas seu token normal permanece limitado às duas collections.
 2. Inicie cada processo com seu token individual. A validação lê ambas as collections. Para readers, ela também exige que uma tentativa de escrita seja negada explicitamente; para o writer, confirma escrita e remoção de um registro de prova sem conteúdo.
 3. Confirme que o Compose de referência só responde em loopback. Para acesso remoto, mantenha o Qdrant em loopback e publique apenas um proxy TLS autenticado na interface VPN; não vincule as portas do Qdrant a `0.0.0.0`.
@@ -26,7 +42,7 @@ Para um reader, substitua os dois valores `rw` por `r` e use um `sub` próprio. 
 
 ## Rotação e revogação
 
-Gere um token novo com validade sobreposta curta, atualize apenas o dispositivo correspondente, execute `validate` e então expire/revogue o token antigo. Para remover um dispositivo, revogue primeiro sua identidade de rede e seu token; depois verifique os logs desde o último acesso conhecido. Para promover writer, revogue o writer anterior antes de emitir o novo token `rw`.
+Gere um token novo com validade sobreposta curta, atualize apenas o dispositivo correspondente, execute `validate` e então expire/revogue o token antigo. Emitir outro JWT não revoga automaticamente o anterior: configure um mecanismo efetivo de revogação e comprove o bloqueio, inclusive pela identidade de rede. Para remover um dispositivo, revogue primeiro sua identidade de rede e seu token; depois verifique os logs desde o último acesso conhecido. Para promover writer, revogue o writer anterior antes de emitir o novo token `rw` e atualize o registro de controle em janela administrativa.
 
 Registre somente dispositivo, operador, data, resultado e identificador do change. Nunca registre o token. Uma implantação sem JWT granular é uma exceção de segurança: requer instância exclusiva, decisão com prazo/risco e bloqueia o gate normal de release enquanto não for aprovada.
 

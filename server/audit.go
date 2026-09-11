@@ -33,6 +33,7 @@ type AuditEvent struct {
 	Count          int    `json:"count,omitempty"`
 	DurationMS     int64  `json:"duration_ms,omitempty"`
 	FilterHash     string `json:"filter_hash,omitempty"`
+	ChangeID       string `json:"change_id,omitempty"`
 }
 
 type AuditSink interface{ Record(AuditEvent) error }
@@ -108,6 +109,9 @@ func (a *FileAudit) record(e AuditEvent) error {
 	}
 	if e.Program != "" && !validIdentifier(e.Program, 64) {
 		e.Program = ""
+	}
+	if e.ChangeID != "" && !validIdentifier(e.ChangeID, 64) {
+		return errors.New("invalid change identifier")
 	}
 	if e.Path != "" && (filepath.IsAbs(e.Path) || strings.Contains(e.Path, "\\") || strings.Contains(e.Path, "..") || containsControl(e.Path)) {
 		e.Path = ""

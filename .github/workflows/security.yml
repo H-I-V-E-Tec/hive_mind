@@ -41,4 +41,4 @@ jobs:
           container=$(docker create hive-security-check)
           trap 'docker rm "$container"' EXIT
           docker export "$container" | tar -x -C "$staging"
-          gitleaks dir --redact --no-banner "$staging"
+          gitleaks dir --config "$GITHUB_WORKSPACE/.gitleaks.toml" --redact --no-banner "$staging"

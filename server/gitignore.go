@@ -102,7 +102,7 @@ func compilePattern(pattern string, baseDir string) (IgnorePattern, bool) {
 	}
 
 	var sb strings.Builder
-	
+
 	if anchored {
 		sb.WriteString("^" + regexp.QuoteMeta(baseDir))
 		if baseDir != "" {

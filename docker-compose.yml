@@ -3,7 +3,7 @@ services:
   # 1. Qdrant Vector Database
   # ---------------------------------------------------------------------------
   qdrant:
-    image: qdrant/qdrant:v1.10.0
+    image: qdrant/qdrant:v1.18.3
     container_name: qdrant
     ports:
       - "127.0.0.1:6333:6333"
@@ -16,17 +16,12 @@ services:
       - QDRANT__SERVICE__JWT_RBAC=true
       - RUST_LOG=info
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/readyz || wget -qO- http://localhost:6333/readyz || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   # ---------------------------------------------------------------------------
   # 2. Ollama AI Engine
   # ---------------------------------------------------------------------------
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.34.0
     container_name: ollama
     ports:
       - "127.0.0.1:11434:11434" # Local-only Ollama API.
@@ -42,37 +37,17 @@ services:
     #           count: all
     #           capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:11434/ || wget -qO- http://localhost:11434/ || exit 1"]
+      test: ["CMD", "ollama", "list"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # 3. Model Downloader (Automated nomic-embed-text Puller)
-  # ---------------------------------------------------------------------------
-  ollama-pull-model:
-    image: curlimages/curl:latest
-    container_name: ollama-pull-model
-    entrypoint: 
-      - "sh"
-      - "-c"
-      - |
-        echo "Waiting for Ollama container to start..."
-        until curl -s http://ollama:11434/api/tags >/dev/null; do
-          sleep 1
-        done
-        echo "Ollama is ready. Checking/pulling nomic-embed-text model..."
-        curl -s -N -X POST http://ollama:11434/api/pull -d '{"name": "nomic-embed-text"}'
-        echo ""
-        echo "nomic-embed-text embedding model is successfully prepared and ready!"
-    depends_on:
-      ollama:
-        condition: service_healthy
-
-  # ---------------------------------------------------------------------------
   # 4. Go Qdrant-RAG MCP Server Container (Containerized Run Option)
   # ---------------------------------------------------------------------------
   qdrant-mcp-server:
+    profiles: ["mcp"]
+    stdin_open: true
     build:
       context: .
       dockerfile: Dockerfile
@@ -87,7 +62,7 @@ services:
       - QDRANT_URL=http://127.0.0.1:6334
       # A JWT restricted to rw on hive_mind_v01 and hive_mind_v01__control.
       # Never pass HIVE_QDRANT_ADMIN_KEY to this process.
-      - QDRANT_API_KEY=${HIVE_QDRANT_WRITER_TOKEN:?set HIVE_QDRANT_WRITER_TOKEN}
+      - QDRANT_API_KEY=${HIVE_QDRANT_WRITER_TOKEN:-}
       - OLLAMA_URL=http://127.0.0.1:11434
       - EMBEDDING_MODEL=nomic-embed-text
     network_mode: host
@@ -96,19 +71,26 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 1g
+    cpus: 2
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
     tmpfs:
       - /tmp:size=64m,mode=1777
     volumes:
-      # Mount the project workspace or directories you want to index.
-      # By default, mounts the current folder into '/workspace' inside the container.
-      - .:/workspace:ro
+      - ${HIVE_DATA_DIR:-./hive-data}:/workspace:ro
+      - hive_audit:/var/lib/hive/audit
     depends_on:
       qdrant:
+        condition: service_started
+      ollama:
         condition: service_healthy
-      ollama-pull-model:
-        condition: service_completed_successfully
 
 volumes:
+  hive_audit:
   qdrant_storage:
     name: qdrant_storage
   ollama_storage:

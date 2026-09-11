@@ -1,89 +1,110 @@
 # Hive Mind
 
-Hive Mind é um servidor [Model Context Protocol (MCP)](https://modelcontextprotocol.io) escrito em Go para criar uma memória de recon compartilhada entre computadores autorizados. Ele indexa documentos locais com embeddings do Ollama, armazena os vetores em uma collection privada do Qdrant e oferece busca semântica aos agentes por `stdio`.
+Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O Hive Mind indexa notas e evidências locais, gera embeddings com Ollama e consulta um Qdrant privado. Agentes acessam essas informações por MCP local via `stdio`, sem expor uma porta MCP na rede.
 
-O primeiro objetivo é simples: uma nota ou evidência de recon registrada em um computador deve poder ser recuperada com contexto curto e verificável no outro, sem expor o servidor MCP à internet.
+## O que o projeto tem
 
-> Este repositório será refeito como um produto Hive Mind dedicado. O código atual é somente uma base de referência e não define requisitos de compatibilidade. As funcionalidades alvo estão em [docs/spec/](docs/spec/README.md); as regras arquiteturais estão em [docs/decisions/](docs/decisions/README.md).
-
-## Como funciona
+- Um writer canônico para ingestão e múltiplos readers somente para consulta, com credenciais individuais.
+- Ingestão de Markdown, texto e JSON; observação de arquivos, `.gitignore`, limites de tamanho/chunks e proteção de paths.
+- Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
+- Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
+- Busca semântica, esparsa e híbrida com filtros de programa, classificação, escopo, tipo e tags.
+- MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
+- CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada.
+- Backup pareado com restic, CI de segurança, container não root e bloqueio de release sem evidências operacionais.
 
 ```text
-Computador A (writer)                         Computador B (reader)
-─────────────────────                         ─────────────────────
-hive-data canônico ─ MCP local                MCP local ─ Ollama local
-       │                │                         │
-  Ollama local          └────── TLS/VPN ─────────┤
-                                                 │
-                                    Qdrant privado compartilhado
-                                    dados + controle de revisões
+Writer: arquivos → Hive Mind + Ollama local ─┐
+                                          ├─ TLS / rede privada → Qdrant
+Reader: agente → MCP local + Ollama local ──┘                      dados + controle
 ```
 
-Os arquivos de `hive-data/` podem ser sincronizados por um meio privado, como Git privado ou Syncthing, mas somente o writer observa a cópia canônica e altera o Qdrant. O reader apenas pesquisa. Ambos usam o mesmo fingerprint de embeddings. O agente conecta-se somente ao MCP local via `stdio`; o componente compartilhado é o Qdrant, protegido por TLS sobre LAN/VPN e por credenciais distintas de menor privilégio.
+Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda está pendente. Ensaios entre duas máquinas, restauração real, revogação e controles da implantação não são substituídos por mocks. Veja [estado e pendências](docs/operations/implementation-status.md).
 
-## Estado atual
+## Passo a passo para usar
 
-O código já oferece:
+### 1. Preparar requisitos e compilar
 
-- indexação recursiva e observação de alterações no diretório configurado;
-- embeddings locais via Ollama e armazenamento vetorial no Qdrant por gRPC;
-- ingestão restrita a Markdown, texto e JSON, com chunking limitado, hashes e respeito a `.gitignore`;
-- publicação revisionada: staging confirmado, verificação, `document_head` e limpeza posterior;
-- collections separadas de dados e controle, manifesto imutável e registro de writer único;
-- metadados de recon normalizados e escopo efetivo calculado somente de manifestos aprovados;
-- aprovação local de `scope.json`, invalidação por hash e rematerialização sem recalcular embeddings;
-- busca densa, esparsa ou híbrida com filtros nativos de Hive, programa, escopo, classificação, tipo e tags;
-- ferramentas MCP estruturadas `hive_search` e `hive_get_context`, além de `get_sync_status` e `ingest_workspace`;
-- comandos `ingest [--prune]`, `remove`, `scope approve <program_id> [--yes]`, `search`, `status` e `validate`.
+É necessário Go 1.25 ou superior, compilador C/C++ (CGO/tree-sitter), Git, Ollama local e Qdrant privado. Para containers, use Docker com Compose. Backup requer Python 3.10+ e restic instalado separadamente.
 
-A implementação será substituída gradualmente pelos componentes descritos nas [specs](docs/spec/README.md). Não há requisito de preservar variáveis, comandos, formatos de payload ou ferramentas MCP do servidor RAG anterior.
-
-## Pré-requisitos
-
-- Go 1.25 ou superior;
-- um Qdrant privado acessível pelas máquinas autorizadas;
-- Ollama em cada máquina, com o mesmo modelo de embeddings instalado;
-- uma pasta de dados compartilhada contendo Markdown, texto ou JSON de recon.
-
-Todos os computadores devem usar o mesmo `EMBEDDING_MODEL`. Vetores gerados por modelos ou dimensões diferentes são incompatíveis com a mesma collection.
-
-## Configuração Hive
-
-O contrato da spec 01 já está implementado. A configuração falha antes de criar clientes ou watchers quando estiver ausente, inválida ou insegura; variáveis legadas e autodescoberta não são aceitas.
-
-Exemplo do writer:
+Na raiz deste repositório:
 
 ```bash
-QDRANT_URL=https://qdrant.hive.internal:6334
-QDRANT_API_KEY=replace-via-secret-manager
-QDRANT_TLS_CA_FILE=/caminho/para/hive-ca.pem
-HIVE_ID=research-team
-HIVE_DEVICE_ID=workstation-a
-HIVE_ROLE=writer
-HIVE_WRITER_APPROVAL_ID=change-1042
-HIVE_COLLECTION=hive_mind_v01
-HIVE_DATA_DIR=/caminho/para/hive-data
-HIVE_CONTEXT_MAX_CHARS=12000
-OLLAMA_URL=http://127.0.0.1:11434
-EMBEDDING_MODEL=nomic-embed-text
+go mod download
+go build -trimpath -o bin/hive-mind .
+./bin/hive-mind help
 ```
 
-O reader usa `HIVE_ROLE=reader`, outro `HIVE_DEVICE_ID`, credencial read-only própria e não precisa de `HIVE_DATA_DIR`. O contrato completo está na [spec de configuração](docs/spec/01-hive-configuration.md) e as invariantes estão na [spec 00](docs/spec/00-system-invariants.md).
+Não compile com `CGO_ENABLED=0`. Os comandos abaixo pressupõem execução na raiz do projeto; no cliente MCP, use o caminho absoluto do binário.
 
-## Compilação e testes
+### 2. Preparar Qdrant e Ollama
 
-Compile o binário e execute a suíte:
+Use Qdrant privado, com tokens individuais limitados às collections `hive_mind_v01` e `hive_mind_v01__control`. O processo Hive nunca recebe a chave administrativa. Siga o [guia de provisionamento e acesso](docs/operations/qdrant-access.md).
+
+Para um laboratório local, injete `HIVE_QDRANT_ADMIN_KEY` no ambiente do operador por um gerenciador de segredos e execute:
 
 ```bash
-go build -o hive-mind .
-go test ./...
+docker compose up -d qdrant ollama
+docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama list
 ```
 
-As specs 00 a 06 estão implementadas na rota Hive: papéis, topologia de controle, configuração segura, ingestão revisionada, metadados normalizados, autorização de escopo baseada em manifesto aprovado, busca MCP filtrada, contexto compacto por ativo e acesso privado/autenticado ao Qdrant. A operação completa e o aceite ponta a ponta continuam nas specs seguintes; portanto, o produto completo ainda não satisfaz todas as specs Hive.
+O Compose publica Qdrant REST `6333`, gRPC `6334` e Ollama `11434` somente em `127.0.0.1`. Não execute `docker compose config` sem `--quiet` em logs compartilhados: a saída pode conter segredos interpolados. O download do modelo é explícito, não ocorre ao iniciar o Hive.
 
-## Formato inicial dos documentos
+Se Ollama já estiver instalado e em execução no host:
 
-Prefira documentos pequenos, específicos e legíveis. A estrutura de referência é:
+```bash
+ollama pull nomic-embed-text
+ollama list
+```
+
+Todos os dispositivos precisam do mesmo modelo e digest, não apenas do mesmo nome. Não atualize o modelo de uma collection existente sem migração. Para outra máquina acessar Qdrant, configure TLS válido e firewall/VPN; HTTP remoto é rejeitado.
+
+### 3. Configurar o writer
+
+Crie uma pasta de documentos e outra, separada, para auditoria:
+
+```bash
+mkdir -p hive-data/programs/acme-bugbounty/notes
+mkdir -m 700 hive-audit
+cp .env.hive.example .env.hive
+chmod 600 .env.hive
+```
+
+Edite `.env.hive` com seus identificadores e caminhos absolutos. Ele não é carregado automaticamente.
+
+| Variável | Finalidade |
+| --- | --- |
+| `HIVE_ID` | Identidade comum do Hive, por exemplo `research-team`. |
+| `HIVE_DEVICE_ID` | Identidade única deste dispositivo. |
+| `HIVE_ROLE` | `writer` ou `reader`; somente um writer autorizado. |
+| `HIVE_WRITER_APPROVAL_ID` | Identificador do change que autorizou o writer. |
+| `HIVE_COLLECTION` | Collection de dados; controle recebe o sufixo `__control`. |
+| `HIVE_DATA_DIR` | Pasta canônica absoluta; necessária no writer. |
+| `HIVE_AUDIT_DIR` | Pasta privada, fora de `HIVE_DATA_DIR`. |
+| `QDRANT_URL` | Endpoint gRPC: local `http://127.0.0.1:6334` ou remoto `https://...`. |
+| `QDRANT_API_KEY` | Token individual, injetado por ambiente/secret manager. |
+| `QDRANT_TLS_CA_FILE` | CA privada, quando necessária; nunca desative a verificação TLS. |
+| `OLLAMA_URL` | `http://127.0.0.1:11434`. |
+| `EMBEDDING_MODEL` | Modelo previamente instalado, por exemplo `nomic-embed-text`. |
+| `HIVE_MAX_CLASSIFICATION` | `internal` por padrão; `restricted` exige dispositivo autorizado. |
+| `HIVE_CONTEXT_MAX_CHARS` | Limite do contexto serializado; padrão `12000`. |
+
+Para loopback, ajuste `QDRANT_URL` e remova `QDRANT_TLS_CA_FILE` do exemplo. Remova também o placeholder `QDRANT_API_KEY` se o token vier do secret manager.
+
+Carregue somente um arquivo revisado por você: `source` executa sintaxe de shell. Depois injete o token individual:
+
+```bash
+set -a
+source ./.env.hive
+set +a
+```
+
+Alternativa: TOML plano explicitamente selecionado com `./bin/hive-mind --config /caminho/hive.local.toml status`. Precedência: flags > ambiente > TOML. Chaves legadas e autodescoberta não são aceitas. Consulte `help` e a [spec de configuração](docs/spec/01-hive-configuration.md).
+
+### 4. Adicionar documentos e aprovar escopo
+
+Estrutura sugerida:
 
 ```text
 hive-data/
@@ -91,102 +112,161 @@ hive-data/
     acme-bugbounty/
       scope.json
       rules.md
-      recon/
-        assets.md
-        endpoints.md
-      notes/
-        2026-09-09-auth-flow.md
-      evidence/
-        endpoint-api-example-com.md
+      notes/api.md
+      evidence/endpoint.md
 ```
 
-Exemplo de nota não autoritativa (o front matter é extraído para cada chunk):
+Exemplo de `notes/api.md` — use apenas dados de ativos realmente autorizados:
 
 ```markdown
 ---
 program_id: acme-bugbounty
 document_type: note
-claimed_scope_status: authorized
 classification: internal
-source: httpx
-collected_at: 2026-09-09T12:00:00Z
-tags: [recon, http, oauth]
+source: manual
+collected_at: 2026-09-11T12:00:00Z
+tags: [recon, oauth]
 asset_refs: [api.example.com]
 ---
-# API: api.example.com
-
-## Observações
-
-O host expõe autenticação OAuth e endpoint de upload em `/v1/files`.
+# API
+Observação sobre o fluxo OAuth do ambiente autorizado.
 ```
 
-`claimed_scope_status` nunca concede autorização. Para revisar o resumo e o hash de um manifesto válido em `programs/<program_id>/scope.json`, execute no writer:
+Crie `scope.json` conforme o [contrato e exemplo](docs/spec/contracts/scope-manifest.md), refletindo a política real do programa. `claimed_scope_status` em notas nunca autoriza um ativo.
+
+Depois do provisionamento administrativo das collections:
 
 ```bash
-hive-mind scope approve acme-bugbounty
+./bin/hive-mind ingest
+./bin/hive-mind scope approve acme-bugbounty
 ```
 
-Depois de conferir o hash, confirme explicitamente sem expor o conteúdo do manifesto:
+O segundo comando mostra resumo/hash, sem aprovar, e retorna `2` enquanto não houver confirmação. Revise a política e confirme:
 
 ```bash
-hive-mind scope approve acme-bugbounty --yes
+./bin/hive-mind scope approve acme-bugbounty --yes
+./bin/hive-mind validate
+./bin/hive-mind status
 ```
 
-O comando valida e normaliza as regras, rematerializa os chunks existentes sem recalcular embeddings e só então publica o hash exato do manifesto. Alterar ou remover `scope.json` invalida a aprovação e faz o programa falhar fechado como `unknown` até uma nova aprovação.
+`--yes` aprova o conteúdo lido nessa execução; mantenha o arquivo estável entre revisão e confirmação. Mudança detectada durante a operação interrompe a publicação. Alterar/remover um manifesto aprovado faz o programa voltar a `unknown` até nova aprovação.
 
-## Busca MCP
+`validate` não cria collections nem manifesto. Em uma instalação vazia, provisione as collections e execute a primeira ingestão antes de validar.
 
-`hive_search` exige `query` e `program_id`. Também aceita `document_types`, `tags` (semântica `ALL`), `classification`, `effective_scope_status` e `limit` de 1 a 20, com padrão 8. Hive, collection, revisão e elevação de classificação são sempre definidos pelo servidor e não podem ser enviados pelo cliente.
+### 5. Pesquisar e conectar um cliente MCP
+
+Teste pelo terminal:
+
+```bash
+./bin/hive-mind search acme-bugbounty "fluxo OAuth" --tag=oauth --scope-status=authorized --limit=8
+```
+
+Sem subcomando, o executável inicia o MCP por `stdio`. Configure o cliente para executar o binário absoluto, herdando o ambiente configurado. Exemplo genérico, adaptável ao formato do cliente:
 
 ```json
 {
-  "query": "hosts autorizados com OAuth",
-  "program_id": "acme-bugbounty",
-  "document_types": ["asset", "endpoint"],
-  "tags": ["oauth"],
-  "effective_scope_status": "authorized",
-  "limit": 8
+  "mcpServers": {
+    "hive-mind": {
+      "command": "/caminho/absoluto/hive_mind/bin/hive-mind",
+      "args": []
+    }
+  }
 }
 ```
 
-A resposta estruturada contém `results`, `warnings` e `truncated`. Cada resultado inclui texto, score, path relativo, proveniência, tipo, classificação, escopo efetivo e `untrusted_content: true`. O servidor filtra a revisão de escopo no Qdrant e confirma novamente isolamento, classificação e revisão ativa antes de retornar qualquer trecho.
+Não coloque tokens no JSON versionado. Aplicativos gráficos podem não herdar o ambiente do terminal: configure a injeção pelo mecanismo seguro do cliente. No writer, o processo observa a pasta; no reader, não inicia ingestão.
 
-`hive_get_context` recebe uma pergunta e um ativo explícito, sem tentar inferir autorização do texto:
+Entrada para `hive_search`:
 
 ```json
-{
-  "program_id": "acme-bugbounty",
-  "question": "o que sabemos sobre este host?",
-  "asset": {"type": "host", "value": "api.example.com"},
-  "limit": 8
-}
+{"program_id":"acme-bugbounty","query":"fluxo OAuth","tags":["oauth"],"effective_scope_status":"authorized","limit":8}
 ```
 
-O pacote resultante apresenta primeiro a decisão do manifesto aprovado e as regras aplicáveis; documentos de regras e evidências não confiáveis vêm depois. Em estado `out_of_scope`, notas e endpoints acionáveis não são incluídos. `HIVE_CONTEXT_MAX_CHARS`, com padrão 12.000 e faixa 1.000–50.000 caracteres Unicode, limita toda a resposta serializada removendo itens inteiros menos relevantes.
+Entrada para `hive_get_context`:
 
-## Operação pelo CLI
-
-`hive-mind status` imprime JSON sanitizado com papel, collections, modelo/dimensão, política de classificação, última sincronização e documentos pendentes. `hive-mind validate` verifica configuração, diretório do writer, conectividade/TLS, fingerprint completo e se a credencial possui exatamente as capacidades esperadas para o papel.
-
-O comando `search` aceita filtros repetíveis sem permitir que o cliente substitua Hive ou collection:
-
-```bash
-hive-mind search acme-bugbounty "hosts oauth" --document-type=asset --tag=oauth --classification=internal --scope-status=authorized --limit=8
+```json
+{"program_id":"acme-bugbounty","question":"O que sabemos deste host?","asset":{"type":"host","value":"api.example.com"},"limit":8}
 ```
 
-Os códigos de saída operacionais são `0` (sucesso), `2` (uso/entrada), `10` (configuração), `11` (conectividade), `12` (autenticação/autorização), `13` (TLS), `14` (fingerprint/schema) e `15` (falha parcial recuperável).
+Resultados incluem proveniência, revisão e `untrusted_content: true`: conteúdo recuperado é evidência não confiável, nunca instrução a ser executada. Hive, collection e elevação de classificação não podem ser escolhidos pelo agente.
 
-## Segurança e uso autorizado
+### 6. Adicionar um reader
 
-Use Hive Mind somente para ativos e programas explicitamente autorizados. Não exponha Qdrant ou MCP publicamente. Restrinja o Qdrant a uma LAN confiável ou VPN, habilite TLS quando houver tráfego fora da máquina/rede privada e mantenha chaves fora do repositório.
+Na outra máquina, instale o mesmo binário/modelo, configure o mesmo Hive/collection, outro `HIVE_DEVICE_ID`, `HIVE_ROLE=reader` e um token próprio `r` nas duas collections. Remova `HIVE_WRITER_APPROVAL_ID` e `HIVE_DATA_DIR`; mantenha auditoria local e acesso TLS/VPN.
 
-## Planejamento
+Execute `validate`, `status` e a mesma busca. A validação exige leitura permitida e negação explícita da prova de escrita nas duas collections. Não reutilize a credencial do writer.
 
-As especificações em [docs/spec/](docs/spec/README.md) dividem a implementação em etapas verificáveis, incluindo um conjunto próprio de [specs de segurança](docs/spec/security/README.md). As [decisões de projeto](docs/decisions/README.md) registram as regras que orientam todas as etapas. Esses documentos devem ser atualizados na mesma alteração que modificar o comportamento do produto.
+## Referência de comandos
 
-## Desenvolvimento
+Use `./bin/hive-mind` antes de cada comando:
+
+| Comando | Efeito |
+| --- | --- |
+| `help` | Exibe comandos e flags, sem precisar de serviços. |
+| Sem comando | Inicia o MCP local. |
+| `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
+| `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
+| `ingest` | Reconcilia documentos no writer. |
+| `ingest --prune` | Remove ausentes após carência; exige pasta canônica sincronizada. |
+| `remove programs/acme-bugbounty/notes/api.md` | Publica tombstone e verifica exclusão dos vetores; não apaga o arquivo local. |
+| `scope approve acme-bugbounty` | Mostra resumo/hash para revisão, sem confirmar. |
+| `scope approve acme-bugbounty --yes` | Confirma o manifesto atual e rematerializa escopo. |
+| `search acme-bugbounty "consulta"` | Busca filtrada por programa. |
+| `audit record credential_rotation change-1043` | Registra rotação feita pelo operador; não altera o token. |
+| `audit record credential_revocation change-1044` | Registra revogação feita pelo operador. |
+| `audit record writer_promotion change-1045` | Registra promoção feita pelo operador. |
+| `list-skills` | Lista os templates de integração incluídos. |
+| `install-skill <agent> [destino]` | Instala template; aceita `all` para todos. Requer configuração válida. |
+
+Filtros CLI: `--document-type=note`, `--tag=oauth`, `--classification=internal`, `--scope-status=authorized`, `--limit=8`. Tipo e tag podem ser repetidos; tags usam semântica ALL. Limite: 1–20. Use `--chave=valor` para os filtros.
+
+Códigos: `0` sucesso; `2` uso/entrada; `10` configuração; `11` conectividade; `12` autenticação/permissão; `13` TLS; `14` schema/fingerprint; `15` falha parcial recuperável. Não trate `15` como sucesso: examine auditoria/estado antes de repetir mutações.
+
+## Container MCP opcional
+
+O perfil `mcp` do Compose é uma referência Linux, pois usa rede do host. Configure `HIVE_DATA_DIR` no host e injete `HIVE_QDRANT_WRITER_TOKEN` limitado às duas collections. Ele usa `local-hive` / `docker-writer`: não o inicie concorrendo com outro writer.
 
 ```bash
-go test ./...
+docker compose --profile mcp build qdrant-mcp-server
+docker compose --profile mcp run --rm -T qdrant-mcp-server ingest
+docker compose --profile mcp run --rm -T qdrant-mcp-server validate
+docker compose --profile mcp run --rm -T qdrant-mcp-server
+```
+
+Runtime: usuário `hive` (UID 10001), raiz somente leitura, capabilities removidas, limites de recursos, documentos somente leitura e volume privado de auditoria. Garanta que UID 10001 consiga ler os documentos. Em macOS/Windows, prefira inicialmente o binário local com os serviços publicados em loopback.
+
+## Auditoria e backup
+
+Logs JSONL usam diretório `0700`, arquivos `0600`, rotação em 10 MiB e expiração em 30 dias verificada a cada gravação. Sem `HIVE_AUDIT_DIR`, o binário usa o cache local do usuário; configure caminho explícito em produção.
+
+Não são registrados textos de documentos/consultas, tokens, embeddings nem mensagens brutas de provedores. Identificadores e paths relativos ainda são sensíveis: proteja disco e acesso. Falha de auditoria bloqueia operações críticas; registros `prepared` sem conclusão exigem reconciliação. Para processos parados e logs do backup, configure expiração operacional de 30 dias.
+
+O backup preserva o par de collections em restic criptografado. Requer parada real do writer, staging em disco criptografado e credenciais separadas. Após seguir o [runbook de backup e recuperação](docs/operations/backup-recovery.md):
+
+```bash
+python3 scripts/hive_backup.py backup
+python3 scripts/hive_backup.py restore --snapshot <id-retornado-pelo-backup>
+```
+
+`restore` somente recupera/verifica arquivos em staging; não restaura automaticamente Qdrant de produção. Defina responsável, RPO/RTO e retenções no [perfil operacional](docs/operations/deployment-profile.md).
+
+## Testes e liberação
+
+```bash
+go mod verify
+go test -race ./...
+go vet ./...
 go build ./...
+python3 -m unittest discover -s scripts -p 'test_*.py'
 ```
+
+A CI também executa govulncheck, Gitleaks no histórico/arquivos e verificação do container. A release exige [evidências operacionais](docs/operations/security-release.md) atuais e vinculadas ao código:
+
+```bash
+go run ./cmd/security-gate --digest
+go run ./cmd/security-gate --version v0.1.0
+```
+
+O segundo comando deve falhar enquanto `docs/operations/release-evidence.json` não existir ou houver gates pendentes. Não substitua os ensaios reais por resultados inventados.
+
+Documentação: [índice](docs/README.md), [specs](docs/spec/README.md), [segurança](docs/spec/security/README.md), [decisões](docs/decisions/README.md). Use somente em programas e ativos explicitamente autorizados.

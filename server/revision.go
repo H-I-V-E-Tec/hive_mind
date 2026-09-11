@@ -63,6 +63,9 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 	if iw.infrastructureReady {
 		return nil
 	}
+	if err := iw.audit(AuditEvent{Action: "infrastructure", Outcome: "prepared"}, true); err != nil {
+		return err
+	}
 
 	dimensionVector, err := iw.FetchRemoteEmbedding(ctx, "hive-mind dimension probe")
 	if err != nil {
@@ -243,10 +246,7 @@ func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) e
 	}
 	for _, collection := range []string{iw.Cfg.CollectionName, iw.Cfg.ControlCollection} {
 		if _, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: collection, Exact: qdrant.PtrOf(true)}); err != nil {
-			if status.Code(err) == codes.Unauthenticated || status.Code(err) == codes.PermissionDenied {
-				return errors.New("Qdrant credential cannot read the required Hive collections")
-			}
-			return errors.New("Qdrant capability check could not reach a required Hive collection")
+			return safeServiceError(err)
 		}
 		// Contradictory predicates can never match a point. Qdrant still
 		// authorizes the write at collection level, without changing any data.
@@ -284,19 +284,6 @@ func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) e
 			"record_type": "credential_probe", "hive_id": iw.Cfg.HiveID, "device_id": iw.Cfg.DeviceID,
 		})}},
 	})
-	if iw.Cfg.IsReader() {
-		if status.Code(writeErr) == codes.PermissionDenied {
-			return nil
-		}
-		if writeErr != nil {
-			if status.Code(writeErr) == codes.Unauthenticated {
-				return errors.New("Qdrant reader credential is not authenticated")
-			}
-			return errors.New("Qdrant reader write-denial check was inconclusive")
-		}
-		_, _ = iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(probeFilter)})
-		return errors.New("Qdrant reader credential permits writes")
-	}
 	if writeErr != nil {
 		if status.Code(writeErr) == codes.Unauthenticated || status.Code(writeErr) == codes.PermissionDenied {
 			return errors.New("Qdrant writer credential lacks read-write permission")

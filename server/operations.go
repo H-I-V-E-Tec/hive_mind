@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -124,8 +125,12 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 	if configErr != nil {
 		return report
 	}
+	add("audit_storage", iw.audit(AuditEvent{Action: "validation", Outcome: "prepared"}, true))
 	if iw.Cfg.IsWriter() {
 		_, err := validateDataDirectory(iw.Cfg.DataDirectory)
+		if err != nil {
+			err = &operationalError{ExitConfiguration, "writer data directory is unavailable"}
+		}
 		add("writer_data_directory", err)
 	}
 
@@ -140,11 +145,16 @@ func (iw *IngestionWorker) ValidateOperational(ctx context.Context) ValidationRe
 
 	infrastructureErr := iw.ValidateInfrastructure(ctx)
 	add("infrastructure_and_fingerprint", infrastructureErr)
-	if infrastructureErr == nil && qdrantErr == nil {
+	if qdrantErr == nil {
 		add("credential_capabilities", iw.ValidateCredentialCapabilities(ctx))
 	} else {
 		report.Checks = append(report.Checks, ValidationCheck{Name: "credential_capabilities", Status: "skipped", Detail: "prerequisite validation failed"})
 	}
+	outcome := "passed"
+	if !report.OK {
+		outcome = "failed"
+	}
+	add("audit_validation", iw.audit(AuditEvent{Action: "validation", Outcome: outcome}, true))
 	return report
 }
 
@@ -172,7 +182,18 @@ func classifyOperationalError(err error) int {
 	if code == codes.Unauthenticated || code == codes.PermissionDenied {
 		return ExitAuthorization
 	}
+	if code == codes.Unavailable || code == codes.DeadlineExceeded {
+		message := strings.ToLower(err.Error())
+		if strings.Contains(message, "tls") || strings.Contains(message, "certificate") || strings.Contains(message, "x509") {
+			return ExitTLS
+		}
+		return ExitConnectivity
+	}
 	message := strings.ToLower(err.Error())
+	var networkError net.Error
+	if errors.As(err, &networkError) && !strings.Contains(message, "certificate") {
+		return ExitConnectivity
+	}
 	switch {
 	case strings.Contains(message, "configuration"):
 		return ExitConfiguration
@@ -215,6 +236,9 @@ func parseSearchCLI(args []string) (HiveSearchArguments, error) {
 	var query []string
 	for _, arg := range args[1:] {
 		name, value, isFlag := strings.Cut(arg, "=")
+		if strings.HasPrefix(arg, "--") && !isFlag {
+			return result, errors.New("search flags require --name=value")
+		}
 		if !isFlag || !strings.HasPrefix(name, "--") {
 			query = append(query, arg)
 			continue
@@ -240,6 +264,66 @@ func parseSearchCLI(args []string) (HiveSearchArguments, error) {
 	}
 	result.Query = strings.Join(query, " ")
 	return result, nil
+}
+
+func splitCLIArgs(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, errors.New("missing invocation")
+	}
+	args := []string{raw[0]}
+	for i := 1; i < len(raw); i++ {
+		name, _, inline := strings.Cut(raw[i], "=")
+		_, config := configFlagKeys[name]
+		if config || name == "--config" {
+			if !inline {
+				i++
+				if i >= len(raw) || strings.HasPrefix(raw[i], "--") {
+					return nil, errors.New("missing configuration value")
+				}
+			}
+			continue
+		}
+		args = append(args, raw[i])
+	}
+	if len(args) == 1 {
+		return args, nil
+	}
+	switch args[1] {
+	case "audit":
+		if len(args) != 5 || args[2] != "record" || !validIdentifier(args[4], 64) {
+			return nil, errors.New("invalid audit command")
+		}
+		if args[3] != "credential_rotation" && args[3] != "credential_revocation" && args[3] != "writer_promotion" {
+			return nil, errors.New("invalid audit event")
+		}
+	case "help", "-h", "--help", "status", "validate", "list-skills":
+		if len(args) != 2 {
+			return nil, errors.New("unexpected arguments")
+		}
+	case "ingest":
+		if len(args) > 3 || (len(args) == 3 && args[2] != "--prune") {
+			return nil, errors.New("invalid ingest arguments")
+		}
+	case "remove":
+		if len(args) != 3 {
+			return nil, errors.New("remove requires a path")
+		}
+	case "scope":
+		if (len(args) != 4 && len(args) != 5) || args[2] != "approve" || (len(args) == 5 && args[4] != "--yes") {
+			return nil, errors.New("invalid scope arguments")
+		}
+	case "search":
+		if len(args) < 4 {
+			return nil, errors.New("search requires program and query")
+		}
+	case "install-skill":
+		if len(args) < 3 || len(args) > 4 {
+			return nil, errors.New("invalid install arguments")
+		}
+	default:
+		return nil, errors.New("unknown command")
+	}
+	return args, nil
 }
 
 func parsePositiveInt(value string) (int, error) {

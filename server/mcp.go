@@ -355,7 +355,7 @@ func hiveContextOutputSchema() map[string]interface{} {
 	asset := map[string]interface{}{
 		"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
-			"type": map[string]interface{}{"type": "string", "enum": []string{"host", "wildcard_domain", "ip", "cidr", "url_prefix"}},
+			"type":  map[string]interface{}{"type": "string", "enum": []string{"host", "wildcard_domain", "ip", "cidr", "url_prefix"}},
 			"value": map[string]interface{}{"type": "string"},
 		},
 		"required": []string{"type", "value"},
@@ -363,7 +363,7 @@ func hiveContextOutputSchema() map[string]interface{} {
 	matchedRule := map[string]interface{}{
 		"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
-			"action": map[string]interface{}{"type": "string", "enum": []string{"include", "exclude"}},
+			"action":     map[string]interface{}{"type": "string", "enum": []string{"include", "exclude"}},
 			"asset_type": map[string]interface{}{"type": "string"}, "value": map[string]interface{}{"type": "string"},
 			"reason": map[string]interface{}{"type": "string"},
 		},
@@ -372,10 +372,10 @@ func hiveContextOutputSchema() map[string]interface{} {
 	scope := map[string]interface{}{
 		"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
-			"status": map[string]interface{}{"type": "string", "enum": []string{"authorized", "out_of_scope", "unknown"}},
+			"status":    map[string]interface{}{"type": "string", "enum": []string{"authorized", "out_of_scope", "unknown"}},
 			"confirmed": map[string]interface{}{"type": "boolean"}, "action_allowed": map[string]interface{}{"type": "boolean"},
 			"scope_revision": map[string]interface{}{"type": "string"}, "source": map[string]interface{}{"type": []string{"string", "null"}},
-			"collected_at": map[string]interface{}{"type": []string{"string", "null"}},
+			"collected_at":  map[string]interface{}{"type": []string{"string", "null"}},
 			"matched_rules": map[string]interface{}{"type": "array", "items": matchedRule},
 		},
 		"required": []string{"status", "confirmed", "action_allowed", "scope_revision", "source", "collected_at", "matched_rules"},

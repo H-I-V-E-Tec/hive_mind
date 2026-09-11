@@ -17,20 +17,20 @@ RUN go mod download
 COPY . .
 
 # Build the Go app as a highly optimized static binary
-# -ldflags="-s -w" strips debug symbols for a smaller, faster binary
-# CGO_ENABLED=0 ensures the binary is fully static and runs in minimal environments
+# Tree-sitter requires CGO; build against musl for the Alpine runtime.
 ARG HIVE_VERSION=development
 ARG HIVE_SOURCE_REVISION=unknown
 RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w -X main.Version=${HIVE_VERSION} -X main.SourceRevision=${HIVE_SOURCE_REVISION}" -o qdrant-mcp-server main.go
 
 # --- Runtime Stage ---
-FROM alpine:3.19
+FROM alpine:3.24
 
 # Add CA certificates for secure connections (essential for HTTPS calls to Qdrant Cloud or external APIs)
 RUN apk add --no-cache ca-certificates tzdata
 
 # The MCP process has no reason to run with administrative privileges.
 RUN addgroup -S hive && adduser -S -D -H -u 10001 -G hive hive
+RUN mkdir -p /var/lib/hive/audit && chown -R hive:hive /var/lib/hive && chmod 0700 /var/lib/hive/audit
 
 # Set the working directory
 WORKDIR /app

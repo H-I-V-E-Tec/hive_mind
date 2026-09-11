@@ -1,0 +1,41 @@
+{
+  "version": "v0.1.0",
+  "source_digest": "UNSET",
+  "executed_at": "2000-01-01T00:00:00Z",
+  "owner": "UNSET",
+  "incident_channel": "UNSET",
+  "profile": {
+    "rpo_hours": 0,
+    "rto_hours": 0,
+    "document_retention_days": 0,
+    "vector_retention_days": 0,
+    "backup_retention_days": 0,
+    "log_retention_days": 30,
+    "prune_grace_hours": 24,
+    "restore_test_interval_days": 0
+  },
+  "gates": {
+    "writer_reader_validation": {"status": "pending", "file": "", "sha256": ""},
+    "private_tls_network": {"status": "pending", "file": "", "sha256": ""},
+    "encryption_at_rest": {"status": "pending", "file": "", "sha256": ""},
+    "individual_revocation": {"status": "pending", "file": "", "sha256": ""},
+    "writer_promotion": {"status": "pending", "file": "", "sha256": ""},
+    "credential_rotation": {"status": "pending", "file": "", "sha256": ""},
+    "paired_restore": {"status": "pending", "file": "", "sha256": ""},
+    "audit_privacy": {"status": "pending", "file": "", "sha256": ""},
+    "two_machine_acceptance": {"status": "pending", "file": "", "sha256": ""},
+    "container_verification": {"status": "pending", "file": "", "sha256": ""}
+  },
+  "threat_controls": {
+    "unauthorized_access": "UNSET",
+    "traffic_interception": "UNSET",
+    "data_leakage": "UNSET",
+    "cross_hive_access": "UNSET",
+    "prompt_injection": "UNSET",
+    "unsafe_paths": "UNSET",
+    "stale_revisions": "UNSET",
+    "concurrent_writers": "UNSET",
+    "supply_chain": "UNSET",
+    "data_loss": "UNSET"
+  }
+}

@@ -31,6 +31,23 @@ func TestSpec007ParsesSearchFiltersWithoutMixingThemIntoQuery(t *testing.T) {
 	}
 }
 
+func TestSpec007CLISeparatesConfigurationAndRejectsUnknownCommands(t *testing.T) {
+	args, err := splitCLIArgs([]string{"hive", "--config", "/private/hive.toml", "scope", "approve", "acme", "--yes", "--role=writer"})
+	if err != nil || strings.Join(args, " ") != "hive scope approve acme --yes" {
+		t.Fatalf("config leaked into positional arguments: %v %v", args, err)
+	}
+	for _, raw := range [][]string{{"hive", "typo"}, {"hive", "status", "extra"}, {"hive", "ingest", "--yes"}, {"hive", "--config"}} {
+		if _, err := splitCLIArgs(raw); err == nil {
+			t.Fatalf("invalid CLI accepted: %v", raw)
+		}
+	}
+	for _, limit := range []string{"0", "-1", "18446744073709551617"} {
+		if _, err := parsePositiveInt(limit); err == nil {
+			t.Fatalf("invalid/overflowed limit accepted: %s", limit)
+		}
+	}
+}
+
 func TestSpec007StatusIsSanitizedAndReportsSynchronization(t *testing.T) {
 	q := newMemoryQdrant()
 	worker, _ := specWorker(t, q)

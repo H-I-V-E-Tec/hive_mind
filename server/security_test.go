@@ -115,9 +115,9 @@ func TestSpec006ReferenceDeploymentIsPrivateAndUnprivileged(t *testing.T) {
 	dockerfile := string(dockerfileBytes)
 	runbook := string(runbookBytes)
 	for _, required := range []string{
-		"qdrant/qdrant:v1.10.0", "127.0.0.1:6334:6334",
+		"qdrant/qdrant:v1.18.3", "127.0.0.1:6334:6334",
 		"qdrant_storage:/qdrant/storage", "HIVE_QDRANT_ADMIN_KEY", "HIVE_QDRANT_WRITER_TOKEN",
-		"read_only: true", "cap_drop:", "no-new-privileges:true", ".:/workspace:ro",
+		"read_only: true", "cap_drop:", "no-new-privileges:true", "${HIVE_DATA_DIR:-./hive-data}:/workspace:ro",
 	} {
 		if !strings.Contains(compose, required) {
 			t.Errorf("reference deployment is missing %q", required)

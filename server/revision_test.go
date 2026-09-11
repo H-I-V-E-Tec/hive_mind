@@ -205,7 +205,7 @@ func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fileAudit:=worker.Audit.(*FileAudit)
+	fileAudit := worker.Audit.(*FileAudit)
 	t.Cleanup(func() { _ = fileAudit.Close() })
 	worker.HTTPClient.Transport = transportFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"embedding":[0.1,0.2,0.3]}`

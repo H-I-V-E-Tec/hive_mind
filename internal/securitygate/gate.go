@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,6 +52,11 @@ func Read(r io.Reader) (Report, error) {
 
 func Validate(root string, r Report, version, digest string, now time.Time) []string {
 	var failures []string
+	evidenceRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return []string{"cannot open evidence root"}
+	}
+	defer evidenceRoot.Close()
 	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?$`).MatchString(version) || r.Version != version {
 		failures = append(failures, "release version mismatch")
 	}
@@ -66,7 +72,7 @@ func Validate(root string, r Report, version, digest string, now time.Time) []st
 		}
 	}
 	for _, key := range ProfileKeys {
-		if r.Profile[key] <= 0 {
+		if r.Profile[key] <= 0 || math.IsNaN(r.Profile[key]) || math.IsInf(r.Profile[key], 0) {
 			failures = append(failures, "missing positive deployment parameter: "+key)
 		}
 	}
@@ -86,12 +92,12 @@ func Validate(root string, r Report, version, digest string, now time.Time) []st
 			failures = append(failures, "invalid evidence path: "+name)
 			continue
 		}
-		info, err := os.Lstat(filepath.Join(root, e.File))
-		if err != nil || !info.Mode().IsRegular() {
+		info, err := evidenceRoot.Lstat(e.File)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 20<<20 {
 			failures = append(failures, "missing evidence file: "+name)
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(root, e.File))
+		body, err := evidenceRoot.ReadFile(e.File)
 		sum := sha256.Sum256(body)
 		if err != nil || len(body) == 0 || hex.EncodeToString(sum[:]) != e.SHA256 {
 			failures = append(failures, "evidence hash mismatch: "+name)

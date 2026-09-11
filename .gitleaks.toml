@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Reviewed historical install.sh example: literal YOUR_TOKEN placeholder, not a credential"
+regexTarget = "secret"
+regexes = ['''^YOUR_TOKEN$''']

@@ -135,7 +135,7 @@ if [ -z "$VERSION" ]; then
         log_error "If this is a private repository, please pass GITHUB_TOKEN or specify the version manually, e.g.:"
         log_error "  curl -fsSL https://raw.githubusercontent.com/... | VERSION=1.4.0 sh"
         log_error "  Or with authentication:"
-        log_error "  curl -fsSL -H 'Authorization: token YOUR_TOKEN' https://raw.githubusercontent.com/... | GITHUB_TOKEN=YOUR_TOKEN sh"
+        log_error "  Inject GITHUB_TOKEN through a secret manager; do not place tokens in command arguments."
         exit 1
     fi
 fi

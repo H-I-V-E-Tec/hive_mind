@@ -4,4 +4,10 @@
 .env.hive
 .env.hive.local
 hive.local.toml
+__pycache__/
+*.pyc
+*.snapshot
+audit-*.jsonl
+backup-*-prepared.json
+backup-*-completed.json
 .DS_Store
