@@ -22,15 +22,15 @@ go run ./cmd/security-gate --version v0.1.0
 
 | Gate | Evidência mínima |
 | --- | --- |
-| `writer_reader_validation` | Validação real dos dois papéis; leitura e escrita/negação nas duas collections. |
+| `writer_reader_validation` | Validação real de cada writer (registro próprio, escrita) e de cada reader (leitura, escrita negada) nas duas collections. |
 | `private_tls_network` | Firewall/VPN, TLS válido, CA errada rejeitada e ausência de exposição pública. |
 | `encryption_at_rest` | Discos de documentos, Qdrant, staging e auditoria criptografados; acesso restrito. |
 | `individual_revocation` | Revogação de um dispositivo bloqueia seu acesso sem reutilização de segredo. |
-| `writer_promotion` | Revogação do writer anterior, atualização de registro e ausência de dois escritores. |
+| `writer_promotion` | Admissão de um writer novo com approval id e token próprios; revogação de um writer sem afetar os demais nem seus documentos; writer não registrado reprovado em `validate`. |
 | `credential_rotation` | Token novo funciona e antigo deixa de funcionar pelo mecanismo efetivo da implantação. |
 | `paired_restore` | Ensaio de restauração das duas collections com busca/escopo/revisões e RPO/RTO medidos. |
 | `audit_privacy` | Ausência de conteúdo/segredos nos logs, permissões, rotação, expiração e disco indisponível. |
-| `two_machine_acceptance` | Cenários da spec 08 executados em duas máquinas autorizadas. |
+| `two_machine_acceptance` | Cenários da spec 08 executados em máquinas autorizadas, incluindo os passos multi-writer; o [ensaio de quatro pessoas](four-person-trial.md) é a execução de referência. |
 | `container_verification` | Imagem final, usuário não root, limites, mounts, segredos e scanner de vulnerabilidades de SO. |
 
 Mapeie cada ameaça de `threat_controls` para controle e teste/relatório verificável. Resultados de scanner devem registrar versões e data. A CI Go não substitui um scanner dos pacotes da imagem, e um teste com mocks não substitui TLS/VPN ou restauração real.

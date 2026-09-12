@@ -34,6 +34,12 @@ type AuditEvent struct {
 	DurationMS     int64  `json:"duration_ms,omitempty"`
 	FilterHash     string `json:"filter_hash,omitempty"`
 	ChangeID       string `json:"change_id,omitempty"`
+	// Usage metrics for retrieval tools: size delivered to the agent versus
+	// size of the source documents it would otherwise have to read. Numbers
+	// only; they never carry text.
+	ResponseChars int64 `json:"response_chars,omitempty"`
+	SourceBytes   int64 `json:"source_bytes,omitempty"`
+	Truncated     bool  `json:"truncated,omitempty"`
 }
 
 type AuditSink interface{ Record(AuditEvent) error }

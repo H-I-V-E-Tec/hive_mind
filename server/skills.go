@@ -20,6 +20,12 @@ type Skill struct {
 
 var AvailableSkills = []Skill{
 	{
+		Key:         "claude",
+		Filename:    ".claude/skills/hive-mind/SKILL.md",
+		Description: "Claude Code skill (.claude/skills/hive-mind/SKILL.md)",
+		EmbedPath:   "skills/claude.md",
+	},
+	{
 		Key:         "cursor",
 		Filename:    ".cursorrules",
 		Description: "Cursor rules file (.cursorrules)",
@@ -60,10 +66,11 @@ var AvailableSkills = []Skill{
 // ListSkills outputs the supported agents and files they generate in a styled, premium layout
 func ListSkills() {
 	fmt.Println("\n==================================================================")
-	fmt.Println("🚀 Available Agent Skills for Qdrant MCP Server")
+	fmt.Println("🚀 Available Agent Skills for Hive Mind")
 	fmt.Println("==================================================================")
-	fmt.Println("Install these rule files in your project directory so your favorite")
-	fmt.Println("AI coding agents know when and how to leverage semantic search.")
+	fmt.Println("Install these rule files in your project directory so your AI agent")
+	fmt.Println("checks scope through the Hive before acting and writes reusable notes.")
+	fmt.Println("claude and codex are maintained for recon work; the others are legacy.")
 	fmt.Println()
 
 	for _, skill := range AvailableSkills {
@@ -72,9 +79,9 @@ func ListSkills() {
 
 	fmt.Println()
 	fmt.Println("\x1b[1;33mUsage examples:\x1b[0m")
-	fmt.Println("  qdrant-mcp-server install-skill cursor")
-	fmt.Println("  qdrant-mcp-server install-skill copilot /absolute/path/to/project")
-	fmt.Println("  qdrant-mcp-server install-skill all")
+	fmt.Println("  hive-mind install-skill claude")
+	fmt.Println("  hive-mind install-skill codex /absolute/path/to/project")
+	fmt.Println("  hive-mind install-skill all")
 	fmt.Println("==================================================================")
 }
 

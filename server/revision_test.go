@@ -186,6 +186,13 @@ func (f transportFunc) RoundTrip(req *http.Request) (*http.Response, error) { re
 
 func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 	t.Helper()
+	return specWorkerAs(t, q, "writer-1", "change-1", RoleWriter)
+}
+
+// specWorkerAs builds a worker for one device sharing the same in-memory
+// Qdrant, so tests can exercise several writers and readers of one Hive.
+func specWorkerAs(t *testing.T, q *memoryQdrant, deviceID, approvalID, role string) (*IngestionWorker, string) {
+	t.Helper()
 	root := t.TempDir()
 	canonicalRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -195,7 +202,7 @@ func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 	if err := os.MkdirAll(filepath.Join(root, "programs", "acme"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{HiveID: "test-hive", DeviceID: "writer-1", WriterApprovalID: "change-1", Role: RoleWriter, CollectionName: "hive_data", ControlCollection: "hive_data__control", DataDirectory: root, WatchDirectory: root,
+	cfg := Config{HiveID: "test-hive", DeviceID: deviceID, WriterApprovalID: approvalID, Role: role, CollectionName: "hive_data", ControlCollection: "hive_data__control", DataDirectory: root, WatchDirectory: root,
 		OllamaHost: "http://localhost:11434", EmbeddingModel: "embed-model", MaxEmbeddingWorkers: 1, MaxFileSize: 5 << 20, MaxChunksPerFile: 1000,
 		ChunkMaxChars: 2000, ChunkOverlapChars: 200, JSONMaxDepth: 64, JSONMaxElements: 100000, DeleteGrace: 24 * time.Hour, BatchSize: 100, BatchTimeout: time.Hour}
 	worker := NewIngestionWorker(cfg, q, nil)
@@ -218,10 +225,10 @@ func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
 	return worker, root
 }
 
-func TestSpec000CreatesControlTopologyAndRegistersWriter(t *testing.T) {
+func TestSpec000CreatesControlTopologyAndRegistersEveryWriter(t *testing.T) {
 	q := newMemoryQdrant()
-	worker, _ := specWorker(t, q)
-	if err := worker.EnsureInfrastructure(context.Background()); err != nil {
+	writerA, _ := specWorker(t, q)
+	if err := writerA.EnsureInfrastructure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !q.collections["hive_data"] || !q.collections["hive_data__control"] {
@@ -230,10 +237,148 @@ func TestSpec000CreatesControlTopologyAndRegistersWriter(t *testing.T) {
 	if len(q.points["hive_data__control"]) != 2 {
 		t.Fatalf("expected manifest and writer registration, got %d records", len(q.points["hive_data__control"]))
 	}
-	worker.Cfg.DeviceID = "writer-2"
-	worker.infrastructureReady = false
-	if err := worker.EnsureInfrastructure(context.Background()); err == nil {
-		t.Fatal("second writer was accepted")
+	writerB, _ := specWorkerAs(t, q, "writer-2", "change-2", RoleWriter)
+	if err := writerB.EnsureInfrastructure(context.Background()); err != nil {
+		t.Fatalf("second authorized writer was rejected: %v", err)
+	}
+	if len(q.points["hive_data__control"]) != 3 {
+		t.Fatalf("expected one registration per writer device, got %d records", len(q.points["hive_data__control"]))
+	}
+	registrations, err := writerB.writerRegistrations(context.Background())
+	if err != nil || len(registrations) != 2 {
+		t.Fatalf("expected two writer registrations, got %d (%v)", len(registrations), err)
+	}
+	for _, w := range []*IngestionWorker{writerA, writerB} {
+		w.infrastructureReady = false
+		if err := w.ValidateInfrastructure(context.Background()); err != nil {
+			t.Fatalf("registered writer %s failed validation: %v", w.Cfg.DeviceID, err)
+		}
+	}
+	writerB.Cfg.WriterApprovalID = "change-9"
+	writerB.infrastructureReady = false
+	if err := writerB.ValidateInfrastructure(context.Background()); err == nil {
+		t.Fatal("writer with a different approval identifier passed validation")
+	}
+	unregistered, _ := specWorkerAs(t, q, "writer-3", "change-3", RoleWriter)
+	if err := unregistered.ValidateInfrastructure(context.Background()); err == nil {
+		t.Fatal("unregistered writer device passed validation")
+	}
+	reader, _ := specWorkerAs(t, q, "reader-1", "", RoleReader)
+	if err := reader.ValidateInfrastructure(context.Background()); err != nil {
+		t.Fatalf("reader validation failed with registered writers: %v", err)
+	}
+}
+
+func writeNote(t *testing.T, root, rel, body string) string {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestMultiWriterDocumentOwnership(t *testing.T) {
+	q := newMemoryQdrant()
+	writerA, rootA := specWorker(t, q)
+	writerB, rootB := specWorkerAs(t, q, "writer-2", "change-2", RoleWriter)
+	pathA := writeNote(t, rootA, "programs/acme/notes/shared.md", "---\nprogram_id: acme\n---\nowned by A")
+	if err := writerA.SyncFileState(context.Background(), pathA); err != nil {
+		t.Fatal(err)
+	}
+	docID := deterministicUUID("document", "test-hive", "acme", "programs/acme/notes/shared.md")
+	head, _ := writerA.readDocumentHead(context.Background(), docID)
+	if head.WriterDeviceID != "writer-1" || head.Bytes != int64(len("---\nprogram_id: acme\n---\nowned by A")) {
+		t.Fatalf("head did not record owner and size: %+v", head)
+	}
+	chunksBefore := len(q.points["hive_data"])
+
+	pathB := writeNote(t, rootB, "programs/acme/notes/shared.md", "---\nprogram_id: acme\n---\nB tries to overwrite")
+	if err := writerB.SyncFileState(context.Background(), pathB); !errors.Is(err, errForeignDocument) {
+		t.Fatalf("foreign document was not skipped: %v", err)
+	}
+	if len(q.points["hive_data"]) != chunksBefore {
+		t.Fatal("another writer changed the published chunks")
+	}
+	writeNote(t, rootB, "programs/acme/notes/own.md", "---\nprogram_id: acme\n---\nowned by B")
+	summary, err := writerB.SyncWorkspace(context.Background())
+	if err != nil || summary.Ingested != 1 || summary.Skipped != 1 {
+		t.Fatalf("workspace sync must skip foreign documents without failing: %+v %v", summary, err)
+	}
+	ownID := deterministicUUID("document", "test-hive", "acme", "programs/acme/notes/own.md")
+	if ownHead, _ := writerB.readDocumentHead(context.Background(), ownID); ownHead == nil || ownHead.WriterDeviceID != "writer-2" {
+		t.Fatal("writer B did not own its new document")
+	}
+
+	err = writerB.RemoveDocument(context.Background(), pathB, "operator_requested")
+	var opErr *operationalError
+	if !errors.As(err, &opErr) || opErr.code != ExitAuthorization {
+		t.Fatalf("removing a foreign document must be an authorization error, got %v", err)
+	}
+	if head, _ = writerA.readDocumentHead(context.Background(), docID); head.State != "active" {
+		t.Fatal("foreign removal changed the head state")
+	}
+
+	if err := os.Remove(pathA); err != nil {
+		t.Fatal(err)
+	}
+	if err := writerA.SyncFileState(context.Background(), pathA); err != nil {
+		t.Fatal(err)
+	}
+	if err := writerB.MarkPendingDelete(context.Background(), pathB); !errors.Is(err, errForeignDocument) {
+		t.Fatalf("foreign pending delete was not refused: %v", err)
+	}
+	later := time.Now().Add(25 * time.Hour)
+	if removed, err := writerB.PrunePending(context.Background(), later); err != nil || removed != 0 {
+		t.Fatalf("writer B pruned a document it does not own: %d %v", removed, err)
+	}
+	if removed, err := writerA.PrunePending(context.Background(), later); err != nil || removed != 1 {
+		t.Fatalf("owner could not prune its pending document: %d %v", removed, err)
+	}
+}
+
+func TestScopeApprovalOwnedByApprover(t *testing.T) {
+	q := newMemoryQdrant()
+	writerA, rootA := specWorker(t, q)
+	writeScopeFixture(t, rootA, `[{"action":"include","asset_type":"host","value":"api.example.com"}]`)
+	if _, err := writerA.SyncWorkspace(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := writerA.ScopeApprovalPreview("acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writerA.ApproveScopeRevision(context.Background(), "acme", preview.SHA256); err != nil {
+		t.Fatal(err)
+	}
+
+	writerB, rootB := specWorkerAs(t, q, "writer-2", "change-2", RoleWriter)
+	if err := os.MkdirAll(filepath.Join(rootB, "programs", "acme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	note := writeNote(t, rootB, "programs/acme/notes/b.md", "---\nprogram_id: acme\nasset_refs: [api.example.com]\n---\nB evidence")
+	if err := writerB.SyncFileState(context.Background(), note); err != nil {
+		t.Fatalf("writer without a local manifest could not ingest into an approved program: %v", err)
+	}
+	if revision, _ := writerB.controlScopeRevision(context.Background(), "acme"); revision != preview.SHA256 {
+		t.Fatalf("writer B invalidated an approval it does not own: %q", revision)
+	}
+	noteID := deterministicUUID("document", "test-hive", "acme", "programs/acme/notes/b.md")
+	for _, point := range q.points["hive_data"] {
+		if payloadString(point.Payload, "document_id", "") == noteID && payloadString(point.Payload, "effective_scope_status", "") != "authorized" {
+			t.Fatalf("writer B did not derive scope from the approved manifest: %s", payloadString(point.Payload, "effective_scope_status", ""))
+		}
+	}
+	// The approver's local manifest still governs: changing it revokes scope.
+	writeScopeFixture(t, rootA, `[{"action":"include","asset_type":"host","value":"other.example.com"}]`)
+	if _, _, err := writerA.resolveActiveScope(context.Background(), "acme"); err != nil {
+		t.Fatal(err)
+	}
+	if revision, _ := writerA.controlScopeRevision(context.Background(), "acme"); revision != "unapproved" {
+		t.Fatal("changed manifest on the approving writer did not invalidate the approval")
 	}
 }
 

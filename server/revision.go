@@ -40,6 +40,32 @@ type documentHead struct {
 	State            string
 	PendingSince     string
 	CreatedAt        string
+	WriterDeviceID   string
+	Bytes            int64
+}
+
+// errForeignDocument marks a document whose head belongs to another writer.
+// Writers skip it instead of failing so synchronized folders can be ingested
+// from several devices without clobbering each other's revisions.
+var errForeignDocument = errors.New("document is owned by another writer")
+
+func (iw *IngestionWorker) ownsHead(head *documentHead) bool {
+	return head == nil || head.WriterDeviceID == "" || head.WriterDeviceID == iw.Cfg.DeviceID
+}
+
+// headPayload is the single serializer for document_head records so every
+// rewrite preserves ownership and size metadata.
+func headPayload(head *documentHead, now string) map[string]any {
+	payload := map[string]any{
+		"document_id": head.DocumentID, "program_id": head.ProgramID, "path": head.Path,
+		"active_document_revision": head.DocumentRevision, "active_scope_revision": head.ScopeRevision,
+		"chunk_count": int64(head.ChunkCount), "state": head.State, "created_at": head.CreatedAt, "updated_at": now,
+		"writer_device_id": head.WriterDeviceID, "document_bytes": head.Bytes,
+	}
+	if head.PendingSince != "" {
+		payload["pending_since"] = head.PendingSince
+	}
+	return payload
 }
 
 type ollamaTagsResponse struct {
@@ -120,7 +146,7 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 		"record_type": "writer_registration", "hive_id": iw.Cfg.HiveID,
 		"writer_device_id": iw.Cfg.DeviceID, "operational_approval_id": iw.Cfg.WriterApprovalID,
 	}
-	if err := iw.ensureImmutableControl(ctx, "writer_registration", iw.Cfg.HiveID, registration); err != nil {
+	if err := iw.ensureImmutableControl(ctx, "writer_registration", iw.Cfg.DeviceID, registration); err != nil {
 		return fmt.Errorf("writer registration: %w", err)
 	}
 	iw.infrastructureReady = true
@@ -225,15 +251,50 @@ func (iw *IngestionWorker) ValidateInfrastructure(ctx context.Context) error {
 			return fmt.Errorf("incompatible collection manifest field %s", field)
 		}
 	}
-	registrations, err := iw.controlRows(ctx, "writer_registration", iw.Cfg.HiveID)
+	registrations, err := iw.writerRegistrations(ctx)
 	if err != nil {
 		return err
 	}
-	if len(registrations) != 1 || payloadString(registrations[0].Payload, "writer_device_id", "") == "" {
-		return errors.New("exactly one writer registration is required")
+	if len(registrations) == 0 {
+		return errors.New("at least one writer registration is required")
+	}
+	if iw.Cfg.IsWriter() {
+		var own *qdrant.RetrievedPoint
+		for _, row := range registrations {
+			if payloadString(row.Payload, "writer_device_id", "") == iw.Cfg.DeviceID {
+				own = row
+				break
+			}
+		}
+		if own == nil {
+			return errors.New("this writer device is not registered; run ingest once to register it")
+		}
+		if payloadString(own.Payload, "operational_approval_id", "") != iw.Cfg.WriterApprovalID {
+			return errors.New("writer registration approval does not match HIVE_WRITER_APPROVAL_ID")
+		}
 	}
 	iw.infrastructureReady = true
 	return nil
+}
+
+// writerRegistrations lists every registered writer device for this Hive.
+func (iw *IngestionWorker) writerRegistrations(ctx context.Context) ([]*qdrant.RetrievedPoint, error) {
+	rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{
+		CollectionName: iw.Cfg.ControlCollection,
+		Filter: &qdrant.Filter{Must: []*qdrant.Condition{
+			qdrant.NewMatchKeyword("record_type", "writer_registration"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+		}}, Limit: qdrant.PtrOf(uint32(256)), WithPayload: qdrant.NewWithPayloadEnable(true),
+	})
+	if err != nil {
+		return nil, err
+	}
+	valid := make([]*qdrant.RetrievedPoint, 0, len(rows))
+	for _, row := range rows {
+		if payloadString(row.Payload, "writer_device_id", "") != "" {
+			valid = append(valid, row)
+		}
+	}
+	return valid, nil
 }
 
 // ValidateCredentialCapabilities actively proves that the configured Qdrant
@@ -371,9 +432,6 @@ func (iw *IngestionWorker) ensureImmutableControl(ctx context.Context, recordTyp
 			if payloadComparable(rows[0].Payload[field]) != fmt.Sprint(value) {
 				return fmt.Errorf("incompatible %s field %s", recordType, field)
 			}
-		}
-		if recordType == "writer_registration" && payloadString(rows[0].Payload, "writer_device_id", "") != iw.Cfg.DeviceID {
-			return errors.New("another writer is registered for this Hive")
 		}
 		return nil
 	}
@@ -513,6 +571,10 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	if err != nil {
 		return err
 	}
+	if !iw.ownsHead(head) {
+		_ = iw.audit(AuditEvent{Action: "document_skipped", Outcome: "foreign_writer", Program: programID, Document: documentID, Path: relPath}, false)
+		return errForeignDocument
+	}
 	tombstoned, err := iw.isTombstoned(ctx, documentID)
 	if err != nil {
 		return err
@@ -529,11 +591,9 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 		}
 		if head.State == "pending_delete" {
 			now := time.Now().UTC().Format(time.RFC3339Nano)
-			return iw.upsertControl(ctx, "document_head", documentID, map[string]any{
-				"document_id": documentID, "program_id": head.ProgramID, "path": head.Path,
-				"active_document_revision": head.DocumentRevision, "active_scope_revision": head.ScopeRevision,
-				"chunk_count": int64(head.ChunkCount), "state": "active", "created_at": head.CreatedAt, "updated_at": now,
-			})
+			revived := *head
+			revived.State, revived.PendingSince, revived.WriterDeviceID, revived.Bytes = "active", "", iw.Cfg.DeviceID, int64(len(content))
+			return iw.upsertControl(ctx, "document_head", documentID, headPayload(&revived, now))
 		}
 	}
 
@@ -579,11 +639,12 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	if head != nil && head.CreatedAt != "" {
 		created = head.CreatedAt
 	}
-	if err := iw.upsertControl(ctx, "document_head", documentID, map[string]any{
-		"document_id": documentID, "program_id": programID, "path": relPath,
-		"active_document_revision": documentRevision, "active_scope_revision": scopeRevision,
-		"chunk_count": int64(len(points)), "state": "active", "created_at": created, "updated_at": now,
-	}); err != nil {
+	if err := iw.upsertControl(ctx, "document_head", documentID, headPayload(&documentHead{
+		DocumentID: documentID, ProgramID: programID, Path: relPath,
+		DocumentRevision: documentRevision, ScopeRevision: scopeRevision,
+		ChunkCount: len(points), State: "active", CreatedAt: created,
+		WriterDeviceID: iw.Cfg.DeviceID, Bytes: int64(len(content)),
+	}, now)); err != nil {
 		return fmt.Errorf("commit document head: %w", err)
 	}
 
@@ -617,7 +678,7 @@ func (iw *IngestionWorker) readDocumentHead(ctx context.Context, documentID stri
 	return &documentHead{DocumentID: documentID, ProgramID: payloadString(p, "program_id", ""), Path: payloadString(p, "path", ""),
 		DocumentRevision: payloadString(p, "active_document_revision", ""), ScopeRevision: payloadString(p, "active_scope_revision", ""),
 		ChunkCount: int(payloadInt(p, "chunk_count")), State: payloadString(p, "state", ""), PendingSince: payloadString(p, "pending_since", ""),
-		CreatedAt: payloadString(p, "created_at", ""),
+		CreatedAt: payloadString(p, "created_at", ""), WriterDeviceID: payloadString(p, "writer_device_id", ""), Bytes: payloadInt(p, "document_bytes"),
 	}, nil
 }
 
@@ -633,6 +694,13 @@ func (iw *IngestionWorker) isTombstoned(ctx context.Context, documentID string) 
 }
 
 func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []*qdrant.ScoredPoint) ([]*qdrant.ScoredPoint, error) {
+	filtered, _, err := iw.filterActiveCandidatesWithHeads(ctx, points)
+	return filtered, err
+}
+
+// filterActiveCandidatesWithHeads also returns the heads it loaded, keyed by
+// document_id, so callers can report document sizes without another round trip.
+func (iw *IngestionWorker) filterActiveCandidatesWithHeads(ctx context.Context, points []*qdrant.ScoredPoint) ([]*qdrant.ScoredPoint, map[string]*documentHead, error) {
 	cache := make(map[string]*documentHead)
 	tombstoneCache := make(map[string]bool)
 	scopeCache := make(map[string]string)
@@ -648,7 +716,7 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 			var err error
 			tombstoned, err = iw.isTombstoned(ctx, documentID)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			tombstoneCache[documentID] = tombstoned
 		}
@@ -660,7 +728,7 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 			var err error
 			head, err = iw.readDocumentHead(ctx, documentID)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			cache[documentID] = head
 		}
@@ -670,7 +738,7 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 			var err error
 			expectedScope, err = iw.controlScopeRevision(ctx, programID)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			scopeCache[programID] = expectedScope
 		}
@@ -681,7 +749,7 @@ func (iw *IngestionWorker) filterActiveCandidates(ctx context.Context, points []
 		}
 		filtered = append(filtered, point)
 	}
-	return filtered, nil
+	return filtered, cache, nil
 }
 
 func (iw *IngestionWorker) secureReadDocument(path string) ([]byte, string, string, os.FileInfo, error) {
@@ -925,16 +993,16 @@ func (iw *IngestionWorker) MarkPendingDelete(ctx context.Context, path string) e
 	if err != nil || head == nil {
 		return err
 	}
+	if !iw.ownsHead(head) {
+		return errForeignDocument
+	}
 	if head.State == "deleted" || head.State == "pending_delete" {
 		return nil
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	return iw.upsertControl(ctx, "document_head", documentID, map[string]any{
-		"document_id": documentID, "program_id": head.ProgramID, "path": head.Path,
-		"active_document_revision": head.DocumentRevision, "active_scope_revision": head.ScopeRevision,
-		"chunk_count": int64(head.ChunkCount), "state": "pending_delete", "pending_since": now,
-		"created_at": head.CreatedAt, "updated_at": now,
-	})
+	pending := *head
+	pending.State, pending.PendingSince, pending.WriterDeviceID = "pending_delete", now, iw.Cfg.DeviceID
+	return iw.upsertControl(ctx, "document_head", documentID, headPayload(&pending, now))
 }
 
 // RemoveDocument confirms intent with a tombstone before deleting chunks.
@@ -957,6 +1025,9 @@ func (iw *IngestionWorker) RemoveDocument(ctx context.Context, path, reason stri
 	if err != nil || head == nil {
 		return err
 	}
+	if !iw.ownsHead(head) {
+		return &operationalError{ExitAuthorization, "document is owned by another writer"}
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if err := iw.upsertControl(ctx, "tombstone", documentID, map[string]any{
 		"program_id": head.ProgramID, "path": head.Path,
@@ -965,11 +1036,9 @@ func (iw *IngestionWorker) RemoveDocument(ctx context.Context, path, reason stri
 	}); err != nil {
 		return fmt.Errorf("write tombstone: %w", err)
 	}
-	if err := iw.upsertControl(ctx, "document_head", documentID, map[string]any{
-		"document_id": documentID, "program_id": head.ProgramID, "path": head.Path,
-		"active_document_revision": head.DocumentRevision, "active_scope_revision": head.ScopeRevision,
-		"chunk_count": int64(head.ChunkCount), "state": "deleted", "created_at": head.CreatedAt, "updated_at": now,
-	}); err != nil {
+	deleted := *head
+	deleted.State, deleted.PendingSince, deleted.WriterDeviceID = "deleted", "", iw.Cfg.DeviceID
+	if err := iw.upsertControl(ctx, "document_head", documentID, headPayload(&deleted, now)); err != nil {
 		return fmt.Errorf("commit deleted head: %w", err)
 	}
 	_, err = iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.CollectionName, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(&qdrant.Filter{Must: []*qdrant.Condition{qdrant.NewMatchKeyword("document_id", documentID)}})})
@@ -1000,6 +1069,9 @@ func (iw *IngestionWorker) PrunePending(ctx context.Context, now time.Time) (int
 	}
 	removed := 0
 	for _, row := range rows {
+		if owner := payloadString(row.Payload, "writer_device_id", ""); owner != "" && owner != iw.Cfg.DeviceID {
+			continue
+		}
 		pendingSince, err := time.Parse(time.RFC3339Nano, payloadString(row.Payload, "pending_since", ""))
 		if err != nil {
 			return removed, errors.New("invalid pending_delete timestamp")
@@ -1016,12 +1088,19 @@ func (iw *IngestionWorker) PrunePending(ctx context.Context, now time.Time) (int
 	return removed, nil
 }
 
-func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (int, error) {
+// SyncSummary reports one workspace reconciliation. Skipped counts documents
+// owned by other writers; they are not errors.
+type SyncSummary struct {
+	Ingested int `json:"ingested"`
+	Skipped  int `json:"skipped"`
+}
+
+func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (SyncSummary, error) {
 	if !iw.Cfg.IsWriter() {
-		return 0, errors.New("workspace ingestion requires HIVE_ROLE=writer")
+		return SyncSummary{}, errors.New("workspace ingestion requires HIVE_ROLE=writer")
 	}
 	if err := iw.EnsureInfrastructure(ctx); err != nil {
-		return 0, err
+		return SyncSummary{}, err
 	}
 	var paths []string
 	err := filepath.WalkDir(iw.Cfg.DataDirectory, func(path string, entry os.DirEntry, walkErr error) error {
@@ -1043,7 +1122,7 @@ func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (int, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return SyncSummary{}, err
 	}
 	sort.Strings(paths)
 	workers := iw.Cfg.MaxEmbeddingWorkers
@@ -1054,18 +1133,23 @@ func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (int, error) {
 	var wg sync.WaitGroup
 	var firstErr error
 	var errMu sync.Mutex
+	var summary SyncSummary
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for path := range jobs {
-				if err := iw.SyncFileState(ctx, path); err != nil {
-					errMu.Lock()
-					if firstErr == nil {
-						firstErr = fmt.Errorf("ingest %s: %w", filepath.Base(path), err)
-					}
-					errMu.Unlock()
+				err := iw.SyncFileState(ctx, path)
+				errMu.Lock()
+				switch {
+				case err == nil:
+					summary.Ingested++
+				case errors.Is(err, errForeignDocument):
+					summary.Skipped++
+				case firstErr == nil:
+					firstErr = fmt.Errorf("ingest %s: %w", filepath.Base(path), err)
 				}
+				errMu.Unlock()
 			}
 		}()
 	}
@@ -1080,7 +1164,7 @@ sendLoop:
 	close(jobs)
 	wg.Wait()
 	if firstErr != nil {
-		return len(paths), firstErr
+		return summary, firstErr
 	}
-	return len(paths), ctx.Err()
+	return summary, ctx.Err()
 }

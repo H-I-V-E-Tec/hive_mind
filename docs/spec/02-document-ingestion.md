@@ -14,18 +14,18 @@ O hash de conteúdo é SHA-256 dos bytes originais. `document_id` é um UUID v5 
 
 ## Publicação de uma revisão
 
-1. O writer lê e valida o arquivo por um descritor seguro, calcula todos os chunks e conclui todos os embeddings sem alterar a revisão ativa.
+1. O writer lê e valida o arquivo por um descritor seguro, confirma que o `document_id` não pertence a outro writer, calcula todos os chunks e conclui todos os embeddings sem alterar a revisão ativa. Documento de outro writer é ignorado com evento de auditoria `document_skipped`/`foreign_writer`; `ingest` informa quantos foram ignorados e não os trata como erro.
 2. Grava os pontos da nova revisão com confirmação `wait=true` e verifica a quantidade persistida.
-3. Atualiza, também com confirmação, o registro de `document_id` na collection de controle para apontar para a nova combinação de revisão de documento e escopo.
+3. Atualiza, também com confirmação, o registro de `document_id` na collection de controle para apontar para a nova combinação de revisão de documento e escopo, gravando `writer_device_id` do dono e `document_bytes` (tamanho do arquivo original, usado somente para métricas de uso).
 4. Somente após o commit remove os pontos da revisão anterior. Falha na limpeza deixa pontos inativos recuperáveis e gera pendência de reconciliação; não invalida a revisão ativa.
 
 Arquivos inalterados não geram upsert. Falha antes do commit mantém a revisão anterior ativa. Falha depois do commit nunca reativa silenciosamente a revisão antiga.
 
-Ausência observada pelo watcher apenas marca o documento como `pending_delete`. Exclusão efetiva exige `hive-mind remove <path>` ou `ingest --prune` depois do período de carência configurado, grava primeiro um tombstone na collection de controle e só então remove os chunks. Isso evita interpretar atraso de sincronização como exclusão intencional.
+Ausência observada pelo watcher apenas marca o documento como `pending_delete`, e somente quando o writer observador é o dono. Exclusão efetiva exige `hive-mind remove <path>` ou `ingest --prune` depois do período de carência configurado, grava primeiro um tombstone na collection de controle e só então remove os chunks; ambos agem apenas sobre documentos do próprio writer. Isso evita interpretar atraso de sincronização, ou a ausência do arquivo na pasta de outro writer, como exclusão intencional.
 
 ## Segurança
 
-Somente o writer ingere. O caminho real não pode escapar de `HIVE_DATA_DIR`; symlinks externos, dispositivos, sockets e troca do alvo entre validação e leitura devem falhar fechados. Logs registram identificação e motivo de erro sem conteúdo do documento.
+Somente writers registrados ingerem, cada um restrito aos documentos que possui. O caminho real não pode escapar de `HIVE_DATA_DIR`; symlinks externos, dispositivos, sockets e troca do alvo entre validação e leitura devem falhar fechados. Logs registram identificação e motivo de erro sem conteúdo do documento.
 
 ## Aceite e testes
 
@@ -33,3 +33,4 @@ Somente o writer ingere. O caminho real não pode escapar de `HIVE_DATA_DIR`; sy
 - Reingestão é idempotente; atualização bem-sucedida só publica a revisão completa e reconcilia chunks inativos.
 - Falhas antes, durante e depois de cada etapa de publicação preservam uma revisão consultável e correta.
 - Testes cobrem path traversal, troca de symlink, arquivo especial, binário, JSON profundo, tamanho/quantidade máximos, `.gitignore`, tombstone e atraso de sincronização.
+- Testes cobrem dois writers: ingestão do mesmo path é ignorada pelo não dono sem alterar chunks, `ingest` conta o documento como ignorado, e `remove`/`pending_delete`/prune de documento alheio são negados.

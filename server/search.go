@@ -31,6 +31,9 @@ type HiveSearchArguments struct {
 	EffectiveScopeStatus string   `json:"effective_scope_status,omitempty"`
 	Limit                *int     `json:"limit,omitempty"`
 	AssetRef             string   `json:"-"`
+	// nested marks a search issued by hive_get_context; the parent tool audits
+	// the aggregate so usage metrics are not double counted.
+	nested bool
 }
 
 type HiveSearchResult struct {
@@ -45,6 +48,7 @@ type HiveSearchResult struct {
 	UntrustedContent     bool    `json:"untrusted_content"`
 	documentID           string
 	chunkOrdinal         int64
+	documentBytes        int64
 }
 
 type HiveSearchResponse struct {
@@ -67,6 +71,9 @@ func invalidSearch(message string) error { return &searchValidationError{message
 func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArguments) (out HiveSearchResponse, resultErr error) {
 	started := time.Now()
 	defer func() {
+		if args.nested {
+			return
+		}
 		outcome := "completed"
 		if resultErr != nil {
 			outcome = "failed"
@@ -75,7 +82,9 @@ func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArgume
 			Types, Tags           []string
 			Classification, Scope string
 		}{args.DocumentTypes, args.Tags, args.Classification, args.EffectiveScopeStatus})
-		_ = iw.audit(AuditEvent{Action: "hive_search", Outcome: outcome, Program: args.ProgramID, Count: len(out.Results), DurationMS: time.Since(started).Milliseconds(), FilterHash: sha256Hex(filters)}, false)
+		chars, sourceBytes := usageMetrics(out, out.Results)
+		_ = iw.audit(AuditEvent{Action: "hive_search", Outcome: outcome, Program: args.ProgramID, Count: len(out.Results), DurationMS: time.Since(started).Milliseconds(), FilterHash: sha256Hex(filters),
+			ResponseChars: chars, SourceBytes: sourceBytes, Truncated: out.Truncated}, false)
 	}()
 	args, limit, err := iw.validateHiveSearch(args)
 	if err != nil {
@@ -98,7 +107,7 @@ func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArgume
 		return HiveSearchResponse{}, errors.New("semantic retrieval failed")
 	}
 	points = iw.enforceSearchBoundary(points, args, scopeRevision)
-	active, err := iw.filterActiveCandidates(ctx, points)
+	active, heads, err := iw.filterActiveCandidatesWithHeads(ctx, points)
 	if err != nil {
 		return HiveSearchResponse{}, errors.New("active revision validation failed")
 	}
@@ -130,13 +139,18 @@ func (iw *IngestionWorker) HiveSearch(ctx context.Context, args HiveSearchArgume
 			response.Warnings = appendWarning(response.Warnings, "result text was truncated to the response safety limit")
 		}
 		remainingText -= len(text)
+		documentID := payloadString(point.Payload, "document_id", "")
+		var documentBytes int64
+		if head := heads[documentID]; head != nil {
+			documentBytes = head.Bytes
+		}
 		response.Results = append(response.Results, HiveSearchResult{
 			Text: text, Score: point.Score, Path: payloadString(point.Payload, "path", ""),
 			Source: optionalPayloadString(point.Payload, "source"), CollectedAt: optionalPayloadString(point.Payload, "collected_at"),
 			DocumentType:         payloadString(point.Payload, "document_type", "unknown"),
 			EffectiveScopeStatus: payloadString(point.Payload, "effective_scope_status", "unknown"),
 			Classification:       payloadString(point.Payload, "classification", "unknown"), UntrustedContent: true,
-			documentID: payloadString(point.Payload, "document_id", ""), chunkOrdinal: payloadInt(point.Payload, "chunk_ordinal"),
+			documentID: documentID, chunkOrdinal: payloadInt(point.Payload, "chunk_ordinal"), documentBytes: documentBytes,
 		})
 		if remainingText == 0 {
 			break
@@ -316,6 +330,26 @@ func truncateUTF8Bytes(value string, maxBytes int) string {
 		value = value[:len(value)-1]
 	}
 	return value
+}
+
+// usageMetrics measures what a retrieval tool delivered: the serialized
+// response size the agent reads and the total size of the distinct source
+// documents it would otherwise have to load. Used only for audit numbers.
+func usageMetrics(response any, items []HiveSearchResult) (int64, int64) {
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return 0, 0
+	}
+	seen := make(map[string]bool, len(items))
+	var sourceBytes int64
+	for _, item := range items {
+		if item.documentID == "" || seen[item.documentID] {
+			continue
+		}
+		seen[item.documentID] = true
+		sourceBytes += item.documentBytes
+	}
+	return int64(utf8.RuneCount(encoded)), sourceBytes
 }
 
 func appendWarning(warnings []string, warning string) []string {

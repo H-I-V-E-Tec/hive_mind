@@ -1,6 +1,6 @@
 # Configurar Qdrant e usar o Hive Mind no Codex
 
-Este guia prepara um laboratório local: Qdrant e Ollama em Docker, Hive Mind no host, um writer para ingestão e um reader para o Codex. Em produção ou entre máquinas, substitua loopback por uma rede privada/VPN com TLS válido.
+Este guia prepara um laboratório local: Qdrant e Ollama em Docker, Hive Mind no host, um writer para ingestão e um reader para o Codex. Em produção ou entre máquinas, substitua loopback por uma rede privada/VPN com TLS válido. Para várias pessoas escrevendo no mesmo Hive (um writer por máquina, cada um dono das próprias notas), siga o [ensaio de quatro pessoas](docs/operations/four-person-trial.md).
 
 ## Preciso criar conta no Qdrant?
 
@@ -257,7 +257,7 @@ O Codex inicia o binário automaticamente quando carrega a configuração MCP. O
 - `get_sync_status`: consulta estado de sincronização.
 - `ingest_workspace`: só aparece quando o MCP está configurado como writer.
 
-O MCP não copia automaticamente toda conversa para o Qdrant. Para guardar algo, crie um documento na pasta canônica e deixe o writer ingerir. A recomendação é conectar o Codex como reader e manter ingestão/aprovação no terminal do writer.
+O MCP não copia automaticamente toda conversa para o Qdrant. Para guardar algo, crie um documento na pasta canônica e deixe o writer ingerir. Neste laboratório o Codex é reader e a ingestão fica no terminal do writer; quando cada pessoa deve escrever diretamente, conecte o Codex ao processo writer da própria máquina e instale a skill (`install-skill codex`), que ensina o agente a escrever notas no formato aceito e a chamar `ingest_workspace`.
 
 Exemplo: ao pedir “consulte o Hive do programa demo e resuma o que sabemos sobre api.hive.test”, o Codex pode chamar `hive_get_context`. O Hive Mind gera o embedding da pergunta no Ollama local, consulta as duas collections, aplica Hive/programa/revisão/classificação/escopo e devolve os trechos com proveniência. O Codex então redige a resposta usando esse material.
 

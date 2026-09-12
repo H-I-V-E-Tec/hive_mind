@@ -1,26 +1,39 @@
 {
   "schema_version": 1,
-  "last_executed_spec": "05",
+  "last_executed_spec": "10",
   "last_verification": {
-    "verified_at": "2026-09-11T00:50:00Z",
-    "source_revision": "working-tree@95db8d9",
+    "verified_at": "2026-09-12T13:25:57Z",
+    "source_revision": "working-tree@61250c6",
     "commands": [
-      "go test ./server -run ^TestSpec004 -count=1 -v",
-      "go test ./..."
+      "go test ./... -count=1",
+      "go vet ./..."
     ],
     "result": "passed",
-    "verified_specs": ["00", "01", "02", "03", "04", "05"]
+    "verified_specs": [
+      "00",
+      "01",
+      "02",
+      "03",
+      "04",
+      "05",
+      "09",
+      "10"
+    ]
   },
   "specs": [
     {
       "id": "00",
       "file": "00-system-invariants.md",
-      "version": "1.0.0",
-      "sha256": "20a0d058e89651090cc35267f0dbe93916628a67e9474ced1e9f80bac88de035",
+      "version": "1.1.0",
+      "sha256": "b0e7c6204ead8bfeec8eb4751bb8da0eb0257c5b3629a2f7fa1dd78823e2f9e4",
       "status": "completed",
-      "executed_at": "2026-09-10T15:59:35-03:00",
-      "commit": "f5151d4",
-      "evidence": ["server/revision_test.go:TestSpec000CreatesControlTopologyAndRegistersWriter"]
+      "executed_at": "2026-09-12T10:25:57-03:00",
+      "commit": "61250c6",
+      "evidence": [
+        "server/revision_test.go:TestSpec000CreatesControlTopologyAndRegistersEveryWriter",
+        "server/revision_test.go:TestMultiWriterDocumentOwnership",
+        "server/revision_test.go:TestScopeApprovalOwnedByApprover"
+      ]
     },
     {
       "id": "01",
@@ -30,17 +43,22 @@
       "status": "completed",
       "executed_at": "2026-09-10T14:40:04-03:00",
       "commit": "074e593",
-      "evidence": ["tests/config_test.go"]
+      "evidence": [
+        "tests/config_test.go"
+      ]
     },
     {
       "id": "02",
       "file": "02-document-ingestion.md",
-      "version": "1.0.0",
-      "sha256": "455c8806a20ffa77e59b30f27eb7c73ad7a27d32cf814e59c7b4c65e531c34ad",
+      "version": "1.1.0",
+      "sha256": "0b0d72dc590af3748bcff4077b1dcc56808d21c6ac9c5ffc45b539c4c6468fce",
       "status": "completed",
-      "executed_at": "2026-09-10T15:59:35-03:00",
-      "commit": "f5151d4",
-      "evidence": ["server/revision_test.go:TestSpec002PublishesCompleteRevisionAndIsIdempotent"]
+      "executed_at": "2026-09-12T10:26:57-03:00",
+      "commit": "61250c6",
+      "evidence": [
+        "server/revision_test.go:TestSpec002PublishesCompleteRevisionAndIsIdempotent",
+        "server/revision_test.go:TestMultiWriterDocumentOwnership"
+      ]
     },
     {
       "id": "03",
@@ -50,7 +68,9 @@
       "status": "completed",
       "executed_at": "2026-09-10T16:32:50-03:00",
       "commit": "3baa272",
-      "evidence": ["server/metadata_scope_test.go:TestSpec003ExtractsNormalizesAndSharesMetadata"]
+      "evidence": [
+        "server/metadata_scope_test.go:TestSpec003ExtractsNormalizesAndSharesMetadata"
+      ]
     },
     {
       "id": "04",
@@ -60,7 +80,12 @@
       "status": "completed",
       "executed_at": "2026-09-10T18:04:23-03:00",
       "commit": "497f7fd",
-      "evidence": ["server/search_test.go:TestSpec004ValidatesSearchContract", "server/search_test.go:TestSpec004FiltersOrdersDeduplicatesAndStructuresResults", "server/search_test.go:TestSpec004AdvertisesOnlyHiveSearchContract", "server/search_test.go:TestSpec004CapsAndSafelyEncodesUntrustedContent"]
+      "evidence": [
+        "server/search_test.go:TestSpec004ValidatesSearchContract",
+        "server/search_test.go:TestSpec004FiltersOrdersDeduplicatesAndStructuresResults",
+        "server/search_test.go:TestSpec004AdvertisesOnlyHiveSearchContract",
+        "server/search_test.go:TestSpec004CapsAndSafelyEncodesUntrustedContent"
+      ]
     },
     {
       "id": "05",
@@ -70,13 +95,15 @@
       "status": "completed",
       "executed_at": "2026-09-10T18:12:41-03:00",
       "commit": "941ee39",
-      "evidence": ["server/context_test.go"]
+      "evidence": [
+        "server/context_test.go"
+      ]
     },
     {
       "id": "06",
       "file": "06-private-qdrant.md",
-      "version": "1.0.0",
-      "sha256": "6413ec511e58aabf70a8be017f5e3e00d4e749379d316d3f6419996210822cc3",
+      "version": "1.1.0",
+      "sha256": "1ce40604a481e825082726aadad90f7d49d085ad4fc7ca2b53d6397bfc5e6103",
       "status": "pending",
       "executed_at": null,
       "commit": null,
@@ -85,8 +112,8 @@
     {
       "id": "07",
       "file": "07-operational-cli.md",
-      "version": "1.0.0",
-      "sha256": "565aaa1a965fe5cc8a43cd05d322ffe19966ff95960720772d974672a8e06b1a",
+      "version": "1.1.0",
+      "sha256": "228a7cb4b5e58fd214d4c37de498fc09f3d02b063c11510d06a298eb9c71440a",
       "status": "pending",
       "executed_at": null,
       "commit": null,
@@ -95,12 +122,37 @@
     {
       "id": "08",
       "file": "08-v01-acceptance.md",
-      "version": "1.0.0",
-      "sha256": "1b5a3a451bb19e0085edaf7b109decd15971eba6dfee0d30b64d92dd531102db",
+      "version": "1.1.0",
+      "sha256": "ee056bc71805d4fcc805e6dbc7a9ec2a4882f00cf3ffc2b00c6eccdeb0becebd",
       "status": "pending",
       "executed_at": null,
       "commit": null,
       "evidence": []
+    },
+    {
+      "id": "09",
+      "file": "09-usage-metrics.md",
+      "version": "1.0.0",
+      "sha256": "18479c46c619a7b3462e2240afdb4a831684f81889fd750d3913a8f85d67791b",
+      "status": "completed",
+      "executed_at": "2026-09-12T10:27:57-03:00",
+      "commit": "61250c6",
+      "evidence": [
+        "server/usage_metrics_test.go:TestSpec009RetrievalToolsAuditUsageMetricsWithoutContent",
+        "server/usage_metrics_test.go:TestSpec009AuditReportAggregatesUsageWithoutContent"
+      ]
+    },
+    {
+      "id": "10",
+      "file": "10-agent-integration.md",
+      "version": "1.0.0",
+      "sha256": "0b42448f1a422b783bed50134744867e1395c2c07dacd3d0db8b99368ae45980",
+      "status": "completed",
+      "executed_at": "2026-09-12T10:28:57-03:00",
+      "commit": "61250c6",
+      "evidence": [
+        "server/skills_test.go:TestSpec010InstallsMaintainedSkillTemplates"
+      ]
     }
   ]
 }

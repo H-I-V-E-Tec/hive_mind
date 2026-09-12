@@ -14,7 +14,7 @@ Este arquivo é um template. Antes de usar dados reais, substitua todos os valor
 | Retenção dos logs | `UNSET dias` | Rotação e exclusão local verificadas. |
 | Carência para `ingest --prune` | `UNSET horas` | Maior que o atraso máximo esperado da sincronização. |
 | Frequência do teste de restauração | `UNSET dias` | Relatório sanitizado da última execução. |
-| Writer autorizado | `UNSET HIVE_DEVICE_ID` | Um único dispositivo com token read-write. |
-| Reader autorizado | `UNSET HIVE_DEVICE_ID` | Dispositivo com token read-only. |
+| Writers autorizados | `UNSET HIVE_DEVICE_ID, ...` | Um `HIVE_DEVICE_ID` e um `HIVE_WRITER_APPROVAL_ID` por pessoa, cada um com token read-write individual. |
+| Readers autorizados | `UNSET HIVE_DEVICE_ID, ...` | Dispositivos com token read-only individual. |
 
 Exceções devem apontar para uma decisão contendo responsável, risco, compensação e prazo. Este arquivo nunca contém chaves, tokens, endereços pessoais ou conteúdo de recon.

@@ -62,7 +62,9 @@ func (iw *IngestionWorker) HiveGetContext(ctx context.Context, args HiveContextA
 		if resultErr != nil {
 			outcome = "failed"
 		}
-		_ = iw.audit(AuditEvent{Action: "hive_get_context", Outcome: outcome, Program: args.ProgramID, Count: len(out.Items), DurationMS: time.Since(started).Milliseconds()}, false)
+		chars, sourceBytes := usageMetrics(out, out.Items)
+		_ = iw.audit(AuditEvent{Action: "hive_get_context", Outcome: outcome, Program: args.ProgramID, Count: len(out.Items), DurationMS: time.Since(started).Milliseconds(),
+			ResponseChars: chars, SourceBytes: sourceBytes, Truncated: out.Truncated}, false)
 	}()
 	args, asset, limit, err := iw.validateHiveContext(args)
 	if err != nil {
@@ -111,7 +113,7 @@ func (iw *IngestionWorker) HiveGetContext(ctx context.Context, args HiveContextA
 		groupLimit := limit
 		searchArgs := HiveSearchArguments{
 			Query: query, ProgramID: args.ProgramID, DocumentTypes: []string{documentType}, Tags: args.Tags,
-			Classification: args.Classification, EffectiveScopeStatus: args.EffectiveScopeStatus, Limit: &groupLimit,
+			Classification: args.Classification, EffectiveScopeStatus: args.EffectiveScopeStatus, Limit: &groupLimit, nested: true,
 		}
 		if documentType != "rules" {
 			searchArgs.AssetRef = asset.Value
@@ -171,6 +173,9 @@ func (iw *IngestionWorker) contextScopeManifest(ctx context.Context, programID s
 		revision, manifest, err := iw.resolveActiveScope(ctx, programID)
 		if revision == "unapproved" {
 			return revision, nil, "no current approved scope manifest is available", err
+		}
+		if err == nil && manifest == nil {
+			return revision, nil, "approved scope rules are unavailable; authorization remains unconfirmed", nil
 		}
 		return revision, manifest, "", err
 	}

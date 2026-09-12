@@ -4,20 +4,23 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 
 ## O que o projeto tem
 
-- Um writer canônico para ingestão e múltiplos readers somente para consulta, com credenciais individuais.
+- Um ou mais writers, cada um dono dos documentos que publica, e readers somente para consulta, todos com credenciais individuais.
 - Ingestão de Markdown, texto e JSON; observação de arquivos, `.gitignore`, limites de tamanho/chunks e proteção de paths.
 - Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
 - Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
 - Busca semântica, esparsa e híbrida com filtros de programa, classificação, escopo, tipo e tags.
 - MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
-- CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada.
+- CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada com métricas de uso (`audit report`).
+- Templates de skill para Claude Code e Codex que ensinam o agente a consultar escopo antes de agir e a escrever notas reutilizáveis.
 - Backup pareado com restic, CI de segurança, container não root e bloqueio de release sem evidências operacionais.
 
 ```text
-Writer: arquivos → Hive Mind + Ollama local ─┐
-                                          ├─ TLS / rede privada → Qdrant
-Reader: agente → MCP local + Ollama local ──┘                      dados + controle
+Writer A: arquivos + agente → Hive Mind + Ollama local ─┐
+Writer B: arquivos + agente → Hive Mind + Ollama local ─┼─ TLS / rede privada → Qdrant
+Reader:   agente → MCP local + Ollama local ────────────┘                      dados + controle
 ```
+
+Cada writer publica somente os documentos que ele mesmo criou; documentos de outro writer encontrados na pasta são ignorados, nunca sobrescritos. Para o roteiro de um ensaio com quatro pessoas e dois programas, veja [o ensaio de quatro pessoas](docs/operations/four-person-trial.md).
 
 Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda está pendente. Ensaios entre duas máquinas, restauração real, revogação e controles da implantação não são substituídos por mocks. Veja [estado e pendências](docs/operations/implementation-status.md).
 
@@ -79,8 +82,8 @@ Edite `.env.hive` com seus identificadores e caminhos absolutos. Ele não é car
 | --- | --- |
 | `HIVE_ID` | Identidade comum do Hive, por exemplo `research-team`. |
 | `HIVE_DEVICE_ID` | Identidade única deste dispositivo. |
-| `HIVE_ROLE` | `writer` ou `reader`; somente um writer autorizado. |
-| `HIVE_WRITER_APPROVAL_ID` | Identificador do change que autorizou o writer. |
+| `HIVE_ROLE` | `writer` ou `reader`. Vários writers são permitidos; cada um em um dispositivo próprio. |
+| `HIVE_WRITER_APPROVAL_ID` | Identificador do change que autorizou **este** writer; um por dispositivo, imutável após o registro. |
 | `HIVE_COLLECTION` | Collection de dados; controle recebe o sufixo `__control`. |
 | `HIVE_DATA_DIR` | Pasta canônica absoluta; necessária no writer. |
 | `HIVE_AUDIT_DIR` | Pasta privada, fora de `HIVE_DATA_DIR`. |
@@ -143,7 +146,7 @@ Depois do provisionamento administrativo das collections:
 ./bin/hive-mind scope approve acme-bugbounty
 ```
 
-O segundo comando mostra resumo/hash, sem aprovar, e retorna `2` enquanto não houver confirmação. Revise a política e confirme:
+O primeiro `ingest` também registra este dispositivo como writer (`writer_registration`); `validate` só passa em um writer depois disso. O segundo comando mostra resumo/hash, sem aprovar, e retorna `2` enquanto não houver confirmação. Revise a política e confirme:
 
 ```bash
 ./bin/hive-mind scope approve acme-bugbounty --yes
@@ -151,7 +154,7 @@ O segundo comando mostra resumo/hash, sem aprovar, e retorna `2` enquanto não h
 ./bin/hive-mind status
 ```
 
-`--yes` aprova o conteúdo lido nessa execução; mantenha o arquivo estável entre revisão e confirmação. Mudança detectada durante a operação interrompe a publicação. Alterar/remover um manifesto aprovado faz o programa voltar a `unknown` até nova aprovação.
+`--yes` aprova o conteúdo lido nessa execução; mantenha o arquivo estável entre revisão e confirmação. Mudança detectada durante a operação interrompe a publicação. Quem aprova é o dono da aprovação: alterar/remover o manifesto **nesse** dispositivo faz o programa voltar a `unknown` até nova aprovação. Outros writers não precisam do `scope.json` local — usam a revisão aprovada — e não conseguem invalidá-la por acidente.
 
 `validate` não cria collections nem manifesto. Em uma instalação vazia, provisione as collections e execute a primeira ingestão antes de validar.
 
@@ -192,11 +195,22 @@ Entrada para `hive_get_context`:
 
 Resultados incluem proveniência, revisão e `untrusted_content: true`: conteúdo recuperado é evidência não confiável, nunca instrução a ser executada. Hive, collection e elevação de classificação não podem ser escolhidos pelo agente.
 
-### 6. Adicionar um reader
+### 6. Adicionar outro writer ou um reader
 
-Na outra máquina, instale o mesmo binário/modelo, configure o mesmo Hive/collection, outro `HIVE_DEVICE_ID`, `HIVE_ROLE=reader` e um token próprio `r` nas duas collections. Remova `HIVE_WRITER_APPROVAL_ID` e `HIVE_DATA_DIR`; mantenha auditoria local e acesso TLS/VPN.
+**Outro writer** (cada pessoa que vai escrever): na outra máquina, instale o mesmo binário/modelo, configure o mesmo Hive/collection, outro `HIVE_DEVICE_ID`, outro `HIVE_WRITER_APPROVAL_ID`, um token próprio `rw` nas duas collections e uma pasta `HIVE_DATA_DIR` própria (pode ser um clone do mesmo repositório privado). Execute `ingest` para registrar o writer e depois `validate`. Documentos com o mesmo path já publicados por outro writer aparecem como `skipped` e não são alterados; use `<handle>-` no nome dos arquivos para evitar colisões. `remove` e `ingest --prune` só agem sobre os documentos deste writer.
 
-Execute `validate`, `status` e a mesma busca. A validação exige leitura permitida e negação explícita da prova de escrita nas duas collections. Não reutilize a credencial do writer.
+**Reader**: mesma instalação, `HIVE_ROLE=reader` e um token próprio `r` nas duas collections. Remova `HIVE_WRITER_APPROVAL_ID` e `HIVE_DATA_DIR`; mantenha auditoria local e acesso TLS/VPN. Execute `validate`, `status` e a mesma busca. A validação exige leitura permitida e negação explícita da prova de escrita nas duas collections.
+
+Nunca reutilize a credencial de outro dispositivo, mesmo entre writers.
+
+### 7. Instalar a skill do agente
+
+```bash
+./bin/hive-mind install-skill claude /caminho/do/projeto   # gera .claude/skills/hive-mind/SKILL.md
+./bin/hive-mind install-skill codex /caminho/do/projeto    # gera .codex/mcp-instructions.md; referencie-o no AGENTS.md
+```
+
+Os templates ensinam o agente a chamar `hive_get_context` antes de tocar em um ativo, a tratar resultados como não confiáveis e a escrever notas com o front-matter aceito, incluindo a convenção de `tags` com time e handle. Os demais templates (`cursor`, `windsurf`, `cline`, `copilot`, `generic`) são legado do servidor RAG original.
 
 ## Referência de comandos
 
@@ -208,17 +222,18 @@ Use `./bin/hive-mind` antes de cada comando:
 | Sem comando | Inicia o MCP local. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
-| `ingest` | Reconcilia documentos no writer. |
-| `ingest --prune` | Remove ausentes após carência; exige pasta canônica sincronizada. |
-| `remove programs/acme-bugbounty/notes/api.md` | Publica tombstone e verifica exclusão dos vetores; não apaga o arquivo local. |
+| `ingest` | Reconcilia os documentos deste writer; informa quantos foram ignorados por pertencerem a outro writer. |
+| `ingest --prune` | Remove documentos deste writer ausentes após carência. |
+| `remove programs/acme-bugbounty/notes/api.md` | Publica tombstone e verifica exclusão dos vetores; só para documentos deste writer; não apaga o arquivo local. |
 | `scope approve acme-bugbounty` | Mostra resumo/hash para revisão, sem confirmar. |
 | `scope approve acme-bugbounty --yes` | Confirma o manifesto atual e rematerializa escopo. |
 | `search acme-bugbounty "consulta"` | Busca filtrada por programa. |
 | `audit record credential_rotation change-1043` | Registra rotação feita pelo operador; não altera o token. |
 | `audit record credential_revocation change-1044` | Registra revogação feita pelo operador. |
 | `audit record writer_promotion change-1045` | Registra promoção feita pelo operador. |
+| `audit report --since=2026-09-14 --program=acme-bugbounty` | Agrega consultas por dia/dispositivo/programa/ferramenta: quantidade, caracteres entregues, bytes de origem e razão de economia. Só números. |
 | `list-skills` | Lista os templates de integração incluídos. |
-| `install-skill <agent> [destino]` | Instala template; aceita `all` para todos. Requer configuração válida. |
+| `install-skill <agent> [destino]` | Instala template (`claude`, `codex`; demais são legado); aceita `all`. Requer configuração válida. |
 
 Filtros CLI: `--document-type=note`, `--tag=oauth`, `--classification=internal`, `--scope-status=authorized`, `--limit=8`. Tipo e tag podem ser repetidos; tags usam semântica ALL. Limite: 1–20. Use `--chave=valor` para os filtros.
 
@@ -241,7 +256,7 @@ Runtime: usuário `hive` (UID 10001), raiz somente leitura, capabilities removid
 
 Logs JSONL usam diretório `0700`, arquivos `0600`, rotação em 10 MiB e expiração em 30 dias verificada a cada gravação. Sem `HIVE_AUDIT_DIR`, o binário usa o cache local do usuário; configure caminho explícito em produção.
 
-Não são registrados textos de documentos/consultas, tokens, embeddings nem mensagens brutas de provedores. Identificadores e paths relativos ainda são sensíveis: proteja disco e acesso. Falha de auditoria bloqueia operações críticas; registros `prepared` sem conclusão exigem reconciliação. Para processos parados e logs do backup, configure expiração operacional de 30 dias.
+Não são registrados textos de documentos/consultas, tokens, embeddings nem mensagens brutas de provedores. Cada consulta registra apenas contadores: quantidade, duração, caracteres da resposta serializada, bytes dos documentos de origem e truncamento; `audit report` agrega esses números para medir a economia de contexto (veja a [spec 09](docs/spec/09-usage-metrics.md)). Identificadores e paths relativos ainda são sensíveis: proteja disco e acesso. Falha de auditoria bloqueia operações críticas; registros `prepared` sem conclusão exigem reconciliação. Para processos parados e logs do backup, configure expiração operacional de 30 dias.
 
 O backup preserva o par de collections em restic criptografado. Requer parada real do writer, staging em disco criptografado e credenciais separadas. Após seguir o [runbook de backup e recuperação](docs/operations/backup-recovery.md):
 

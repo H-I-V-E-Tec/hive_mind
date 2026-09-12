@@ -76,7 +76,9 @@ func TestSecurity007AuditRedactionRotationAndRetention(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(body), "sentinel") || strings.Contains(string(body), "bad") {
+		// Session UUIDs are hex and can legitimately contain "bad"; check the
+		// full escaped sentinel instead of a fragment.
+		if strings.Contains(string(body), "sentinel") || strings.Contains(string(body), `bad\nprogram`) {
 			t.Fatal("untrusted detail leaked")
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {

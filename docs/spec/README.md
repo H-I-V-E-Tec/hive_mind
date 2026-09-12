@@ -12,7 +12,9 @@ Estas specs definem um novo produto Hive Mind. Nada nelas exige compatibilidade 
 | [05](05-hive-context.md) | Contexto compacto que prioriza escopo. |
 | [06](06-private-qdrant.md) | Transporte e acesso ao Qdrant protegidos. |
 | [07](07-operational-cli.md) | Operação, validação e diagnóstico seguros. |
-| [08](08-v01-acceptance.md) | Aceitação ponta a ponta em duas máquinas. |
+| [08](08-v01-acceptance.md) | Aceitação ponta a ponta entre máquinas autorizadas. |
+| [09](09-usage-metrics.md) | Métricas de uso e economia de contexto na auditoria. |
+| [10](10-agent-integration.md) | Templates de skill para Claude Code e Codex. |
 
 ## Segurança transversal
 
@@ -20,7 +22,7 @@ As [specs de segurança](security/README.md) detalham os controles obrigatórios
 
 Cada implementação deve seguir as decisões [001](../decisions/001-tests-are-required.md) e [002](../decisions/002-security-is-primary.md), atualizar o README quando mudar o produto e manter `go test ./...` verde.
 
-As etapas são dependentes: nenhuma implementação pode contrariar as invariantes da etapa 00. Em especial, a v0.1 usa writer único, autorização de escopo aprovada fora do conteúdo comum e publicação por revisão recuperável.
+As etapas são dependentes: nenhuma implementação pode contrariar as invariantes da etapa 00. Em especial, a v0.1 usa writers registrados com propriedade por documento, autorização de escopo aprovada fora do conteúdo comum e publicação por revisão recuperável.
 
 ## Controle de versão e execução
 

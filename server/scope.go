@@ -300,7 +300,10 @@ func (iw *IngestionWorker) loadScopeManifest(programID string) ([]byte, *scopeMa
 }
 
 // resolveActiveScope fails closed and immediately invalidates an approval when
-// the writer's canonical manifest no longer has the approved byte hash.
+// the approving writer's canonical manifest no longer has the approved byte
+// hash. Other writers never judge their local copy: they use the approved
+// revision and reconstruct the manifest from the published scope document, so a
+// device without the file cannot revoke an approval it does not own.
 func (iw *IngestionWorker) resolveActiveScope(ctx context.Context, programID string) (string, *scopeManifest, error) {
 	rows, err := iw.controlRows(ctx, "scope_approval", programID)
 	if err != nil {
@@ -326,6 +329,13 @@ func (iw *IngestionWorker) resolveActiveScope(ctx context.Context, programID str
 	}
 	if !iw.Cfg.IsWriter() {
 		return revision, nil, nil
+	}
+	if approver := payloadString(rows[0].Payload, "approved_by_device_id", ""); approver != "" && approver != iw.Cfg.DeviceID {
+		manifest, err := iw.reconstructApprovedScope(ctx, programID, revision)
+		if err != nil {
+			return revision, nil, nil
+		}
+		return revision, manifest, nil
 	}
 	content, manifest, manifestErr := iw.loadScopeManifest(programID)
 	if manifestErr == nil && sha256Hex(content) == revision {
@@ -425,16 +435,12 @@ func (iw *IngestionWorker) ApproveScopeRevision(ctx context.Context, programID, 
 
 type stagedScopeDocument struct{ head *documentHead }
 
+// scopeHeadPayload rewrites a head under a new scope revision while keeping
+// its owner, so approving scope never transfers documents between writers.
 func scopeHeadPayload(head *documentHead, revision, now string) map[string]any {
-	payload := map[string]any{
-		"document_id": head.DocumentID, "program_id": head.ProgramID, "path": head.Path,
-		"active_document_revision": head.DocumentRevision, "active_scope_revision": revision,
-		"chunk_count": int64(head.ChunkCount), "state": head.State, "created_at": head.CreatedAt, "updated_at": now,
-	}
-	if head.PendingSince != "" {
-		payload["pending_since"] = head.PendingSince
-	}
-	return payload
+	rescoped := *head
+	rescoped.ScopeRevision = revision
+	return headPayload(&rescoped, now)
 }
 
 func (iw *IngestionWorker) rematerializeProgramScope(ctx context.Context, programID, revision string, manifest *scopeManifest) ([]stagedScopeDocument, error) {

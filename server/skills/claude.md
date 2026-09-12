@@ -1,6 +1,11 @@
-# Hive Mind — shared recon memory (Codex)
+---
+name: hive-mind
+description: Use the hive-mind MCP server (hive_get_context, hive_search) before touching any asset or starting recon work, and write notes in the Hive front-matter format so teammates and later sessions can reuse them.
+---
 
-This workspace is connected to the `hive-mind` MCP server. Reference this file from `AGENTS.md` (for example: "Read `.codex/mcp-instructions.md` before recon tasks") so it is loaded in every session.
+# Hive Mind — shared recon memory (Claude Code)
+
+This project is connected to the `hive-mind` MCP server. Load this skill whenever the task involves a bug bounty program, a target asset, recon data, or notes under `programs/`.
 
 ## What Hive Mind is
 

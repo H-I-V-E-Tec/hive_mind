@@ -258,7 +258,7 @@ func isOperationalFlag(arg string) bool {
 		return false
 	}
 	switch name {
-	case "--document-type", "--tag", "--classification", "--scope-status", "--limit":
+	case "--document-type", "--tag", "--classification", "--scope-status", "--limit", "--since", "--program":
 		return true
 	default:
 		return false

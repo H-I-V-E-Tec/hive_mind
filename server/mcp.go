@@ -212,7 +212,7 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 				return
 			}
 			go func() {
-				count, err := iw.SyncWorkspace(context.Background())
+				summary, err := iw.SyncWorkspace(context.Background())
 				if err != nil {
 					log.Printf("Internal codebase ingestion failed: %v", err)
 					iw.sendMCPError(req.ID, -32603, fmt.Sprintf("Ingestion error: %v", err))
@@ -221,8 +221,8 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 
 				// Respond directly to the active IDE context stream window
 				var sb strings.Builder
-				sb.WriteString("### 🚀 Codebase Ingestion Complete\n\n")
-				sb.WriteString(fmt.Sprintf("Successfully scanned and synchronized **%d** files into the Qdrant collection `%s`.\n", count, iw.Cfg.CollectionName))
+				sb.WriteString("### 🚀 Hive Ingestion Complete\n\n")
+				sb.WriteString(fmt.Sprintf("Synchronized **%d** documents into the Hive collection `%s`; **%d** skipped because another writer owns them.\n", summary.Ingested, iw.Cfg.CollectionName, summary.Skipped))
 
 				response := map[string]interface{}{
 					"jsonrpc": "2.0",

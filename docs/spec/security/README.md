@@ -4,7 +4,7 @@ Segurança é requisito de aceite do Hive Mind, conforme a [decisão 002](../../
 
 ## Modelo de segurança da v0.1
 
-A v0.1 atende uma única equipe e dois dispositivos autorizados: um writer e um reader. A unidade de acesso é o dispositivo autorizado pela rede privada e por uma credencial própria de menor privilégio. O writer possui acesso read-write e o reader somente leitura, limitados às collections de dados e controle do Hive. Não há alegação de RBAC por pessoa nem autorização por payload do Qdrant. Revogar um dispositivo exige remover sua identidade de rede e sua credencial, sem obrigar a compartilhar a chave administrativa com processos normais.
+A v0.1 atende uma única equipe de confiança com poucos dispositivos autorizados: um ou mais writers e zero ou mais readers. A unidade de acesso é o dispositivo autorizado pela rede privada e por uma credencial própria de menor privilégio. Cada writer possui acesso read-write e cada reader somente leitura, limitados às collections de dados e controle do Hive; a separação entre writers (propriedade de documentos e aprovações) é garantia da aplicação, não do banco. Não há alegação de RBAC por pessoa nem autorização por payload do Qdrant. Revogar um dispositivo exige remover sua identidade de rede e sua credencial, sem obrigar a compartilhar a chave administrativa com processos normais.
 
 | Spec | Controle principal |
 | --- | --- |

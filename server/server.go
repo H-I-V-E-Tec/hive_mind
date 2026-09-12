@@ -47,21 +47,47 @@ func Start(version string) {
 		switch cmd {
 		case "audit":
 			if cfg.AuditDirectory == "" {
-				fmt.Fprintln(os.Stderr, "HIVE_AUDIT_DIR required for operator events")
+				fmt.Fprintln(os.Stderr, "HIVE_AUDIT_DIR required for audit commands")
 				os.Exit(ExitConfiguration)
 			}
-			a, err := OpenFileAudit(cfg)
-			if err != nil {
-				printOperationalFailure("audit", err)
+			sub := ""
+			if len(args) > 2 {
+				sub = strings.ToLower(args[2])
 			}
-			if err := a.Record(AuditEvent{Action: args[3], Outcome: "operator_recorded", ChangeID: args[4]}); err != nil {
-				_ = a.Close()
-				printOperationalFailure("audit", err)
+			switch sub {
+			case "record":
+				if len(args) != 5 {
+					fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server audit record <credential_rotation|credential_revocation|writer_promotion> <change_id>")
+					os.Exit(ExitUsage)
+				}
+				a, err := OpenFileAudit(cfg)
+				if err != nil {
+					printOperationalFailure("audit", err)
+				}
+				if err := a.Record(AuditEvent{Action: args[3], Outcome: "operator_recorded", ChangeID: args[4]}); err != nil {
+					_ = a.Close()
+					printOperationalFailure("audit", err)
+				}
+				if err := a.Close(); err != nil {
+					printOperationalFailure("audit", err)
+				}
+				printJSON(map[string]any{"ok": true, "action": args[3], "change_id": args[4]})
+			case "report":
+				since, program, err := parseAuditReportArgs(args[3:])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "audit report input error: %v\n", err)
+					fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server audit report [--since=YYYY-MM-DD] [--program=<program_id>]")
+					os.Exit(ExitUsage)
+				}
+				report, err := BuildAuditUsageReport(cfg.AuditDirectory, since, program)
+				if err != nil {
+					printOperationalFailure("audit report", err)
+				}
+				printJSON(report)
+			default:
+				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server audit <record|report> ...")
+				os.Exit(ExitUsage)
 			}
-			if err := a.Close(); err != nil {
-				printOperationalFailure("audit", err)
-			}
-			printJSON(map[string]any{"ok": true, "action": args[3], "change_id": args[4]})
 			return
 		case "status":
 			client, worker, err := createWorker(cfg)
@@ -120,8 +146,8 @@ func Start(version string) {
 			defer client.Close()
 			defer worker.Close()
 
-			log.Println("Starting manual codebase ingestion...")
-			count, err := worker.SyncWorkspace(context.Background())
+			log.Println("Starting manual Hive ingestion...")
+			summary, err := worker.SyncWorkspace(context.Background())
 			if err != nil {
 				failCommand(client, worker, "ingest", err)
 			}
@@ -132,7 +158,7 @@ func Start(version string) {
 				}
 				fmt.Printf("Pruned %d documents after the deletion grace period.\n", pruned)
 			}
-			fmt.Printf("🎉 Success! Ingested %d files into collection '%s'.\n", count, cfg.CollectionName)
+			fmt.Printf("🎉 Success! Ingested %d files into collection '%s' (%d skipped: owned by other writers).\n", summary.Ingested, cfg.CollectionName, summary.Skipped)
 			return
 		case "remove":
 			if !cfg.IsWriter() {
@@ -457,11 +483,14 @@ func printCLIHelp() {
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")
 	fmt.Println("  audit record <event> <change>  Record credential_rotation, credential_revocation or writer_promotion.")
+	fmt.Println("  audit report [--since=DATE]    Aggregate retrieval usage (queries, response chars, source bytes)")
+	fmt.Println("               [--program=<id>]  from local audit logs; numbers only, no content.")
 	fmt.Println("  scope approve <program_id>     Preview the manifest hash; add --yes to approve it.")
 	fmt.Println("  search <program_id> <query>    Search; filters use --tag=value and related flags.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
-	fmt.Println("                                 Options: cursor, windsurf, cline, copilot, generic, codex, all.")
+	fmt.Println("                                 Options: claude, codex (maintained); cursor, windsurf,")
+	fmt.Println("                                 cline, copilot, generic (legacy); all.")
 	fmt.Println("  help, -h, --help               Show this help information.")
 	fmt.Println()
 	fmt.Println("Configuration flags (override environment and --config):")

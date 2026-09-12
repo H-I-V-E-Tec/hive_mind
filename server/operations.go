@@ -290,11 +290,23 @@ func splitCLIArgs(raw []string) ([]string, error) {
 	}
 	switch args[1] {
 	case "audit":
-		if len(args) != 5 || args[2] != "record" || !validIdentifier(args[4], 64) {
+		if len(args) < 3 {
 			return nil, errors.New("invalid audit command")
 		}
-		if args[3] != "credential_rotation" && args[3] != "credential_revocation" && args[3] != "writer_promotion" {
-			return nil, errors.New("invalid audit event")
+		switch args[2] {
+		case "record":
+			if len(args) != 5 || !validIdentifier(args[4], 64) {
+				return nil, errors.New("invalid audit command")
+			}
+			if args[3] != "credential_rotation" && args[3] != "credential_revocation" && args[3] != "writer_promotion" {
+				return nil, errors.New("invalid audit event")
+			}
+		case "report":
+			if _, _, err := parseAuditReportArgs(args[3:]); err != nil {
+				return nil, errors.New("invalid audit report arguments")
+			}
+		default:
+			return nil, errors.New("invalid audit command")
 		}
 	case "help", "-h", "--help", "status", "validate", "list-skills":
 		if len(args) != 2 {
