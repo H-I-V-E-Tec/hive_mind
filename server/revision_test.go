@@ -41,6 +41,12 @@ func (m *memoryQdrant) Upsert(_ context.Context, in *qdrant.UpsertPoints) (*qdra
 	if m.upsertErr != nil {
 		return nil, m.upsertErr
 	}
+	// Match Qdrant's gRPC validation, including for vectorless collections.
+	for _, point := range in.Points {
+		if point.GetVectors().GetVectorsOptions() == nil {
+			return nil, errors.New("Expected some vectors")
+		}
+	}
 	if m.points[in.CollectionName] == nil {
 		m.points[in.CollectionName] = map[string]*qdrant.PointStruct{}
 	}

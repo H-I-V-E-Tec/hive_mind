@@ -341,7 +341,7 @@ func (iw *IngestionWorker) ValidateCredentialCapabilities(ctx context.Context) e
 	}}
 	_, writeErr := iw.QdrantClient.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true),
-		Points: []*qdrant.PointStruct{{Id: qdrant.NewIDUUID(probeID), Payload: qdrant.NewValueMap(map[string]any{
+		Points: []*qdrant.PointStruct{{Id: qdrant.NewIDUUID(probeID), Vectors: qdrant.NewVectorsMap(map[string]*qdrant.Vector{}), Payload: qdrant.NewValueMap(map[string]any{
 			"record_type": "credential_probe", "hive_id": iw.Cfg.HiveID, "device_id": iw.Cfg.DeviceID,
 		})}},
 	})
@@ -501,7 +501,8 @@ func (iw *IngestionWorker) upsertControl(ctx context.Context, recordType, key st
 	id := deterministicUUID("control", iw.Cfg.HiveID, recordType, key)
 	_, err = iw.QdrantClient.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: iw.Cfg.ControlCollection, Wait: qdrant.PtrOf(true),
-		UpdateFilter: updateFilter, Points: []*qdrant.PointStruct{{Id: qdrant.NewIDUUID(id), Payload: qdrant.NewValueMap(payload)}},
+		// gRPC requires an explicit empty vector map for payload-only points.
+		UpdateFilter: updateFilter, Points: []*qdrant.PointStruct{{Id: qdrant.NewIDUUID(id), Vectors: qdrant.NewVectorsMap(map[string]*qdrant.Vector{}), Payload: qdrant.NewValueMap(payload)}},
 	})
 	if err != nil {
 		return err
