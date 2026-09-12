@@ -1,0 +1,16 @@
+https://alpha.api.authnapi.login.yahoo.com
+https://authnapi.login.yahoo.com
+https://europe.login.yahoo.com
+https://externalgamma.login.yahoo.com
+https://beta.login.yahoo.com
+https://beta.api.login.yahoo.com
+https://beta.protect.login.yahoo.com
+https://externalbeta.login.yahoo.com
+https://login.yahoo.com
+https://gamma.api.login.yahoo.com
+https://gamma.protect.login.yahoo.com
+https://gamma.login.yahoo.com
+https://mlogin.yahoo.com
+https://open.login.yahoo.com
+https://stage.authnapi.login.yahoo.com
+https://stage.api.authnapi.login.yahoo.com

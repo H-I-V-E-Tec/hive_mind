@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "program_id": "etoro",
+  "source": "bugcrowd policy (etoro) — 2026-09-09",
+  "collected_at": "2026-09-12T00:00:00Z",
+  "rules": [
+    {
+      "action": "include",
+      "asset_type": "wildcard_domain",
+      "value": "*.etoro.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "etorox.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "etoropartners.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "delta.app"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+api.fantasysports.yahoo.com
+beacon.fantasysports.yahoo.com
+checkout.fantasysports.yahoo.com
+dev.checkout.fantasysports.yahoo.com
+facebook-football.fantasysports.yahoo.com
+fantasysports.yahoo.com
+football.fantasysports.yahoo.com
+golf.fantasysports.yahoo.com
+qa.checkout.fantasysports.yahoo.com
+qa.tools.fantasysports.yahoo.com
+stage.checkout.fantasysports.yahoo.com
+tools-bouncer.fantasysports.yahoo.com
+tools.fantasysports.yahoo.com
+tournament.fantasysports.yahoo.com
+wc.fantasysports.yahoo.com

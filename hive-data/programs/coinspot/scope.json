@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "program_id": "coinspot",
+  "source": "hackerone policy (coinspot) — CSV export 2026-09-09",
+  "collected_at": "2026-09-12T00:00:00Z",
+  "rules": [
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "www.coinspot.com.au"
+    },
+    {
+      "action": "include",
+      "asset_type": "url_prefix",
+      "value": "https://www.coinspot.com.au/v2/api"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "coinspot.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "coinspot.co"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "coinspot.io"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "o2.comms.coinspot.com.au"
+    }
+  ]
+}

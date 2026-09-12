@@ -1,0 +1,8 @@
+antivirusupport.api-cointelegraph-com.cdn.www.accessdata.production.omega.gq1.yahoo.com
+apple.finance-yql-production.finance-k8s.omega.yahoo.com
+auctions-tw-desktop-k8s.omega.yahoo.com
+billing-tw-k8s.omega.yahoo.com
+boot-api-dev.media-edge-k8s.omega.yahoo.com
+boot-api-pr.media-edge-k8s.omega.yahoo.com
+boot-api-staging.media-edge-k8s.omega.yahoo.com
+boot-api.media-edge-k8s.omega.yahoo.com

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "program_id": "demo",
+  "source": "local-test",
+  "collected_at": "2026-09-12T12:00:00Z",
+  "rules": [
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "api.hive.test"
+    }
+  ]
+}

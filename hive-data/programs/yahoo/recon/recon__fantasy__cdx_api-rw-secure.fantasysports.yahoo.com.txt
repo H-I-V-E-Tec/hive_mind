@@ -1,0 +1,9 @@
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=mlb/leagues;out=settings/players;player_keys=mlb.p.10765;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=mlb/leagues;out=settings/players;player_keys=mlb.p.11763;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=mlb/leagues;out=settings/players;player_keys=mlb.p.12116;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nba/leagues;out=settings/players;player_keys=nba.p.6166;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues;out=settings/players;player_keys=nfl.p.30551;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues;out=settings/players;player_keys=nfl.p.32887;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues;out=settings/players;player_keys=nfl.p.34218;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues;out=settings/players;player_keys=nfl.p.41052;out=ownership,roster_actions?format=json_f&lang=en-US&region=US
+https://api-rw-secure.fantasysports.yahoo.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues;out=settings/players;player_keys=nfl.p.41810;out=ownership,roster_actions?format=json_f&lang=en-US&region=US

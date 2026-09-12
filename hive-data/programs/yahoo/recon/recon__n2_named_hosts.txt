@@ -1,0 +1,8 @@
+apis.mail.yahoo.com
+data.mail.yahoo.com
+onepush.query.yahoo.com
+proddata.xobni.yahoo.com
+yimg.com
+s.yimg.com
+finance.yahoo.com
+mail.yahoo.com

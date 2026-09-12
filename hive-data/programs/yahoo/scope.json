@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "program_id": "yahoo",
+  "source": "intigriti policy (yahoo) — 2026-09-08",
+  "collected_at": "2026-09-12T00:00:00Z",
+  "rules": [
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "apis.mail.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "data.mail.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "onepush.query.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "proddata.xobni.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "yimg.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.gq1.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.bf1.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.bf2.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.ne1.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.sg3.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.ir2.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.tw1.yahoo.com"
+    },
+    {
+      "action": "include",
+      "asset_type": "host",
+      "value": "banana.stand.tp2.yahoo.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.yahoo.net"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.yahoo.com.tw"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.yahoo.com.hk"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.yahooinc.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.vdms.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.verizondigitalmedia.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "ssp.verizonmedia.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "adaptv.advertising.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "alephd.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "vidible.tv"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "store.vzbuilders.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "files.molo.ch"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "artifact.news"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "host",
+      "value": "vetted.ai"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.tumblr.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.flickr.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.aol.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.engadget.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.techcrunch.com"
+    },
+    {
+      "action": "exclude",
+      "asset_type": "wildcard_domain",
+      "value": "*.mapquest.com"
+    }
+  ]
+}

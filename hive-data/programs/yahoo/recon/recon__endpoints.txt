@@ -1,0 +1,1 @@
+# endpoints coletados — um por linha (método + url, se possível)

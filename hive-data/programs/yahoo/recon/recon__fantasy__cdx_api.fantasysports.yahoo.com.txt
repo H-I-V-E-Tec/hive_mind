@@ -1,0 +1,5 @@
+http://api.fantasysports.yahoo.com:80/
+http://api.fantasysports.yahoo.com/fantasy/v1/stattracker_data?owner_i
+http://api.fantasysports.yahoo.com:80/fantasy/v1/users/status
+http://api.fantasysports.yahoo.com:80/fantasy/v3/healthchecks/time?
+http://api.fantasysports.yahoo.com/robots.txt

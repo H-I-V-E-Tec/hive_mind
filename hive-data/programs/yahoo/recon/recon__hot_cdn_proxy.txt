@@ -1,0 +1,6 @@
+antivirus.download-installer.cdn.mhs.production.omega.gq1.yahoo.com
+antivirus.google.com.amp-timeinc-net.cdn.production.omega.gq1.yahoo.com
+antivirus.www.recode.amp-timeinc-net.cdn.production.omega.gq1.yahoo.com
+antivirusupport.api-cointelegraph-com.cdn.www.accessdata.production.omega.gq1.yahoo.com
+antivirusupport.gizmodo-com.cdn.researchinpractice.production.omega.gq1.yahoo.com
+antivirusupport.lifehacker-com.cdn.konect.production.omega.gq1.yahoo.com

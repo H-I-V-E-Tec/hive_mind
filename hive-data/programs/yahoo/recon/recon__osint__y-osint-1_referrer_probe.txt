@@ -1,0 +1,165 @@
+############################################################
+# 1 baseline: /login sem params
+# GET https://cm-auth-service.yahoo.com/login
+############################################################
+HTTP 400
+Location: 
+content_type: application/json
+size: 46
+time: 1.165354s
+
+############################################################
+# 2 /login?app_id=lightyear (sem referrer)
+# GET https://cm-auth-service.yahoo.com/login?app_id=lightyear
+############################################################
+HTTP 400
+Location: 
+content_type: application/json
+size: 46
+time: 0.629095s
+
+############################################################
+# 3 LEGIT referrer (cm-ui.yahoo.com)
+# GET https://cm-auth-service.yahoo.com/login?referrer_url=https://cm-ui.yahoo.com/your-content&app_id=lightyear
+############################################################
+HTTP 307
+Location: https://cm-production-yahooinc.us.auth0.com/authorize?response_type=code&client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&redirect_uri=https%3A%2F%2Fcm-auth-service.yahoo.com%2Fcallback%3Freferrer_url%3Dhttps%3A%2F%2Fcm-ui.yahoo.com%2Fyour-content%26state_token%3DAuRk8jXh5Zwb5yKQ4pQIBgSeItcCnKAAIkswdVTat1A&audience=https%3A%2F%2Fapi.yahoo.com%2Fcontent-management&scope=openid+profile+email+offline_access
+content_type: application/octet-stream
+size: 0
+time: 0.628782s
+
+############################################################
+# 4 EXTERNO absoluto (example.com)
+# GET https://cm-auth-service.yahoo.com/login?referrer_url=https://example.com/&app_id=lightyear
+############################################################
+HTTP 403
+Location: 
+content_type: application/json
+size: 32
+time: 0.616527s
+
+############################################################
+# 5 SUFIXO (cm-ui.yahoo.com.example.com)
+# GET https://cm-auth-service.yahoo.com/login?referrer_url=https://cm-ui.yahoo.com.example.com/&app_id=lightyear
+############################################################
+HTTP 403
+Location: 
+content_type: application/json
+size: 32
+time: 0.636575s
+
+############################################################
+# 6 USERINFO (@example.com)
+# GET https://cm-auth-service.yahoo.com/login?referrer_url=https://cm-ui.yahoo.com@example.com/&app_id=lightyear
+############################################################
+HTTP 403
+Location: 
+content_type: application/json
+size: 32
+time: 0.670950s
+
+############################################################
+# 7 SCHEME-RELATIVE (//example.com)
+# GET https://cm-auth-service.yahoo.com/login?referrer_url=//example.com/&app_id=lightyear
+############################################################
+HTTP 400
+Location: 
+content_type: application/json
+size: 62
+time: 0.572710s
+
+===== LEVA 2 — mapear a regra do allowlist =====
+-------- 8 staging twin
+referrer_url=https://cm-ui.staging.yahoo.com/your-content
+HTTP/2 307 
+location: https://cm-production-yahooinc.us.auth0.com/authorize?response_type=code&client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&redirect_uri=https%3A%2F%2Fcm-auth-service.yahoo.com%2Fcallback%3Freferrer_url%3Dhttps%3A%2F%2Fcm-ui.staging.yahoo.com%2Fyour-content%26state_token%3DYVXTFITl7iUeyMQeskFXIkBwW6pqwJs8FeFb0Vg5OOc&audience=https%3A%2F%2Fapi.yahoo.com%2Fcontent-management&scope=openid+profile+email+offline_access
+  body: 
+
+-------- 9 outro produto yahoo
+referrer_url=https://football.fantasysports.yahoo.com/
+HTTP/2 307 
+location: https://cm-production-yahooinc.us.auth0.com/authorize?response_type=code&client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&redirect_uri=https%3A%2F%2Fcm-auth-service.yahoo.com%2Fcallback%3Freferrer_url%3Dhttps%3A%2F%2Ffootball.fantasysports.yahoo.com%2F%26state_token%3D7T2TospIrlFUPNebvvelSR2DYGGaxXMls9s_ebuX3QU&audience=https%3A%2F%2Fapi.yahoo.com%2Fcontent-management&scope=openid+profile+email+offline_access
+  body: 
+
+-------- 10 login.yahoo.com
+referrer_url=https://login.yahoo.com/
+HTTP/2 307 
+location: https://cm-production-yahooinc.us.auth0.com/authorize?response_type=code&client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&redirect_uri=https%3A%2F%2Fcm-auth-service.yahoo.com%2Fcallback%3Freferrer_url%3Dhttps%3A%2F%2Flogin.yahoo.com%2F%26state_token%3D6Y554RGNxE3s_6O27UeMvRutMdaGOxTcfKcFdPdHikU&audience=https%3A%2F%2Fapi.yahoo.com%2Fcontent-management&scope=openid+profile+email+offline_access
+  body: 
+
+-------- 11 scheme http
+referrer_url=http://cm-ui.yahoo.com/your-content
+HTTP/2 400 
+  body: {"detail":"Bad Request, referrer_url must use 'https' scheme"}
+
+-------- 12 root path
+referrer_url=https://cm-ui.yahoo.com/
+HTTP/2 307 
+location: https://cm-production-yahooinc.us.auth0.com/authorize?response_type=code&client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&redirect_uri=https%3A%2F%2Fcm-auth-service.yahoo.com%2Fcallback%3Freferrer_url%3Dhttps%3A%2F%2Fcm-ui.yahoo.com%2F%26state_token%3D3sOJU6f13xXxYvuErkVpqjDZNWJqDbhq7lvcQ1YPa4c&audience=https%3A%2F%2Fapi.yahoo.com%2Fcontent-management&scope=openid+profile+email+offline_access
+  body: 
+
+-------- 13 case UPPER
+referrer_url=https://CM-UI.YAHOO.COM/your-content
+HTTP/2 403 
+  body: {"detail":"Unauthorized domain"}
+
+===== LEVA 3 — comportamento do /callback (chain model) =====
+-------- A callback c/ code fake + referrer legit
+GET /callback?referrer_url=https://cm-ui.yahoo.com/&state_token=x&code=fakecode123
+HTTP/2 307 
+location: https://cm-ui.yahoo.com/?code=fakecode123&state_token=x
+  body: 
+
+-------- B callback só referrer legit (sem code)
+GET /callback?referrer_url=https://cm-ui.yahoo.com/
+HTTP/2 400 
+  body: {"detail":"Bad Request"}
+
+-------- C callback referrer externo + code fake
+GET /callback?referrer_url=https://example.com/&state_token=x&code=fakecode123
+HTTP/2 403 
+  body: {"detail":"Unauthorized domain"}
+
+=== /token e /logout (rotas do CDX) — só shape, GET ===
+-- /token
+HTTP/2 400 
+  body: {"detail":"Bad Request, missing parameters"}
+-- /logout
+HTTP/2 307 
+location: https://cm-production-yahooinc.us.auth0.com/v2/logout?client_id=714H5NHjrv29HLgBBCrBdsdLX58P4m3G&returnTo=https%3A%2F%2Fcm-auth-service.yahoo.com%2Flogin%3Freferrer_url%3Dhttps%3A%2F%2Fcm-ui.yahoo.com%26app_id%3Dlightyear
+  body: 
+===== LEVA 4 — /token: mapear campos exigidos (L2 exchangeability) =====
+-------- GET (baseline)
+HTTP/2 400 
+  body: {"detail":"Bad Request, missing parameters"}
+
+-------- POST vazio (form)
+HTTP/2 405 
+allow: GET
+  body: {"detail":"Method Not Allowed"}
+
+-------- POST code+state (form)
+HTTP/2 405 
+allow: GET
+  body: {"detail":"Method Not Allowed"}
+
+-------- POST code+state+app_id (form)
+HTTP/2 405 
+allow: GET
+  body: {"detail":"Method Not Allowed"}
+
+-------- POST JSON code+state+app_id
+HTTP/2 405 
+allow: GET
+  body: {"detail":"Method Not Allowed"}
+
+===== LEVA 5 — /token GET: confirmar nomes de campo (L2) =====
+-- code+state_token
+HTTP 400 :: {"detail":"Bad Request, missing parameters"}
+
+-- code+state_token+app_id
+HTTP 400 :: {"detail":"Bad Request, missing parameters"}
+
+-- so code
+HTTP 400 :: {"detail":"Bad Request, missing parameters"}
+

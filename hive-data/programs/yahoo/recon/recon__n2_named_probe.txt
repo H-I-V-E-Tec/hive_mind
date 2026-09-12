@@ -1,0 +1,7 @@
+https://data.mail.yahoo.com [[31m404[0m] [[35m[0m] [[36mYahoo[0m] [ATS] [200.152.162.189] [[35mApache Traffic Server[0m]
+https://s.yimg.com [[31m404[0m] [[35m[0m] [[36mYahoo[0m] [ATS] [2804:1bc:114::2000] [[35mApache Traffic Server[0m]
+https://mail.yahoo.com [[32m200[0m] [[35m[0m] [[36mYahoo Mail | Email with smart features and top-notch security[0m] [ATS] [2804:1bc:114::2000] [[35mApache Traffic Server,Envoy,HSTS,Onsen UI[0m]
+https://apis.mail.yahoo.com [[31m404[0m] [[35m[0m] [[36mYahoo[0m] [ATS] [2001:4998:3c:807::2] [[35mApache Traffic Server,HSTS[0m]
+https://proddata.xobni.yahoo.com [[31m404[0m] [[35m[0m] [ATS] [2804:1bc:114::2006] [[35mApache Traffic Server,Envoy,HSTS[0m]
+https://yimg.com [[31m404[0m] [[35m[0m] [ATS] [76.223.84.192] [[35mApache Traffic Server[0m]
+https://finance.yahoo.com [[32m200[0m] [[35m[0m] [[36mYahoo Finance - Stock Market Live, Quotes, Business & Finance News[0m] [ATS] [2804:1bc:114::2000] [[35mApache Traffic Server,Envoy,HSTS[0m]

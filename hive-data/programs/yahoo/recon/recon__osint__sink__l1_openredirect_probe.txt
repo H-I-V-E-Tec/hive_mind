@@ -1,0 +1,33 @@
+-- r.search RU= (classic)
+   URL: https://r.search.yahoo.com/RU=https%3A%2F%2Fexample.com%2F/RK=2/RS=stub?code=DUMMYCODE
+   HTTP 404  ->  
+
+-- search ?rd=
+   URL: https://search.yahoo.com/search?p=x&rd=https://example.com/&code=DUMMYCODE
+curl: (56) Failure when receiving data from the peer
+   HTTP 000  ->  
+
+-- www ?url=
+   URL: https://www.yahoo.com/?url=https://example.com/&code=DUMMYCODE
+   HTTP 302  ->  https://br.yahoo.com/?p=us
+
+-- login .done= externo
+   URL: https://login.yahoo.com/?.done=https://example.com/&code=DUMMYCODE
+   HTTP 200  ->  
+
+-- login .done= yahoo-suffix
+   URL: https://login.yahoo.com/?.done=https://example.com.yahoo.com/&code=DUMMYCODE
+   HTTP 200  ->  
+
+-- help ?url=
+   URL: https://help.yahoo.com/?url=https://example.com/
+   HTTP 301  ->  https://help.yahoo.com/kb/account?url=https://example.com/
+
+-- news ?url= / redirect
+   URL: https://news.yahoo.com/?redirect=https://example.com/
+   HTTP 301  ->  https://www.yahoo.com/news/?redirect=https://example.com/
+
+-- fantasysports ?to=
+   URL: https://football.fantasysports.yahoo.com/?to=https://example.com/
+   HTTP 200  ->  
+
