@@ -222,7 +222,7 @@ Use `./bin/hive-mind` antes de cada comando:
 | Sem comando | Inicia o MCP local. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
-| `ingest` | Reconcilia os documentos deste writer; informa quantos foram ignorados por pertencerem a outro writer. |
+| `ingest` | Reconcilia os documentos deste writer e retorna relatório JSON por arquivo, inclusive em falha parcial. |
 | `ingest --prune` | Remove documentos deste writer ausentes após carência. |
 | `remove programs/acme-bugbounty/notes/api.md` | Publica tombstone e verifica exclusão dos vetores; só para documentos deste writer; não apaga o arquivo local. |
 | `scope approve acme-bugbounty` | Mostra resumo/hash para revisão, sem confirmar. |
@@ -238,6 +238,16 @@ Use `./bin/hive-mind` antes de cada comando:
 Filtros CLI: `--document-type=note`, `--tag=oauth`, `--classification=internal`, `--scope-status=authorized`, `--limit=8`. Tipo e tag podem ser repetidos; tags usam semântica ALL. Limite: 1–20. Use `--chave=valor` para os filtros.
 
 Códigos: `0` sucesso; `2` uso/entrada; `10` configuração; `11` conectividade; `12` autenticação/permissão; `13` TLS; `14` schema/fingerprint; `15` falha parcial recuperável. Não trate `15` como sucesso: examine auditoria/estado antes de repetir mutações.
+
+### Relatório de ingestão
+
+Após a inicialização, `ingest` escreve um relatório JSON em stdout com `schema_version: 1`, `ok`, `exit_code`, `summary`, `prune_run` e `pruned`. O summary separa `created`, `updated`, `unchanged`, `skipped`, `missing`, `failed` e `cancelled`; `ingested` é a soma de criações e atualizações bem-sucedidas. Reingerir um arquivo inalterado não aumenta esse contador.
+
+`summary.results` contém os arquivos selecionados em ordem de path relativo, com `outcome`, `published` e, quando necessário, `reason_code` e diagnóstico sanitizado. Por exemplo, `file_size_limit` e `chunk_limit` identificam limites de entrada; `embedding_failed` identifica falha na geração do embedding. Não são incluídos textos dos documentos ou erros brutos dos serviços. Arquivos excluídos pela política e extensões não suportadas ficam fora da seleção.
+
+Falhas individuais não interrompem os outros arquivos. Ao terminar um lote com falhas, a CLI preserva o relatório e sai com `15`; `--prune` só é executado se a sincronização terminar sem erro. `scan_complete: false` indica que a seleção não terminou e não deve ser interpretado como pasta vazia.
+
+No MCP, `ingest_workspace` retorna o mesmo JSON no bloco `content` de texto. Falhas de execução usam `result.isError: true`, mantendo os resultados parciais. Isso substitui a antiga resposta Markdown/erro JSON-RPC de execução; clientes que interpretavam essas respostas precisam passar a ler o relatório. O contrato completo, incluindo publicação seguida de falha de limpeza, está em [relatório de ingestão](docs/spec/contracts/ingestion-report.md).
 
 ## Container MCP opcional
 

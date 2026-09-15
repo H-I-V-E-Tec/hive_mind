@@ -212,31 +212,8 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 				return
 			}
 			go func() {
-				summary, err := iw.SyncWorkspace(context.Background())
-				if err != nil {
-					log.Printf("Internal codebase ingestion failed: %v", err)
-					iw.sendMCPError(req.ID, -32603, fmt.Sprintf("Ingestion error: %v", err))
-					return
-				}
-
-				// Respond directly to the active IDE context stream window
-				var sb strings.Builder
-				sb.WriteString("### 🚀 Hive Ingestion Complete\n\n")
-				sb.WriteString(fmt.Sprintf("Synchronized **%d** documents into the Hive collection `%s`; **%d** skipped because another writer owns them.\n", summary.Ingested, iw.Cfg.CollectionName, summary.Skipped))
-
-				response := map[string]interface{}{
-					"jsonrpc": "2.0",
-					"id":      req.ID,
-					"result": map[string]interface{}{
-						"content": []map[string]interface{}{
-							{
-								"type": "text",
-								"text": sb.String(),
-							},
-						},
-					},
-				}
-				out, _ := json.Marshal(response)
+				report := iw.IngestWorkspaceReport(context.Background(), false)
+				out, _ := json.Marshal(ingestionMCPResponse(req.ID, report))
 				fmt.Println(string(out))
 			}()
 		} else {
@@ -344,7 +321,7 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 	if iw.Cfg.IsWriter() {
 		tools = append(tools, map[string]interface{}{
 			"name":        "ingest_workspace",
-			"description": "Trigger ingestion from the configured Hive data directory.",
+			"description": "Ingest the configured Hive data directory and return a JSON report with created, updated, unchanged, skipped and failed files. Partial failures retain all file results and set isError.",
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		})
 	}

@@ -112,8 +112,8 @@
     {
       "id": "07",
       "file": "07-operational-cli.md",
-      "version": "1.1.0",
-      "sha256": "228a7cb4b5e58fd214d4c37de498fc09f3d02b063c11510d06a298eb9c71440a",
+      "version": "1.2.0",
+      "sha256": "3af2f1743f32fa4ff40b498a04dd6260eefb29f5c7a4a30ba456c8336bf498b5",
       "status": "pending",
       "executed_at": null,
       "commit": null,

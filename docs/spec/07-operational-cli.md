@@ -6,7 +6,7 @@ O operador consegue validar e usar a instância sem inspeção manual de banco, 
 
 ## Comandos
 
-- `ingest`: indexa `HIVE_DATA_DIR` e mostra totais sem conteúdo sensível, separando documentos ingeridos de documentos ignorados por pertencerem a outro writer.
+- `ingest`: indexa `HIVE_DATA_DIR` e, após a inicialização, retorna o [relatório JSON de ingestão v1](contracts/ingestion-report.md). Separa criações, atualizações, inalterados, ignorados, ausentes, falhas e cancelamentos; preserva resultados individuais em falha parcial. `ingest --prune` só executa a poda quando a sincronização termina sem erro.
 - `search`: chama a busca Hive com `program_id` e filtros por flags.
 - `status`: mostra configuração efetiva mascarada, collection, modelo, dimensão, última sincronização e pendências.
 - `validate`: verifica papel, diretório quando aplicável, Qdrant, permissão da credencial, TLS, Ollama e fingerprint completo de embedding/schema.
@@ -16,6 +16,8 @@ O operador consegue validar e usar a instância sem inspeção manual de banco, 
 - `audit report [--since=AAAA-MM-DD] [--program=<id>]`: agrega os eventos de recuperação dos logs locais conforme a [spec 09](09-usage-metrics.md); saída somente numérica.
 
 Exit codes são estáveis: `0` sucesso, `2` uso/entrada inválida, `10` configuração, `11` conectividade, `12` autenticação/autorização, `13` TLS, `14` incompatibilidade de embedding/schema e `15` falha parcial recuperável. Quando houver mais de uma falha, prevalece o menor código não zero e todas as falhas sanitizadas aparecem no relatório estruturado.
+
+No lote de ingestão, falhas individuais são resultados de processamento e produzem código agregado `15`, com motivos por arquivo. Cancelamento também produz `15`; erros de infraestrutura anteriores ao lote preservam sua classificação operacional. `ingested` passa a representar somente `created + updated`, sem contar arquivos inalterados. `ingest_workspace` expõe o relatório pelo MCP e usa `isError: true` quando a execução falha, mantendo os itens processados.
 
 ## Segurança
 
@@ -28,3 +30,4 @@ Exit codes são estáveis: `0` sucesso, `2` uso/entrada inválida, `10` configur
 - Writers recebem erro de autorização ao remover documento de outro writer; `ingest` conclui com sucesso ignorando documentos alheios.
 - Mocks cobrem saudável, indisponível, não autenticado, permissão insuficiente, TLS inválido e fingerprint incompatível.
 - Ajuda, README e exemplos MCP refletem o contrato final.
+- Testes de relatório cobrem múltiplas falhas, concorrência, idempotência, cancelamento, limpeza posterior à publicação e preservação do resumo em falha de prune, sem exposição de texto de documentos ou erros brutos de provedores.

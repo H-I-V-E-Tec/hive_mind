@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/qdrant/go-client/qdrant"
@@ -147,18 +146,13 @@ func Start(version string) {
 			defer worker.Close()
 
 			log.Println("Starting manual Hive ingestion...")
-			summary, err := worker.SyncWorkspace(context.Background())
-			if err != nil {
-				failCommand(client, worker, "ingest", err)
+			report := worker.IngestWorkspaceReport(context.Background(), sliceContains(args[2:], "--prune"))
+			printJSON(report)
+			if !report.OK {
+				worker.Close()
+				client.Close()
+				os.Exit(report.ExitCode)
 			}
-			if sliceContains(args[2:], "--prune") {
-				pruned, err := worker.PrunePending(context.Background(), time.Now())
-				if err != nil {
-					failCommand(client, worker, "ingest prune", err)
-				}
-				fmt.Printf("Pruned %d documents after the deletion grace period.\n", pruned)
-			}
-			fmt.Printf("🎉 Success! Ingested %d files into collection '%s' (%d skipped: owned by other writers).\n", summary.Ingested, cfg.CollectionName, summary.Skipped)
 			return
 		case "remove":
 			if !cfg.IsWriter() {
@@ -474,7 +468,8 @@ func printCLIHelp() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
-	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; optionally prune expired pending deletes.")
+	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; report per-file outcomes as JSON (partial failure: 15).")
+	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")

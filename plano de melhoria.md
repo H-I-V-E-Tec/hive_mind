@@ -2,7 +2,7 @@
 
 Data: 15/09/2026. Base analisada: commit `961a3d7` e arquivos locais do projeto.
 
-Estado: proposta para implementação. Este documento resulta de inspeção de código, testes existentes, contratos e documentação; não representa validação dos serviços em execução nem medição do índice atual.
+Estado: implementação iniciada em 15/09/2026. O diagnóstico abaixo registra a base anterior às mudanças; o andamento está na seção 16. Não representa validação dos serviços em produção nem medição do índice atual.
 
 ## 1. Objetivo e direção
 
@@ -285,7 +285,7 @@ Evitar ampliar `server/worker.go` e `server/revision.go` com todos os formatos e
 
 ## 12. Roadmap e critérios de aceite
 
-As fases são ordenadas por dependências; duração e custo devem ser estimados após a linha de base. Entregas documentais desta lista ainda não estão implementadas.
+As fases são ordenadas por dependências; duração e custo devem ser estimados após a linha de base. Itens marcados foram implementados; os demais permanecem pendentes.
 
 ### Fase 0 — Linha de base e contratos
 
@@ -299,7 +299,7 @@ Aceite: benchmark reproduzível, critérios de qualidade explícitos e decisão 
 
 ### Fase 1 — Base atual mais utilizável
 
-- [ ] Relatório completo de lote com resultados tipados e contagem de arquivos inalterados.
+- [x] Relatório completo de lote com resultados tipados e contagem de arquivos inalterados.
 - [ ] Tratar Rename e reconciliar ausências sem violar carência/propriedade.
 - [ ] Expor configuração de busca e adicionar avaliação do ranking/diversidade.
 - [ ] Extrair interfaces de ingestão e prévia `--dry-run` para formatos atuais.
@@ -380,10 +380,29 @@ Nenhuma limpeza física do acervo atual faz parte da criação deste plano. A de
 
 As metas são critérios futuros, não resultados obtidos. Para semântica, relatar tamanho da amostra e erros observados; zero erros em um conjunto finito não comprova perfeição universal.
 
-Cada mudança comportamental deve incluir testes apropriados, conforme [a decisão de testes obrigatórios](docs/decisions/001-tests-are-required.md). Rodar `go test ./...` e verificações relevantes na implementação; fluxos de banco/Qdrant e concorrência precisam de integração real. Esta entrega altera apenas documentação e não executou testes nem serviços.
+Cada mudança comportamental deve incluir testes apropriados, conforme [a decisão de testes obrigatórios](docs/decisions/001-tests-are-required.md). Rodar `go test ./...` e verificações relevantes na implementação; fluxos de banco/Qdrant e concorrência precisam de integração real. A criação inicial deste plano alterou apenas documentação; a validação das implementações está registrada abaixo.
 
 ## 15. Primeira entrega recomendada
 
 Começar pela linha de base e pelos relatórios de ingestão, em seguida implementar o MVP com normalização conservadora, deduplicação exata de unidades e proveniência múltipla. Isso torna a redução de repetição mensurável e prepara o sistema para formatos adicionais e análise semântica.
 
 O resultado esperado é um Hive Mind que explica o que recebeu, o que aproveitou e por quê, mantém cada conhecimento admitido uma vez no seu domínio de acesso e conserva as evidências necessárias para verificá-lo.
+
+## 16. Andamento da implementação
+
+### Entrega 1 — Relatório de ingestão (15/09/2026)
+
+Implementados [contrato v1](docs/spec/contracts/ingestion-report.md), [tipos e integração de relatório](server/ingestion_report.go) e [testes de regressão](server/ingestion_report_test.go).
+
+- Resultados individuais e ordenação determinística com workers concorrentes.
+- Contadores de criados, atualizados, inalterados, ignorados, ausentes, falhos e cancelados.
+- CLI e MCP preservam o relatório quando parte do lote falha; a poda não executa nessa situação.
+- Motivos explícitos por etapa, incluindo tamanho/chunks, embedding e publicação com limpeza pendente.
+- Publicação confirmada distinguida de falha de processamento; nenhuma deduplicação entre arquivos é alegada nesta entrega.
+- TODO reconciliado nos relatos de interrupção de lote e disponibilidade da busca híbrida.
+
+Linha de base automatizada: `go test ./...` passou antes das alterações, usando caches em `/tmp`. Os testes novos usam fontes sintéticas e serviços simulados; não foi executada ingestão do acervo privado nem migração de collections.
+
+Validação da entrega: `go test ./... -count=1`, `go vet ./...` e `go test -race ./server -run 'TestIngestion|TestMultiWriter|TestSpec002' -count=1` passaram. Executados com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. A spec operacional 07 foi atualizada para 1.2.0, mantendo o aceite de implantação como `pending`.
+
+Próxima entrega prevista: inventário reproduzível de formatos/tamanhos/duplicação exata e contratos do conversor, acompanhados da avaliação de recuperação. O restante das fases 0 e 1 segue pendente.

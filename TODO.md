@@ -85,6 +85,8 @@ Estado da ingestão: coinspot, demo, etoro (28 docs) e yahoo ingeridos; 5674 pon
   - Falha de embedding do Ollama (HTTP 500) contém "dimension" e é sanitizada como
     "embedding or collection schema is incompatible" — também enganoso.
   - Considerar buckets/mensagens dedicados (arquivo grande = uso/config; embedding 5xx = conectividade).
+  - Atualização 2026-09-15: relatório por arquivo usa motivos explícitos `file_size_limit`,
+    `chunk_limit` e `embedding_failed`. Revisão do classificador geral continua pendente.
 - [ ] **Validar `validate`/`status` fim-a-fim** após completar a ingestão (hoje: `ok: true`).
 - [ ] **Persistência/inicialização dos serviços**
   - Hoje o start é manual (`hive-lab/start-services.sh`). Avaliar `launchd`/`brew services`
@@ -104,11 +106,14 @@ Contexto: benchmark de retrieval (Hive vs grep) + dedup do corpus etoro. Ordem p
     máquina na nuvem" não achou os docs de SSRF→IMDS). Comportamento é de **vetor puro**.
   - Ação: confirmar se o sparse/BM25 está realmente fundido no ranking do `hive_search`
     (não só ingerido); se estiver, revisar peso denso×esparso e reranking.
-- [ ] **`ingest_workspace` aborta no 1º arquivo grande em vez de pular** 🔴
-  - `ingest recon__urls.txt: document exceeds 1000 chunks` derruba o batch inteiro; como o
-    scan é **global** (todos os programas), 1 dump de recon > `HIVE_MAX_CHUNKS_PER_FILE`
-    impede a ingestão de qualquer programa. Nunca passou limpo com o corpus atual.
-  - Ação: pular (warn) arquivos acima do limite e seguir; reportar lista no fim do summary.
+  - Inspeção 2026-09-15: `queryVariant` implementa RRF, mas a configuração usa `dense`.
+    O sparse atual é uma ponderação de termos por hash, não BM25 completo.
+- [x] **Preservar o relatório do lote quando arquivos falham**
+  - Inspeção 2026-09-15: os workers já continuavam após falha individual; o retorno de
+    apenas `firstErr` ocultava o resumo na CLI/MCP, dando a impressão de interrupção.
+  - Implementado relatório JSON por arquivo com todas as falhas, limites explícitos,
+    criações, atualizações e inalterados. CLI sai com `15`; MCP usa `isError: true`
+    preservando o relatório. Testes: `server/ingestion_report_test.go`.
 - [ ] **Watcher não purga vetores ao remover/mover arquivo (macOS)** 🟠
   - Mover 9 docs pra fora do `hive-data` **não** disparou o purge; os vetores órfãos
     continuaram aparecendo na busca. Só saíram via `hive-mind remove <path>` manual.

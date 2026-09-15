@@ -2,6 +2,8 @@
 
 Estado documental em 2026-09-12. Este arquivo separa código implementado de aceite operacional. O registro normativo em `docs/spec/status.json` continua sendo a fonte de verdade para uma spec marcada como concluída.
 
+Atualização 2026-09-15: primeira entrega do plano de melhoria implementa [relatório de ingestão v1](../spec/contracts/ingestion-report.md) em CLI/MCP, com resultados por arquivo, inalterados e falhas parciais preservadas. Suíte completa, `go vet` e testes de ingestão/revisão com detector de corridas passaram; specs 06–08 continuam pendentes de aceite operacional. O andamento está na [seção 16 do plano](../../plano%20de%20melhoria.md#16-andamento-da-implementação).
+
 ## Specs funcionais
 
 | Spec | Implementação disponível | O que falta para concluir formalmente |
