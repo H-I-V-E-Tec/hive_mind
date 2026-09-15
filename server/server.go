@@ -33,6 +33,21 @@ func Start(version string) {
 		printCLIHelp()
 		return
 	}
+	if len(args) > 1 && args[1] == "inventory" {
+		opts, err := parseInventoryArgs(args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "invalid inventory arguments")
+			os.Exit(ExitUsage)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		report := BuildInventory(ctx, opts)
+		stop()
+		printJSON(report)
+		if !report.OK {
+			os.Exit(report.ExitCode)
+		}
+		return
+	}
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -470,6 +485,9 @@ func printCLIHelp() {
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
 	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; report per-file outcomes as JSON (partial failure: 15).")
 	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
+	fmt.Println("  inventory <dir>                Offline JSON inventory of formats, sizes and byte-identical copies.")
+	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
+	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")

@@ -219,6 +219,7 @@ Use `./bin/hive-mind` antes de cada comando:
 | Comando | Efeito |
 | --- | --- |
 | `help` | Exibe comandos e flags, sem precisar de serviços. |
+| `inventory <dir>` | Inventário local de formatos, tamanhos e cópias integrais candidatas; não exige configuração Hive, Qdrant ou Ollama. |
 | Sem comando | Inicia o MCP local. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
@@ -240,6 +241,8 @@ Filtros CLI: `--document-type=note`, `--tag=oauth`, `--classification=internal`,
 Códigos: `0` sucesso; `2` uso/entrada; `10` configuração; `11` conectividade; `12` autenticação/permissão; `13` TLS; `14` schema/fingerprint; `15` falha parcial recuperável. Não trate `15` como sucesso: examine auditoria/estado antes de repetir mutações.
 
 ### Relatório de ingestão
+
+Para analisar o acervo antes de ingerir, execute `./bin/hive-mind inventory /caminho/da/copia-do-hive-data`. O relatório conta qualquer extensão e calcula SHA-256 até 50 MiB por arquivo. `--program=<id>` restringe a análise; `--details` inclui caminhos relativos; `--hash-max-bytes=<n>` ajusta a cobertura. Ele respeita entradas ocultas e padrões locais de `.gitignore`, sem modificar o acervo. Repetição integral não equivale a conhecimento redundante: consulte o [contrato](docs/spec/contracts/inventory-report.md) e a [linha de base](docs/operations/inventory-baseline.md).
 
 Após a inicialização, `ingest` escreve um relatório JSON em stdout com `schema_version: 1`, `ok`, `exit_code`, `summary`, `prune_run` e `pruned`. O summary separa `created`, `updated`, `unchanged`, `skipped`, `missing`, `failed` e `cancelled`; `ingested` é a soma de criações e atualizações bem-sucedidas. Reingerir um arquivo inalterado não aumenta esse contador.
 

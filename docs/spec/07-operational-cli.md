@@ -6,6 +6,8 @@ O operador consegue validar e usar a instância sem inspeção manual de banco, 
 
 ## Comandos
 
+- `inventory <dir> [--program=<id>] [--details] [--hash-max-bytes=<n>]`: diagnóstico local de formatos, tamanhos e cópias integrais candidatas por SHA-256, conforme o [contrato de inventário v1](contracts/inventory-report.md). Opera sem configuração Hive ou serviços e não altera documentos/índice.
+
 - `ingest`: indexa `HIVE_DATA_DIR` e, após a inicialização, retorna o [relatório JSON de ingestão v1](contracts/ingestion-report.md). Separa criações, atualizações, inalterados, ignorados, ausentes, falhas e cancelamentos; preserva resultados individuais em falha parcial. `ingest --prune` só executa a poda quando a sincronização termina sem erro.
 - `search`: chama a busca Hive com `program_id` e filtros por flags.
 - `status`: mostra configuração efetiva mascarada, collection, modelo, dimensão, última sincronização e pendências.
@@ -25,7 +27,7 @@ No lote de ingestão, falhas individuais são resultados de processamento e prod
 
 ## Aceite e testes
 
-- Todos os comandos funcionam apenas com a nova configuração Hive.
+- Comandos que acessam o Hive exigem a nova configuração; `help` e `inventory` funcionam sem credenciais ou serviços.
 - Readers recebem erro de autorização nos comandos mutáveis e não expõem ferramentas MCP mutáveis.
 - Writers recebem erro de autorização ao remover documento de outro writer; `ingest` conclui com sucesso ignorando documentos alheios.
 - Mocks cobrem saudável, indisponível, não autenticado, permissão insuficiente, TLS inválido e fingerprint incompatível.

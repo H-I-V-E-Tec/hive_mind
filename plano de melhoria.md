@@ -289,8 +289,8 @@ As fases são ordenadas por dependências; duração e custo devem ser estimados
 
 ### Fase 0 — Linha de base e contratos
 
-- [ ] Inventariar formatos, tamanhos e duplicatas exatas em cópia controlada do corpus, sem publicar conteúdo sensível.
-- [ ] Criar amostras sanitizadas e pares rotulados: duplicata, complemento, contradição e mudança temporal.
+- [x] Inventariar formatos, tamanhos e duplicatas exatas em cópia controlada do corpus, sem publicar conteúdo sensível.
+- [x] Criar amostras sanitizadas e pares rotulados: duplicata, complemento, contradição e mudança temporal.
 - [ ] Medir recuperação, repetição no top-k, custo de embeddings e tempo de ingestão.
 - [ ] Reconciliar README/TODO/specs com os caminhos executados; registrar pendências operacionais.
 - [ ] Especificar unidade canônica, domínio de deduplicação, retenção e contrato dos adaptadores.
@@ -406,3 +406,14 @@ Linha de base automatizada: `go test ./...` passou antes das alterações, usand
 Validação da entrega: `go test ./... -count=1`, `go vet ./...` e `go test -race ./server -run 'TestIngestion|TestMultiWriter|TestSpec002' -count=1` passaram. Executados com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. A spec operacional 07 foi atualizada para 1.2.0, mantendo o aceite de implantação como `pending`.
 
 Próxima entrega prevista: inventário reproduzível de formatos/tamanhos/duplicação exata e contratos do conversor, acompanhados da avaliação de recuperação. O restante das fases 0 e 1 segue pendente.
+
+### Entrega 2 — Inventário local e amostras (15/09/2026)
+
+- Implementado `inventory <dir>`, sem configuração ou serviços, com relatório JSON determinístico de formatos, tamanhos e cobertura de hashes.
+- Duplicatas integrais candidatas agrupadas somente dentro do mesmo programa; caminhos opcionais e nenhum conteúdo/hash exportado.
+- Leitura delimitada, políticas de exclusão locais, recusa de symlinks/arquivos especiais e detecção de alterações durante leitura.
+- Adicionada amostra sintética com cinco pares rotulados: duplicata, complemento, contradição, mudança temporal e cópia entre programas.
+- Documentados [contrato do inventário](docs/spec/contracts/inventory-report.md) e [proposta do conversor](docs/spec/contracts/converter-pipeline.md).
+- Executado inventário em cópia controlada: 100 arquivos, 25.343.943 bytes, 16 vazios; o único grupo de repetição integral reúne esses vazios, com zero bytes repetidos. [Linha de base](docs/operations/inventory-baseline.md).
+
+A proposta de contrato não conclui a decisão de persistência/retenção nem ativa novos formatos na ingestão. Avaliação de recuperação e deduplicação de trechos/semântica continuam pendentes. Próxima entrega: extração de blocos localizáveis para MD/TXT/JSON e normalização determinística, com preservação da publicação atual.

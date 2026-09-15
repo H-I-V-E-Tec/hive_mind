@@ -6,6 +6,8 @@ Atualização 2026-09-15: primeira entrega do plano de melhoria implementa [rela
 
 ## Specs funcionais
 
+Segunda entrega do plano (2026-09-15): `inventory` permite diagnosticar o corpus local sem serviços. A [linha de base](inventory-baseline.md) registra cobertura de 100 arquivos em cópia controlada e somente repetições de arquivos vazios. Há corpus sintético rotulado e proposta de contrato do conversor; novos adaptadores e deduplicação canônica ainda não estão ativos.
+
 | Spec | Implementação disponível | O que falta para concluir formalmente |
 | --- | --- | --- |
 | 00–05 | Implementadas e marcadas como concluídas no registro de specs. 00 e 02 estão na versão 1.1.0 (multi-writer com propriedade por documento e por aprovação de escopo). | Manter regressões passando; executar os passos multi-writer da spec 08 em máquinas reais. |
