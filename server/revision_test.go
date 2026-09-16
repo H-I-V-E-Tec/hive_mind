@@ -190,14 +190,14 @@ type transportFunc func(*http.Request) (*http.Response, error)
 
 func (f transportFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func specWorker(t *testing.T, q *memoryQdrant) (*IngestionWorker, string) {
+func specWorker(t *testing.T, q QdrantClient) (*IngestionWorker, string) {
 	t.Helper()
 	return specWorkerAs(t, q, "writer-1", "change-1", RoleWriter)
 }
 
 // specWorkerAs builds a worker for one device sharing the same in-memory
 // Qdrant, so tests can exercise several writers and readers of one Hive.
-func specWorkerAs(t *testing.T, q *memoryQdrant, deviceID, approvalID, role string) (*IngestionWorker, string) {
+func specWorkerAs(t *testing.T, q QdrantClient, deviceID, approvalID, role string) (*IngestionWorker, string) {
 	t.Helper()
 	root := t.TempDir()
 	canonicalRoot, err := filepath.EvalSymlinks(root)

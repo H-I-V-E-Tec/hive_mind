@@ -307,6 +307,38 @@ type IngestionWorker struct {
 	CustomStopWords       map[string]struct{}
 	infrastructureMu      sync.Mutex
 	infrastructureReady   bool
+	embeddingStats        embeddingCounters
+}
+
+// embeddingCounters accumulates successful embedding requests so callers can
+// measure cost (calls, prompt bytes, wall time) without touching the HTTP layer.
+type embeddingCounters struct {
+	calls       atomic.Int64
+	promptBytes atomic.Int64
+	durationNS  atomic.Int64
+}
+
+// EmbeddingStats is a point-in-time snapshot of embedding request counters.
+type EmbeddingStats struct {
+	Calls       int64
+	PromptBytes int64
+	Duration    time.Duration
+}
+
+// SnapshotEmbeddingStats returns the counters accumulated since the last reset.
+func (iw *IngestionWorker) SnapshotEmbeddingStats() EmbeddingStats {
+	return EmbeddingStats{
+		Calls:       iw.embeddingStats.calls.Load(),
+		PromptBytes: iw.embeddingStats.promptBytes.Load(),
+		Duration:    time.Duration(iw.embeddingStats.durationNS.Load()),
+	}
+}
+
+// ResetEmbeddingStats zeroes the embedding counters.
+func (iw *IngestionWorker) ResetEmbeddingStats() {
+	iw.embeddingStats.calls.Store(0)
+	iw.embeddingStats.promptBytes.Store(0)
+	iw.embeddingStats.durationNS.Store(0)
 }
 
 func NewIngestionWorker(cfg Config, qdrantClient QdrantClient, gitIgnore *GitIgnoreMatcher) *IngestionWorker {
@@ -977,6 +1009,9 @@ func (iw *IngestionWorker) FetchRemoteEmbedding(ctx context.Context, text string
 		// Success!
 		iw.ConcurrencyController.RecordSuccess(duration)
 		iw.ConcurrencyController.Release()
+		iw.embeddingStats.calls.Add(1)
+		iw.embeddingStats.promptBytes.Add(int64(len(text)))
+		iw.embeddingStats.durationNS.Add(int64(duration))
 		return out.Embedding, nil
 	}
 

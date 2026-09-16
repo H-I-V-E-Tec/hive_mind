@@ -1,0 +1,29 @@
+{
+  "program_id": "demo",
+  "document_type": "asset",
+  "classification": "internal",
+  "source": "synthetic-fixture",
+  "collected_at": "2026-09-10T09:00:00Z",
+  "assets": [
+    {
+      "host": "gateway.example.test",
+      "role": "gateway",
+      "owner": "equipe Orion"
+    },
+    {
+      "host": "media.example.test",
+      "role": "media fetcher",
+      "owner": "equipe Andorinha"
+    },
+    {
+      "host": "billing.example.test",
+      "role": "billing",
+      "owner": "equipe Garça"
+    },
+    {
+      "host": "vpn.example.test",
+      "role": "vpn",
+      "owner": "equipe Ferrugem"
+    }
+  ]
+}

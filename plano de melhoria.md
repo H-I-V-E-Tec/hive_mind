@@ -291,9 +291,9 @@ As fases são ordenadas por dependências; duração e custo devem ser estimados
 
 - [x] Inventariar formatos, tamanhos e duplicatas exatas em cópia controlada do corpus, sem publicar conteúdo sensível.
 - [x] Criar amostras sanitizadas e pares rotulados: duplicata, complemento, contradição e mudança temporal.
-- [ ] Medir recuperação, repetição no top-k, custo de embeddings e tempo de ingestão.
-- [ ] Reconciliar README/TODO/specs com os caminhos executados; registrar pendências operacionais.
-- [ ] Especificar unidade canônica, domínio de deduplicação, retenção e contrato dos adaptadores.
+- [x] Medir recuperação, repetição no top-k, custo de embeddings e tempo de ingestão.
+- [x] Reconciliar README/TODO/specs com os caminhos executados; registrar pendências operacionais.
+- [x] Especificar unidade canônica, domínio de deduplicação, retenção e contrato dos adaptadores.
 
 Aceite: benchmark reproduzível, critérios de qualidade explícitos e decisão arquitetural de persistência registrada.
 
@@ -416,4 +416,17 @@ Próxima entrega prevista: inventário reproduzível de formatos/tamanhos/duplic
 - Documentados [contrato do inventário](docs/spec/contracts/inventory-report.md) e [proposta do conversor](docs/spec/contracts/converter-pipeline.md).
 - Executado inventário em cópia controlada: 100 arquivos, 25.343.943 bytes, 16 vazios; o único grupo de repetição integral reúne esses vazios, com zero bytes repetidos. [Linha de base](docs/operations/inventory-baseline.md).
 
-A proposta de contrato não conclui a decisão de persistência/retenção nem ativa novos formatos na ingestão. Avaliação de recuperação e deduplicação de trechos/semântica continuam pendentes. Próxima entrega: extração de blocos localizáveis para MD/TXT/JSON e normalização determinística, com preservação da publicação atual.
+A proposta de contrato não ativa novos formatos na ingestão. Deduplicação de trechos/semântica continua pendente; a decisão de persistência/retenção e a avaliação de recuperação foram fechadas na Entrega 3.
+
+### Entrega 3 — Linha de base de recuperação, reconciliação e contratos (16/09/2026)
+
+Fecha as três pendências da Fase 0.
+
+- **Benchmark offline reproduzível** ([contrato](docs/spec/contracts/eval-report.md), [resultados](docs/operations/retrieval-baseline.md)): harness em [server/eval.go](server/eval.go) executado por `TestRetrievalBaseline`, com Qdrant em memória que pontua (cosseno, esparso, RRF) e embedder sintético bag-of-words. Corpus de 13 arquivos e 11 consultas rotuladas em `server/testdata/eval/`. Mede Recall@k, MRR, documentos distintos e maior fração de um documento no top-k, bytes de prefixo repetido por chunk, chamadas/bytes de embedding e tempo de ingestão e reingestão. Contadores de embedding foram adicionados ao worker (`SnapshotEmbeddingStats`), sem alterar o relatório de ingestão v1.
+- **Achados estruturais:** 34% do texto indexado nas fixtures é front matter + título repetido por seção; um documento longo ocupou 8/8 resultados em duas consultas; a reingestão sem mudanças fez zero chamadas de embedding; documentos sem `classification` (`.txt`/`.json` sem o campo) são embedados e nunca devolvidos pela busca. Recall/MRR reportados descrevem o embedder sintético e não o modelo real — a execução com Ollama/Qdrant reais fica para a Fase 1.
+- **Reconciliação:** README corrige a alegação de busca híbrida ativa, documenta nove variáveis de ambiente ausentes e o requisito de `classification`; `help` lista as três flags omitidas; TODO ganha cabeçalho de histórico, corrige o item de híbrido e anota as medições; subcomando morto `evaluate-search` removido. Pendências operacionais consolidadas em [implementation-status.md](docs/operations/implementation-status.md).
+- **Contratos e decisão:** [canonical-unit.md](docs/spec/contracts/canonical-unit.md) define objetos, identidades UUID v5, chave de unicidade com `access_partition`, separação `observed_at`/`ingested_at`, retenção, contrato dos adaptadores e `reason_codes`; a [decisão 003](docs/decisions/003-canonical-persistence.md) fixa PostgreSQL compartilhado como fonte canônica com fila transacional, Qdrant como índice derivado e proíbe alegar unicidade global antes disso.
+
+Validação: `go build ./...`, `go vet ./...`, `go test ./... -count=1` e `gofmt -l` limpos, com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. Nenhuma spec numerada foi alterada; `status.json` permanece como estava.
+
+Próxima entrega: extração de blocos localizáveis para MD/TXT/JSON e normalização determinística conforme o contrato dos adaptadores, com preservação da publicação atual (Fase 1: interfaces de ingestão e `--dry-run`).

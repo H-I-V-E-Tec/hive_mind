@@ -8,7 +8,7 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 - Ingestão de Markdown, texto e JSON; observação de arquivos, `.gitignore`, limites de tamanho/chunks e proteção de paths.
 - Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
 - Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
-- Busca semântica, esparsa e híbrida com filtros de programa, classificação, escopo, tipo e tags.
+- Busca semântica (densa) com filtros de programa, classificação, escopo, tipo e tags. Vetores esparsos são gravados na ingestão e a fusão híbrida (RRF) existe no código, mas o modo de busca é fixo em `dense` e ainda não é configurável; ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
 - MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
 - CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada com métricas de uso (`audit report`).
 - Templates de skill para Claude Code e Codex que ensinam o agente a consultar escopo antes de agir e a escrever notas reutilizáveis.
@@ -94,6 +94,15 @@ Edite `.env.hive` com seus identificadores e caminhos absolutos. Ele não é car
 | `EMBEDDING_MODEL` | Modelo previamente instalado, por exemplo `nomic-embed-text`. |
 | `HIVE_MAX_CLASSIFICATION` | `internal` por padrão; `restricted` exige dispositivo autorizado. |
 | `HIVE_CONTEXT_MAX_CHARS` | Limite do contexto serializado; padrão `12000`. |
+| `QDRANT_TLS_SERVER_NAME` | Nome esperado no certificado, quando difere do host; só com TLS. |
+| `HIVE_MAX_FILE_BYTES` | Tamanho máximo por documento; padrão `5242880` (5 MiB), teto 50 MiB. Arquivos maiores são ignorados com `reason_code: file_size_limit`. |
+| `HIVE_MAX_CHUNKS_PER_FILE` | Chunks máximos por documento; padrão `1000`, teto `5000`. |
+| `HIVE_CHUNK_MAX_CHARS` | Tamanho do chunk em caracteres; padrão `2000`, teto `8000`. |
+| `HIVE_CHUNK_OVERLAP_CHARS` | Sobreposição entre chunks; padrão `200`, no máximo metade do chunk. |
+| `HIVE_JSON_MAX_DEPTH` | Profundidade máxima de JSON aceito; padrão e teto `64`. |
+| `HIVE_JSON_MAX_ELEMENTS` | Elementos máximos de JSON aceito; padrão e teto `100000`. |
+| `HIVE_MAX_EMBEDDING_WORKERS` | Chamadas de embedding concorrentes; padrão `2`, teto `16`. |
+| `HIVE_DELETE_GRACE_HOURS` | Carência antes de `ingest --prune` remover um documento ausente; padrão e teto `24`. |
 
 Para loopback, ajuste `QDRANT_URL` e remova `QDRANT_TLS_CA_FILE` do exemplo. Remova também o placeholder `QDRANT_API_KEY` se o token vier do secret manager.
 
@@ -138,6 +147,8 @@ Observação sobre o fluxo OAuth do ambiente autorizado.
 ```
 
 Crie `scope.json` conforme o [contrato e exemplo](docs/spec/contracts/scope-manifest.md), refletindo a política real do programa. `claimed_scope_status` em notas nunca autoriza um ativo.
+
+`classification` é obrigatório para que o documento seja pesquisável: a busca só devolve `internal` (ou `restricted`, quando `HIVE_MAX_CLASSIFICATION` permite). Arquivos `.txt` e `.json` sem esse campo — o `.json` aceita as mesmas chaves no objeto raiz — são ingeridos e embedados com `classification: unknown` e nunca aparecem em `hive_search`/`hive_get_context`.
 
 Depois do provisionamento administrativo das collections:
 

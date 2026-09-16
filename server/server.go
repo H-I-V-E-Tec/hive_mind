@@ -247,36 +247,6 @@ func Start(version string) {
 			}
 			fmt.Println(string(encoded))
 			return
-		case "evaluate-search", "eval-search", "eval":
-			if !cfg.IsWriter() {
-				fmt.Fprintln(os.Stderr, "authorization error: evaluate-search requires HIVE_ROLE=writer")
-				os.Exit(12)
-			}
-			client, worker := mustCreateWorker(cfg)
-			defer client.Close()
-			defer worker.Close()
-
-			log.Printf("Running self-evaluation against workspace %s", cfg.WatchDirectory)
-			if _, err := worker.SyncWorkspace(context.Background()); err != nil {
-				log.Fatalf("Self-ingestion failed before evaluation: %v", err)
-			}
-
-			suites := defaultEvaluationQueries(cfg.WatchDirectory)
-			passed := 0
-			for _, suite := range suites {
-				result, err := worker.ExecuteVectorSearch(context.Background(), "default", suite.Query, suite.FileExtensions, suite.PathPrefix)
-				if err != nil {
-					log.Printf("Evaluation query failed for %q: %v", suite.Query, err)
-					continue
-				}
-				ok := strings.Contains(strings.ToLower(result), strings.ToLower(suite.ExpectContains))
-				if ok {
-					passed++
-				}
-				fmt.Printf("\n=== Query: %s ===\nExpected: %s\nPass: %t\n\n%s\n", suite.Query, suite.ExpectContains, ok, result)
-			}
-			fmt.Printf("\nEvaluation summary: %d/%d queries matched expected fragments.\n", passed, len(suites))
-			return
 		case "help", "-h", "--help":
 			printCLIHelp()
 			return
@@ -332,13 +302,6 @@ func Start(version string) {
 }
 
 func cancelHandle(c context.CancelFunc) { c() }
-
-type EvaluationQuery struct {
-	Query          string
-	ExpectContains string
-	FileExtensions []string
-	PathPrefix     string
-}
 
 func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 	client, worker, err := createWorker(cfg)
@@ -467,16 +430,6 @@ func newQdrantClientWithOptions(cfg Config, options []grpc.DialOption) (*qdrant.
 	})
 }
 
-func defaultEvaluationQueries(watchDir string) []EvaluationQuery {
-	return []EvaluationQuery{
-		{Query: "recursive watcher for newly created directories", ExpectContains: "server/watcher.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "vector search execution and reranking", ExpectContains: "server/worker.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "auto discover mcp and codex config", ExpectContains: "server/config.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "tree sitter parse code metadata and imports", ExpectContains: "ast/ast.go", FileExtensions: []string{"go"}, PathPrefix: "ast"},
-		{Query: "worker tags and search tests", ExpectContains: "tests/worker_test.go", FileExtensions: []string{"go"}, PathPrefix: "tests"},
-	}
-}
-
 func printCLIHelp() {
 	fmt.Println("Hive Mind MCP")
 	fmt.Println("Private shared recon memory backed by Qdrant and local Ollama.")
@@ -522,6 +475,9 @@ func printCLIHelp() {
 	fmt.Println("  --chunk-max-chars <n>          Chunk size in characters (default 2000; ceiling 8000).")
 	fmt.Println("  --chunk-overlap-chars <n>      Text overlap, at most half the chunk size (default 200).")
 	fmt.Println("  --max-embedding-workers <n>    Concurrent embedding calls (default 2; ceiling 16).")
+	fmt.Println("  --json-max-depth <n>           Maximum JSON nesting accepted (default 64; ceiling 64).")
+	fmt.Println("  --json-max-elements <n>        Maximum JSON elements accepted (default 100000; ceiling 100000).")
+	fmt.Println("  --delete-grace-hours <n>       Hours before a pending delete may be pruned (default 24; ceiling 24).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")

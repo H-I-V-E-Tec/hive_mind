@@ -1,0 +1,92 @@
+[
+  {
+    "id": "q01",
+    "program_id": "demo",
+    "query": "certificado wildcard CA Ferrugem porta 8443 Kestrel",
+    "relevant": [
+      "programs/demo/asset-api-gateway.md"
+    ]
+  },
+  {
+    "id": "q02",
+    "program_id": "demo",
+    "query": "limite de tentativas login JWT HS256 módulo Cadeado lockout",
+    "relevant": [
+      "programs/demo/endpoint-login.md"
+    ]
+  },
+  {
+    "id": "q03",
+    "program_id": "demo",
+    "query": "janela de testes contato de emergência canal Farol",
+    "relevant": [
+      "programs/demo/rules-of-engagement.md"
+    ]
+  },
+  {
+    "id": "q04",
+    "program_id": "demo",
+    "query": "SSRF buscador de imagens metadados instância Andorinha",
+    "relevant": [
+      "programs/demo/evidence-ssrf.md"
+    ]
+  },
+  {
+    "id": "q05",
+    "program_id": "demo",
+    "query": "subdomínios dicionário Bússola registros MX provedor Pombal",
+    "relevant": [
+      "programs/demo/note-recon-dns.md",
+      "programs/demo/note-recon-dns-copy.md"
+    ]
+  },
+  {
+    "id": "q06",
+    "program_id": "demo",
+    "query": "IDOR faturas identificador numérico conta Garça",
+    "relevant": [
+      "programs/demo/evidence-idor.md"
+    ]
+  },
+  {
+    "id": "q07",
+    "program_id": "demo",
+    "query": "TLS 1.0 cifra 3DES concentrador VPN",
+    "relevant": [
+      "programs/demo/note-tls-ciphers.md"
+    ]
+  },
+  {
+    "id": "q08",
+    "program_id": "demo",
+    "query": "backup hive_backup.py perfil Tartaruga cofre Baú",
+    "relevant": [
+      "programs/demo/procedure-backup.txt"
+    ]
+  },
+  {
+    "id": "q09",
+    "program_id": "demo",
+    "query": "ensaio Cometa resumo executivo recomendações",
+    "relevant": [
+      "programs/demo/long-report.md"
+    ]
+  },
+  {
+    "id": "q10",
+    "program_id": "demo",
+    "query": "WAF Muralha old-cms 403",
+    "relevant": [
+      "programs/demo/note-recon-dns-copy.md"
+    ]
+  },
+  {
+    "id": "q11",
+    "program_id": "demo",
+    "query": "inventário de ativos owner equipe Orion role gateway",
+    "relevant": [
+      "programs/demo/scope-inventory.json",
+      "programs/demo/asset-api-gateway.md"
+    ]
+  }
+]

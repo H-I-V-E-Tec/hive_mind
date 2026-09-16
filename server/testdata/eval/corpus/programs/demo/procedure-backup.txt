@@ -1,0 +1,1 @@
+Procedimento de backup do Hive: executar hive_backup.py com o perfil Tartaruga toda sexta às 20h, verificar o hash do snapshot e copiar para o cofre Baú. Restauração testada em 05/09 com sucesso.

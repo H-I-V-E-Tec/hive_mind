@@ -32,4 +32,4 @@ Não gerar IDs da unidade por path. A fonte continua tendo identidade e autoria 
 
 ## Próxima implementação
 
-Começar por MD/TXT/JSON com saída de blocos localizáveis e testes de determinismo/fidelidade, mantendo o publicador atual atrás de uma interface. Adicionar JSONL/CSV/TSV após estabilizar o contrato. Decisão formal de banco compartilhado, retenção, migração e garantia entre writers ainda deve ser concluída antes de ativar deduplicação canônica.
+Começar por MD/TXT/JSON com saída de blocos localizáveis e testes de determinismo/fidelidade, mantendo o publicador atual atrás de uma interface. Adicionar JSONL/CSV/TSV após estabilizar o contrato. O modelo de dados, a chave de unicidade, a retenção e o contrato dos adaptadores estão em [canonical-unit.md](canonical-unit.md); a persistência compartilhada e a garantia entre writers estão na [decisão 003](../../decisions/003-canonical-persistence.md). Migração do acervo permanece pendente e segue a seção 13 do plano.

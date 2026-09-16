@@ -6,4 +6,4 @@ O diretório de entrada é `corpus/`; `pairs.json` contém rótulos para duplica
 
 Resultado esperado: seis arquivos TXT, todos legíveis, um grupo de duas cópias no programa demo e uma cópia excedente. A igualdade entre programas não forma grupo.
 
-A avaliação de equivalência semântica e da recuperação permanece pendente. Estes casos são a primeira amostra mínima para evitar confundir similaridade com repetição.
+A avaliação de equivalência semântica permanece pendente. A linha de base de recuperação está em `server/testdata/eval/` e em [docs/operations/retrieval-baseline.md](../../../docs/operations/retrieval-baseline.md). Estes casos são a primeira amostra mínima para evitar confundir similaridade com repetição.
