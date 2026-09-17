@@ -7,6 +7,8 @@
 - [Decisões](decisions/README.md): decisões arquiteturais que orientam o produto.
 - [Perfil operacional](operations/deployment-profile.md): RPO, RTO, retenções e dispositivos da implantação.
 - [Como usar](../README.md): instalação, configuração, exemplos MCP e comandos.
+- [Conversão e ingestão](operations/semantic-ingestion.md): formatos, envelope comum, chunks, proveniência e exemplos copiáveis.
+- [Servidor e múltiplos usuários](operations/server-multiuser-guide.md): Qdrant privado, TLS, tokens individuais e MCP local em cada cliente.
 - [Estado da implementação](operations/implementation-status.md): progresso e validações externas pendentes.
 - [Acesso ao Qdrant](operations/qdrant-access.md): provisionamento, papéis, admissão e revogação.
 - [Backup e recuperação](operations/backup-recovery.md): backup pareado, ensaio isolado e incidentes.

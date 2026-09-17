@@ -5,7 +5,7 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 ## O que o projeto tem
 
 - Um ou mais writers, cada um dono dos documentos que publica, e readers somente para consulta, todos com credenciais individuais.
-- Ingestão de Markdown, texto e JSON; observação de arquivos, `.gitignore`, limites de tamanho/chunks e proteção de paths.
+- Ingestão de Markdown, texto, JSON, JSONL/NDJSON, CSV e TSV; conversão offline para `hive-document/v1`, proveniência por bloco, observação de arquivos, `.gitignore` e limites de tamanho/chunks.
 - Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
 - Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
 - Busca semântica (densa) com filtros de programa, classificação, escopo, tipo e tags. Vetores esparsos são gravados na ingestão e a fusão híbrida (RRF) existe no código, mas o modo de busca é fixo em `dense` e ainda não é configurável; ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
@@ -27,6 +27,8 @@ Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda 
 ## Passo a passo para usar
 
 Para um roteiro completo e copiável de laboratório, incluindo tokens writer/reader e integração com Codex, consulte [Configurar Qdrant e Codex](CONFIGURAR_QDRANT_E_CODEX.md).
+
+Para instalar em um servidor e conectar várias pessoas, use o [guia de servidor e acesso multiusuário](docs/operations/server-multiuser-guide.md). Para preparar exports antes de gerar vetores, siga [conversão e ingestão padronizada](docs/operations/semantic-ingestion.md), incluindo formatos suportados e limitações.
 
 ### 1. Preparar requisitos e compilar
 
@@ -231,6 +233,7 @@ Use `./bin/hive-mind` antes de cada comando:
 | --- | --- |
 | `help` | Exibe comandos e flags, sem precisar de serviços. |
 | `inventory <dir>` | Inventário local de formatos, tamanhos e cópias integrais candidatas; não exige configuração Hive, Qdrant ou Ollama. |
+| `convert <arquivo\|-> --program=<id> --classification=internal --output=<novo.json>` | Converte para `hive-document/v1` sem serviços; stdin requer `--format` e `--source`. Gera arquivo completo sem sobrescrever; depois execute `ingest`. |
 | Sem comando | Inicia o MCP local. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |

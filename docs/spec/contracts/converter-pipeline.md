@@ -1,6 +1,6 @@
 # Contrato proposto para o conversor
 
-Estado: proposta para a próxima entrega; não há novos adaptadores ativos neste documento. Base: plano de melhoria, etapas 0 e 2.
+Estado em 2026-09-17: extração e projeção inicial implementadas por `server/converter.go`, com MD/TXT/JSON/JSONL/NDJSON/CSV/TSV e stdin via CLI `convert`. O [envelope implementado](ingestion-document.schema.json) e o [procedimento de ingestão](../../operations/semantic-ingestion.md) cobrem blocos, localizadores, limites, fingerprints e publicação no Qdrant. As etapas de admissão semântica e persistência canônica abaixo continuam propostas; não há unicidade global nem banco PostgreSQL ativo. Base: plano de melhoria, etapas 0 e 2.
 
 ## Fronteiras de responsabilidade
 
@@ -32,4 +32,4 @@ Não gerar IDs da unidade por path. A fonte continua tendo identidade e autoria 
 
 ## Próxima implementação
 
-Começar por MD/TXT/JSON com saída de blocos localizáveis e testes de determinismo/fidelidade, mantendo o publicador atual atrás de uma interface. Adicionar JSONL/CSV/TSV após estabilizar o contrato. O modelo de dados, a chave de unicidade, a retenção e o contrato dos adaptadores estão em [canonical-unit.md](canonical-unit.md); a persistência compartilhada e a garantia entre writers estão na [decisão 003](../../decisions/003-canonical-persistence.md). Migração do acervo permanece pendente e segue a seção 13 do plano.
+Os adaptadores iniciais já produzem blocos localizáveis e chunks, com testes de determinismo/fidelidade e o publicador por revisões existente. MD/TXT/JSON comuns mantêm o parser anterior; `convert` opta pelo novo envelope. Próximas etapas: admissão e persistência compartilhada, outros adaptadores, revisão e migração. O modelo de dados, a chave de unicidade, a retenção e o contrato completo dos adaptadores estão em [canonical-unit.md](canonical-unit.md); a persistência compartilhada e a garantia entre writers estão na [decisão 003](../../decisions/003-canonical-persistence.md). Migração do acervo permanece pendente e segue a seção 13 do plano.

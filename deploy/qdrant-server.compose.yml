@@ -1,0 +1,28 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.18.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    env_file:
+      - /srv/hive-private/qdrant.env
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+      QDRANT__SERVICE__JWT_RBAC: "true"
+      QDRANT__SERVICE__ENABLE_TLS: "true"
+      QDRANT__TLS__CERT: /qdrant/tls/server.crt
+      QDRANT__TLS__KEY: /qdrant/tls/server.key
+    volumes:
+      - hive_server_storage:/qdrant/storage
+      - hive_server_snapshots:/qdrant/snapshots
+      - /srv/hive-private/tls:/qdrant/tls:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  hive_server_storage:
+  hive_server_snapshots:

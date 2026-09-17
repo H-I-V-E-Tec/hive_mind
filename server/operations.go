@@ -270,6 +270,12 @@ func splitCLIArgs(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("missing invocation")
 	}
+	if len(raw) > 1 && raw[1] == "convert" {
+		if _, err := parseConvertArgs(raw[2:]); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
 	// Offline inventory has its own explicit options; never silently strip or
 	// load service configuration flags for this command.
 	if len(raw) > 1 && raw[1] == "inventory" {

@@ -29,6 +29,7 @@ type SyncFileResult struct {
 	Published  bool        `json:"published"`
 	ReasonCode string      `json:"reason_code,omitempty"`
 	Detail     string      `json:"detail,omitempty"`
+	Warnings   []string    `json:"warnings,omitempty"`
 }
 
 // Total counts supported, non-ignored files in a completed scan. Ingested is

@@ -1,6 +1,6 @@
 # Unidade canônica, domínio de deduplicação e adaptadores — versão 1
 
-Estado: proposta. Define o modelo de dados, a chave de unicidade, a política de retenção e o contrato dos adaptadores que o conversor deve implementar. Nenhum campo deste documento é persistido pelo código atual; a persistência escolhida está na [decisão 003](../../decisions/003-canonical-persistence.md). Complementa [converter-pipeline.md](converter-pipeline.md), que descreve as fronteiras de responsabilidade.
+Estado: proposta. Define o modelo de dados, a chave de unicidade, a política de retenção e o contrato dos adaptadores que o conversor deve implementar. Os objetos canônicos deste contrato ainda não são persistidos; a persistência escolhida está na [decisão 003](../../decisions/003-canonical-persistence.md). A entrega inicial de 2026-09-17 implementa somente o [envelope de ingestão](ingestion-document.schema.json), extração de blocos e projeção no Qdrant com localizador/hash por chunk; esses campos não constituem uma `CanonicalUnit` nem garantem unicidade. Complementa [converter-pipeline.md](converter-pipeline.md), que descreve as fronteiras de responsabilidade.
 
 ## Objetos
 

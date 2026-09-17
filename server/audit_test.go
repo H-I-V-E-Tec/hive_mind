@@ -107,6 +107,28 @@ func TestSecurity007RejectsAuditInsideDataAndUnsafePermissions(t *testing.T) {
 	}
 }
 
+func TestSecurity007RejectsAuditInsideSymlinkedData(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, "data")
+	if err := os.Mkdir(data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "data-alias")
+	if err := os.Symlink(data, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, paths := range [][2]string{
+		{alias, filepath.Join(data, "audit")},
+		{data, filepath.Join(alias, "audit")},
+	} {
+		audit, err := OpenFileAudit(Config{DataDirectory: paths[0], AuditDirectory: paths[1]})
+		if err == nil {
+			_ = audit.Close()
+			t.Fatal("audit inside an aliased data directory accepted")
+		}
+	}
+}
+
 func TestSpec007ConfirmedScopeHashCannotApproveDifferentFile(t *testing.T) {
 	w, root := specWorker(t, newMemoryQdrant())
 	path := filepath.Join(root, "programs", "acme", "scope.json")

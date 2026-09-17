@@ -618,8 +618,11 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 	if err != nil {
 		return result, fmt.Errorf("extract recon metadata: %w", err)
 	}
+	if metadata.Classification == "unknown" {
+		result.Warnings = []string{"classification_unknown: document will not be returned by search"}
+	}
 	reason = "invalid_document"
-	chunks, err := iw.parseDocument(relPath, content)
+	chunks, converted, err := iw.prepareDocument(ctx, relPath, content)
 	if err != nil {
 		return result, err
 	}
@@ -634,7 +637,13 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 
 	contentHash := sha256Hex(content)
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, relPath)
-	documentRevision := sha256Hex([]byte(strings.Join([]string{contentHash, iw.parserFingerprint(), iw.chunkerFingerprint()}, "\x00")))
+	revisionParts := []string{contentHash, iw.parserFingerprint(), iw.chunkerFingerprint()}
+	if converted != nil {
+		// New adapters have their own version domain. Existing MD/TXT/JSON
+		// collections and unchanged legacy documents keep their fingerprints.
+		revisionParts = append(revisionParts, converted.ConverterFingerprint, "hive-document-projection-v1")
+	}
+	documentRevision := sha256Hex([]byte(strings.Join(revisionParts, "\x00")))
 	effectiveScope := effectiveScopeStatus(scopeManifest, metadata.AssetRefs)
 	reason = "control_unavailable"
 	head, err := iw.readDocumentHead(ctx, documentID)
@@ -679,11 +688,11 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 	points := make([]*qdrant.PointStruct, len(chunks))
 	reason = "embedding_failed"
 	for ordinal, chunk := range chunks {
-		vector, err := iw.FetchRemoteEmbedding(ctx, chunk)
+		vector, err := iw.FetchRemoteEmbedding(ctx, chunk.Text)
 		if err != nil {
 			return result, fmt.Errorf("embed chunk %d: %w", ordinal, err)
 		}
-		indices, values := ComputeSparseVector(chunk, iw.CustomStopWords)
+		indices, values := ComputeSparseVector(chunk.Text, iw.CustomStopWords)
 		pointID := deterministicUUID("chunk", documentID, documentRevision, scopeRevision, fmt.Sprint(ordinal))
 		payload := map[string]any{
 			"record_type": "chunk", "hive_id": iw.Cfg.HiveID, "program_id": programID,
@@ -691,11 +700,22 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 			"claimed_scope_status": metadata.ClaimedScope, "effective_scope_status": effectiveScope,
 			"classification": metadata.Classification, "source": metadata.Source, "collected_at": metadata.CollectedAt,
 			"tags": convertStringSlice(metadata.Tags), "asset_refs": convertStringSlice(metadata.AssetRefPayload), "path": relPath,
-			"file_path": relPath, "relative_path": relPath, "content": chunk,
+			"file_path": relPath, "relative_path": relPath, "content": chunk.Text,
 			"document_id": documentID, "document_revision": documentRevision,
 			"scope_revision": scopeRevision, "chunk_ordinal": int64(ordinal),
 			"content_hash": contentHash, "indexed_at": indexedAt, "modified": info.ModTime().Unix(),
 			"type": "doc_chunk", "extension": strings.TrimPrefix(filepath.Ext(relPath), "."),
+		}
+		if converted != nil {
+			payload["ingestion_schema"] = converted.Schema
+			payload["source_format"] = converted.SourceFormat
+			payload["source_raw_hash"] = converted.RawHash
+			payload["converter_fingerprint"] = converted.ConverterFingerprint
+			payload["source_locator"] = chunk.Locator
+			payload["block_ordinal"] = int64(chunk.BlockOrdinal)
+			payload["canonical_hash"] = chunk.CanonicalHash
+			payload["writer_device_id"] = iw.Cfg.DeviceID
+			payload["untrusted_content"] = true
 		}
 		points[ordinal] = &qdrant.PointStruct{Id: qdrant.NewIDUUID(pointID), Vectors: qdrant.NewVectorsMap(map[string]*qdrant.Vector{
 			"": qdrant.NewVector(vector...), "sparse": qdrant.NewVectorSparse(indices, values),
@@ -845,7 +865,7 @@ func (iw *IngestionWorker) secureReadDocument(path string) ([]byte, string, stri
 		return nil, "", "", nil, err
 	}
 	ext := strings.ToLower(filepath.Ext(relPath))
-	if ext != ".md" && ext != ".txt" && ext != ".json" {
+	if !supportedDocumentExtension(ext) {
 		return nil, "", "", nil, &documentInputError{"unsupported_format", fmt.Sprintf("unsupported document extension %q", ext)}
 	}
 	real, err := filepath.EvalSymlinks(path)
@@ -931,6 +951,39 @@ func (iw *IngestionWorker) parseDocument(path string, content []byte) ([]string,
 	default:
 		return nil, errors.New("unsupported document type")
 	}
+}
+
+// prepareDocument is shared by CLI ingestion, watcher and MCP. Legacy parsing
+// stays byte-compatible; the versioned envelope and new formats use adapters.
+func (iw *IngestionWorker) prepareDocument(ctx context.Context, path string, content []byte) ([]ConvertedChunk, *ConvertedDocument, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	var converted *ConvertedDocument
+	var err error
+	if ext == ".json" {
+		converted, err = DecodeConvertedDocument(content, iw.Cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else if ext != ".md" && ext != ".txt" {
+		doc, convertErr := ConvertDocument(ctx, strings.TrimPrefix(ext, "."), content, iw.Cfg)
+		if convertErr != nil {
+			return nil, nil, convertErr
+		}
+		converted = &doc
+	}
+	if converted != nil {
+		chunks, err := ChunkConvertedDocument(ctx, *converted, iw.Cfg)
+		return chunks, converted, err
+	}
+	texts, err := iw.parseDocument(path, content)
+	if err != nil {
+		return nil, nil, err
+	}
+	chunks := make([]ConvertedChunk, len(texts))
+	for i, text := range texts {
+		chunks[i].Text = text
+	}
+	return chunks, nil, nil
 }
 
 func chunkRunes(text string, maxChars, overlap int) []string {
@@ -1202,7 +1255,7 @@ func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (SyncSummary, erro
 		}
 		if !entry.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".md" || ext == ".txt" || ext == ".json" {
+			if supportedDocumentExtension(ext) {
 				paths = append(paths, path)
 			}
 		}

@@ -33,6 +33,24 @@ func Start(version string) {
 		printCLIHelp()
 		return
 	}
+	if len(args) > 1 && args[1] == "convert" {
+		opts, _ := parseConvertArgs(args[2:]) // Already checked by splitCLIArgs.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		encoded, err := runConvert(ctx, opts, os.Stdin)
+		if err == nil {
+			if opts.Output != "" {
+				err = writeConvertedDocument(opts.Output, encoded)
+			} else {
+				_, err = os.Stdout.Write(encoded)
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, conversionErrorMessage(err))
+			os.Exit(ExitUsage)
+		}
+		return
+	}
 	if len(args) > 1 && args[1] == "inventory" {
 		opts, err := parseInventoryArgs(args[2:])
 		if err != nil {
@@ -265,8 +283,10 @@ func Start(version string) {
 	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		log.Fatalf("Hive startup validation failed: %v", err)
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	if cfg.IsReader() {
-		worker.ListenToMCPClient(context.Background())
+		waitMCPClient(ctx, worker.ListenToMCPClient)
 		return
 	}
 
@@ -276,9 +296,6 @@ func Start(version string) {
 		log.Fatalf("Failed to spin up filesystem notification systems: %v", err)
 	}
 	defer watcher.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancelHandle(cancel)
 
 	// Spawn decoupled debounced file processor
 	eventChan := make(chan string, 100)
@@ -291,17 +308,28 @@ func Start(version string) {
 		log.Printf("Warning: Directory traversal hit path restrictions: %v", err)
 	}
 
-	// Launch standard MCP protocol engine on main thread
-	go worker.ListenToMCPClient(ctx)
-
-	// Block gracefully until system signal caught
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	// A disconnected stdio client owns this process's lifetime, just like a
+	// termination signal. Otherwise writers keep watching after their client exits.
+	waitMCPClient(ctx, worker.ListenToMCPClient)
+	cancel()
 	log.Println("Shutting down Go MCP Server cleanly.")
 }
 
-func cancelHandle(c context.CancelFunc) { c() }
+func waitMCPClient(ctx context.Context, listen func(context.Context)) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		listen(ctx)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// stdin may still be blocked in Decode; do not wait for another client
+		// message to honor a termination signal.
+	}
+}
 
 func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 	client, worker, err := createWorker(cfg)
@@ -439,6 +467,11 @@ func printCLIHelp() {
 	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; report per-file outcomes as JSON (partial failure: 15).")
 	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
 	fmt.Println("  inventory <dir>                Offline JSON inventory of formats, sizes and byte-identical copies.")
+	fmt.Println("  convert <file|-> --program=<id> --classification=internal|restricted")
+	fmt.Println("    [--format=csv] [--source=label] [--output=/path/document.json]")
+	fmt.Println("                                 Offline hive-document/v1 conversion; md/txt/json/jsonl/ndjson/csv/tsv.")
+	fmt.Println("                                 --output publishes atomically and refuses overwrites; default stdout.")
+	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref (use =).")
 	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
 	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
