@@ -387,16 +387,43 @@ func (iw *IngestionWorker) validateExistingCollection(ctx context.Context, name 
 }
 
 func (iw *IngestionWorker) fetchEmbeddingModelDigest(ctx context.Context) (string, error) {
-	req, err := httpRequest(ctx, "GET", iw.Cfg.OllamaHost+"/api/tags", nil)
-	if err != nil {
-		return "", err
+	policy := serviceRetryPolicy.normalized()
+	retryCtx, cancel := boundedRetryContext(ctx, policy.OperationTimeout)
+	defer cancel()
+	var resp *http.Response
+	var lastErr error
+	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
+		req, err := httpRequest(retryCtx, "GET", iw.Cfg.OllamaHost+"/api/tags", nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err = iw.HTTPClient.Do(req)
+		if err == nil && !retryableHTTPStatus(resp.StatusCode) {
+			break
+		}
+		if err != nil {
+			lastErr = err
+			if resp != nil {
+				closeRetryResponse(resp.Body)
+				resp = nil
+			}
+		} else {
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			closeRetryResponse(resp.Body)
+			resp = nil
+		}
+		if attempt == policy.MaxAttempts {
+			return "", fmt.Errorf("resolve embedding model digest after %d attempts: %w", policy.MaxAttempts, lastErr)
+		}
+		if err := waitForRetry(retryCtx, backoffDelay(policy, attempt)); err != nil {
+			return "", err
+		}
 	}
-	resp, err := iw.HTTPClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("resolve embedding model digest: %w", err)
+	if resp == nil {
+		return "", fmt.Errorf("resolve embedding model digest: %w", lastErr)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("resolve embedding model digest: HTTP %d", resp.StatusCode)
 	}
 	var tags ollamaTagsResponse

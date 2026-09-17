@@ -449,16 +449,12 @@ func newQdrantClientWithOptions(cfg Config, options []grpc.DialOption) (*qdrant.
 	return qdrant.NewClient(&qdrant.Config{
 		PoolSize:               1,
 		SkipCompatibilityCheck: true,
-		GrpcOptions: append([]grpc.DialOption{grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-			bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			return invoker(bounded, method, req, reply, cc, opts...)
-		})}, options...),
-		Host:      cfg.QdrantHost,
-		Port:      cfg.QdrantPort,
-		APIKey:    cfg.QdrantAPIKey.Reveal(),
-		UseTLS:    cfg.QdrantUseTLS,
-		TLSConfig: tlsConfig,
+		GrpcOptions:            append([]grpc.DialOption{grpc.WithChainUnaryInterceptor(qdrantRetryUnaryInterceptor(serviceRetryPolicy))}, options...),
+		Host:                   cfg.QdrantHost,
+		Port:                   cfg.QdrantPort,
+		APIKey:                 cfg.QdrantAPIKey.Reveal(),
+		UseTLS:                 cfg.QdrantUseTLS,
+		TLSConfig:              tlsConfig,
 	})
 }
 

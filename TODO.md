@@ -54,7 +54,7 @@ This document outlines the planned improvements, architectural enhancements, and
 - [x] **Authenticated Qdrant Cloud Integration**
   - Support TLS/HTTPS connections.
   - Handle `QDRANT_API_KEY` configurations to connect safely to hosted Qdrant Cloud nodes.
-- [ ] **Exponential Backoff Connection Retries**
+- [x] **Exponential Backoff Connection Retries**
   - Wrap connection handshakes in a retry engine with dynamic fallback to automatically reconnect if Qdrant or Ollama drops out or restarts.
 
 ---

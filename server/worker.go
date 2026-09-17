@@ -903,17 +903,19 @@ func (iw *IngestionWorker) syncWorkspaceLegacy(ctx context.Context) (int, error)
 }
 
 func (iw *IngestionWorker) FetchRemoteEmbedding(ctx context.Context, text string) ([]float32, error) {
+	policy := serviceRetryPolicy.normalized()
+	retryCtx, cancel := boundedRetryContext(ctx, policy.OperationTimeout)
+	defer cancel()
 	var lastErr error
-	backoff := 100 * time.Millisecond
 
-	for attempt := 0; attempt < 3; attempt++ {
-		if err := iw.ConcurrencyController.Acquire(ctx); err != nil {
+	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
+		if err := iw.ConcurrencyController.Acquire(retryCtx); err != nil {
 			return nil, err
 		}
 
 		startTime := time.Now()
 		payload, _ := json.Marshal(OllamaEmbedReq{Model: iw.Cfg.EmbeddingModel, Prompt: text})
-		req, _ := http.NewRequestWithContext(ctx, "POST", iw.Cfg.OllamaHost+"/api/embeddings", bytes.NewBuffer(payload))
+		req, _ := http.NewRequestWithContext(retryCtx, "POST", iw.Cfg.OllamaHost+"/api/embeddings", bytes.NewBuffer(payload))
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := iw.HTTPClient.Do(req)
@@ -923,58 +925,52 @@ func (iw *IngestionWorker) FetchRemoteEmbedding(ctx context.Context, text string
 			iw.ConcurrencyController.RecordFailure("HTTP client error: " + err.Error())
 			iw.ConcurrencyController.Release()
 			lastErr = err
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
+			if resp != nil {
+				closeRetryResponse(resp.Body)
 			}
-			backoff *= 2
+			if attempt == policy.MaxAttempts {
+				break
+			}
+			if err := waitForRetry(retryCtx, backoffDelay(policy, attempt)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
-		defer resp.Body.Close()
-
-		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		if retryableHTTPStatus(resp.StatusCode) {
 			iw.ConcurrencyController.RecordFailure(fmt.Sprintf("Ollama overloaded: HTTP %d", resp.StatusCode))
 			iw.ConcurrencyController.Release()
 			lastErr = fmt.Errorf("ollama overloaded: HTTP %d", resp.StatusCode)
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
+			closeRetryResponse(resp.Body)
+			if attempt == policy.MaxAttempts {
+				break
 			}
-			backoff *= 2
+			if err := waitForRetry(retryCtx, backoffDelay(policy, attempt)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			iw.ConcurrencyController.RecordFailure(fmt.Sprintf("HTTP error status: %d", resp.StatusCode))
 			iw.ConcurrencyController.Release()
-			lastErr = fmt.Errorf("unexpected status: %d", resp.StatusCode)
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-			}
-			backoff *= 2
-			continue
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 		}
 
 		var out OllamaEmbedResp
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
+		_ = resp.Body.Close()
+		if decodeErr != nil {
 			iw.ConcurrencyController.RecordFailure("JSON decode error")
 			iw.ConcurrencyController.Release()
-			lastErr = err
-
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
+			lastErr = decodeErr
+			if attempt == policy.MaxAttempts {
+				break
 			}
-			backoff *= 2
+			if err := waitForRetry(retryCtx, backoffDelay(policy, attempt)); err != nil {
+				return nil, err
+			}
 			continue
 		}
 
@@ -984,7 +980,7 @@ func (iw *IngestionWorker) FetchRemoteEmbedding(ctx context.Context, text string
 		return out.Embedding, nil
 	}
 
-	return nil, fmt.Errorf("failed to fetch embedding after 3 attempts: %w", lastErr)
+	return nil, fmt.Errorf("failed to fetch embedding after %d attempts: %w", policy.MaxAttempts, lastErr)
 }
 
 func (iw *IngestionWorker) chunkText(text string, size int) []string {
