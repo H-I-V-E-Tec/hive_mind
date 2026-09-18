@@ -4,6 +4,8 @@ Roteiro preparado em 18/09/2026 para a implementação atual. O servidor remoto 
 
 Servidor recém-criado? Comece por [instalar os requisitos no Ubuntu 24.04](PREPARAR_SERVIDOR_UBUNTU_24_04.md) e depois retome este guia na seção 4.
 
+Já configurou o primeiro participante? Use o [guia de adicionar uma pessoa dentro do servidor](ADICIONAR_PESSOA_NO_SERVIDOR.md) para cadastrar o próximo acesso.
+
 ## 1. Como vai funcionar
 
 **Suba um Qdrant compartilhado no servidor. Cada pessoa executa seu próprio Hive Mind/MCP e Ollama no computador dela.** O agente inicia o MCP local e consulta o mesmo banco dos colegas.
@@ -229,7 +231,62 @@ openssl x509 -in /srv/hive-private/ca.crt -noout -fingerprint -sha256
 
 Guarde os IDs de token e as validades retornados, sem copiar o token para relatórios. Entregue individualmente a cada pessoa **seu JWT e `ca.crt`**, por canal privado. A impressão digital da CA deve ser confirmada por canal confiável.
 
-No computador de cada pessoa, salve:
+### 7.1. Encontrar o certificado no servidor
+
+O `ca.crt` foi criado pelo primeiro comando `openssl` da **seção 5**, no servidor. Ele é o certificado público usado pelos clientes para confiar no TLS do Qdrant. Não é a chave SSH nem o token JWT, e não deve ser gerado novamente em cada computador.
+
+**No servidor, como root**, confira o arquivo e prepare uma cópia pública que sua conta administrativa consiga baixar:
+
+```bash
+ls -l /srv/hive-private/ca.crt
+openssl x509 -in /srv/hive-private/ca.crt -noout -subject -fingerprint -sha256
+install -d -m 0755 /srv/hive-public
+install -m 0644 /srv/hive-private/ca.crt /srv/hive-public/ca.crt
+```
+
+Se o arquivo não existir, retome a seção 5 e confira se a criação da CA foi concluída. Não gere uma CA diferente para tentar conectar a um servidor que já usa certificados da anterior. A cópia pública contém somente `ca.crt`; as chaves privadas continuam em `/srv/hive-private`.
+
+### 7.2. Criar as pastas no computador de cada pessoa
+
+**Abra outro terminal no seu computador, fora da sessão SSH.** Execute como seu usuário normal, sem sudo:
+
+```bash
+umask 077
+mkdir -p "$HOME/hive-teste/bin" "$HOME/hive-teste/config" \
+  "$HOME/hive-teste/data/programs/teste-ingestao/imports" \
+  "$HOME/hive-teste/raw" "$HOME/hive-teste/audit" "$HOME/hive-teste/reports"
+chmod 700 "$HOME/hive-teste/config"
+```
+
+Esses diretórios também são criados na seção 6; repetir `mkdir -p` não apaga seu conteúdo. O nome da pasta é **`hive-teste`**, com hífen. `hive_teste_4p`, com underscores, é o nome da collection no banco, não uma pasta que você precisa criar.
+
+`$HOME` significa a pasta pessoal do usuário no computador onde o comando está sendo executado. Por exemplo, `/home/ana/hive-teste` no Linux ou `/Users/ana/hive-teste` no macOS. Executar esse bloco dentro do SSH criaria as pastas no servidor, que não é o destino deste passo.
+
+### 7.3. Copiar o certificado e salvar o token individual
+
+**Ainda no seu computador**, copie o certificado usando sua conta administrativa SSH, substituindo usuário/IP e ajustando o caminho da chave se necessário:
+
+```bash
+scp -i ~/.ssh/hive_servidor \
+  USUARIO_ADMIN@IP_DO_SERVIDOR:/srv/hive-public/ca.crt \
+  "$HOME/hive-teste/config/ca.crt"
+chmod 600 "$HOME/hive-teste/config/ca.crt"
+openssl x509 -in "$HOME/hive-teste/config/ca.crt" -noout -fingerprint -sha256
+```
+
+Compare a impressão digital com a conferida no servidor. As outras pessoas recebem essa mesma CA pelo operador; elas não precisam de uma conta administrativa. A CA é compartilhada, mas o JWT é individual.
+
+O token de Ana foi criado em `/srv/hive-private/ana-laptop.jwt` pelo comando `issue` desta seção. O operador entrega o conteúdo desse arquivo a Ana por canal privado. Ana o salva como `~/hive-teste/config/writer.jwt`; Bruno recebe o conteúdo de `bruno-laptop.jwt`, e assim por diante. Se estiver salvando o token recebido com um editor, no próprio computador:
+
+```bash
+umask 077
+nano "$HOME/hive-teste/config/writer.jwt"
+chmod 600 "$HOME/hive-teste/config/writer.jwt"
+```
+
+Cole somente o token, em uma linha, sem aspas nem `QDRANT_API_KEY=`. No nano, use Ctrl+O e Enter para salvar, depois Ctrl+X para sair. Não publique o conteúdo do token em conversas ou relatórios.
+
+Ao terminar, cada computador deve ter:
 
 ```text
 ~/hive-teste/config/writer.jwt  ← somente o token dessa pessoa
@@ -240,23 +297,74 @@ A chave administrativa, `qdrant.env`, `ca.key` e `server.key` ficam no servidor.
 
 ## 8. Servidor: contas para os quatro túneis SSH
 
-**Onde executar: servidor, sessão root.** Na primeira instalação:
+**Onde executar: servidor, sessão root.** Cada pessoa terá uma conta própria para encaminhar a conexão até o Qdrant. Essa conta não é a identidade do Hive nem o token JWT: `hive-moldret` pode ser a conta SSH e `moldret-laptop` o `HIVE_DEVICE_ID`.
+
+### 8.1. Criar as contas e conferir o grupo
+
+Para preparar somente sua conta primeiro, troque `ana bruno carla diego` por `moldret` na linha `for pessoa in ...`. O bloco abaixo cria o que estiver faltando e preserva um `authorized_keys` existente:
 
 ```bash
-groupadd hive-tunnel
+getent group hive-tunnel >/dev/null || groupadd hive-tunnel
 for pessoa in ana bruno carla diego; do
-  adduser --disabled-password --gecos '' "hive-${pessoa}"
+  if ! id "hive-${pessoa}" >/dev/null 2>&1; then
+    adduser --disabled-password --gecos '' "hive-${pessoa}"
+  fi
   usermod -aG hive-tunnel "hive-${pessoa}"
   install -d -m 700 -o "hive-${pessoa}" -g "hive-${pessoa}" \
     "/home/hive-${pessoa}/.ssh"
-  install -m 600 -o "hive-${pessoa}" -g "hive-${pessoa}" /dev/null \
-    "/home/hive-${pessoa}/.ssh/authorized_keys"
+  if [ ! -e "/home/hive-${pessoa}/.ssh/authorized_keys" ]; then
+    install -m 600 -o "hive-${pessoa}" -g "hive-${pessoa}" /dev/null \
+      "/home/hive-${pessoa}/.ssh/authorized_keys"
+  fi
 done
 ```
 
-Esses comandos pressupõem contas novas; não recrie `authorized_keys` de contas existentes. Edite cada arquivo e adicione a chave pública da pessoa correspondente. Não adicione essas contas ao grupo Docker ou sudo. Sua conta administrativa permanece separada.
+Se aparecer `usermod: no changes`, confira o estado final em vez de repetir a criação. Para a conta `hive-moldret`:
 
-Crie `/etc/ssh/sshd_config.d/60-hive-tunnels.conf`:
+```bash
+id hive-moldret
+getent group hive-tunnel
+ls -ld /home/hive-moldret/.ssh
+ls -l /home/hive-moldret/.ssh/authorized_keys
+```
+
+O usuário deve existir e `id` deve listar `hive-tunnel` entre seus grupos. A pasta deve ter modo `drwx------` (700), e o arquivo `-rw-------` (600), ambos pertencentes a `hive-moldret`. Arquivo com tamanho zero é esperado antes de adicionar a chave pública, mas ainda não permitirá autenticar.
+
+### 8.2. Adicionar a chave pública da pessoa
+
+**No computador da pessoa, fora do SSH**, mostre a chave pública criada anteriormente:
+
+```bash
+cat "$HOME/.ssh/hive_servidor.pub"
+```
+
+Copie a linha inteira que começa com `ssh-ed25519`. Ajuste o nome do arquivo se sua chave tiver outro nome. A chave cadastrada no painel do provedor pode estar somente na conta administrativa; ela não é copiada automaticamente para a nova conta `hive-moldret`.
+
+**No servidor, como root**, abra o arquivo da conta correspondente:
+
+```bash
+nano /home/hive-moldret/.ssh/authorized_keys
+```
+
+Cole a chave pública em uma linha própria, preservando outras chaves existentes. Salve com Ctrl+O, Enter e saia com Ctrl+X. Depois confira as permissões:
+
+```bash
+chown hive-moldret:hive-moldret /home/hive-moldret/.ssh/authorized_keys
+chmod 700 /home/hive-moldret/.ssh
+chmod 600 /home/hive-moldret/.ssh/authorized_keys
+```
+
+Esse arquivo recebe a chave **pública SSH**, não o JWT e não a chave privada SSH. Repita para as demais pessoas usando suas respectivas chaves/contas. Não adicione essas contas ao grupo Docker ou sudo. Sua conta administrativa permanece separada.
+
+### 8.3. Restringir as contas a túneis
+
+**No servidor, como root**, crie o arquivo de configuração:
+
+```bash
+nano /etc/ssh/sshd_config.d/60-hive-tunnels.conf
+```
+
+Salve nele o texto abaixo. `Match Group ...` é conteúdo do arquivo, não um comando para executar no terminal:
 
 ```text
 Match Group hive-tunnel
@@ -277,11 +385,12 @@ Match all
 Valide e recarregue mantendo sua sessão administrativa aberta:
 
 ```bash
-sshd -t
-systemctl reload ssh
+/usr/sbin/sshd -t && systemctl reload ssh
 ```
 
 Só recarregue se `sshd -t` terminar sem erro. Confira também regras preexistentes do provedor, como `AllowUsers` ou `DisableForwarding`, se o túnel for recusado. `MaxSessions 0` permite encaminhamento, mas impede shell/SFTP nas contas desse grupo, conforme o [manual do OpenSSH](https://man.openbsd.org/sshd_config#MaxSessions).
+
+Para `moldret`, na seção 9 use `hive-moldret@IP_DO_SERVIDOR` e a chave privada correspondente à chave pública cadastrada. O comando de túnel fica aberto sem mostrar um shell; esse é o comportamento esperado.
 
 ## 9. Cada computador: abrir o túnel
 
