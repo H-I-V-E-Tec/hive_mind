@@ -79,6 +79,63 @@ func (iw *IngestionWorker) IngestWorkspaceReport(ctx context.Context, prune bool
 	return report
 }
 
+// tallyOutcomes recomputes the per-outcome counters from Results so the full
+// workspace scan and single-file ingestion report identically.
+func (s *SyncSummary) tallyOutcomes() {
+	s.Created, s.Updated, s.Unchanged = 0, 0, 0
+	s.Skipped, s.Missing, s.Failed, s.Cancelled = 0, 0, 0, 0
+	for _, result := range s.Results {
+		switch result.Outcome {
+		case SyncCreated:
+			s.Created++
+		case SyncUpdated:
+			s.Updated++
+		case SyncUnchanged:
+			s.Unchanged++
+		case SyncSkipped:
+			s.Skipped++
+		case SyncMissing:
+			s.Missing++
+		case SyncCancelled:
+			s.Cancelled++
+		case SyncFailed:
+			s.Failed++
+		}
+	}
+	s.Ingested = s.Created + s.Updated
+}
+
+// IngestPathReport ingests a single already-published file (typically an
+// envelope written under HIVE_DATA_DIR by `convert --ingest`) through the shared
+// pipeline and returns the v1 report. Ownership, revision identity and
+// idempotency are identical to a full scan restricted to that one path.
+func (iw *IngestionWorker) IngestPathReport(ctx context.Context, absPath string) IngestionReport {
+	summary := SyncSummary{ScanComplete: true, Total: 1, Results: []SyncFileResult{}}
+	if !iw.Cfg.IsWriter() {
+		report := IngestionReport{SchemaVersion: 1, Summary: summary, ExitCode: ExitAuthorization}
+		report.Error = sanitizeOperationalError(&operationalError{ExitAuthorization, "single-file ingestion requires HIVE_ROLE=writer"})
+		return report
+	}
+	err := iw.EnsureInfrastructure(ctx)
+	if err == nil {
+		result, syncErr := iw.syncFileResult(ctx, absPath)
+		summary.Results = append(summary.Results, result)
+		summary.tallyOutcomes()
+		err = syncErr
+	}
+	report := IngestionReport{SchemaVersion: 1, Summary: summary}
+	report.OK = err == nil
+	report.ExitCode = classifyOperationalError(err)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			report.ExitCode, report.Error = ExitPartialFailure, syncReasonDetail("cancelled")
+		} else {
+			report.Error = sanitizeOperationalError(err)
+		}
+	}
+	return report
+}
+
 // Tool failures use an MCP result with isError so the caller retains the report.
 func ingestionMCPResponse(id json.RawMessage, report IngestionReport) map[string]any {
 	encoded, _ := json.Marshal(report) // Only JSON-safe scalar/struct fields.

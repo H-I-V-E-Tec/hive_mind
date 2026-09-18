@@ -1301,25 +1301,7 @@ sendLoop:
 	}
 	close(jobs)
 	wg.Wait()
-	for _, result := range summary.Results {
-		switch result.Outcome {
-		case SyncCreated:
-			summary.Created++
-		case SyncUpdated:
-			summary.Updated++
-		case SyncUnchanged:
-			summary.Unchanged++
-		case SyncSkipped:
-			summary.Skipped++
-		case SyncMissing:
-			summary.Missing++
-		case SyncCancelled:
-			summary.Cancelled++
-		case SyncFailed:
-			summary.Failed++
-		}
-	}
-	summary.Ingested = summary.Created + summary.Updated
+	summary.tallyOutcomes()
 	if err := ctx.Err(); err != nil {
 		return summary, err
 	}

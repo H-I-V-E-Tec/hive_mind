@@ -1,5 +1,14 @@
 # Setup multi-máquina — 4 pessoas, redes diferentes
 
+> **Alternativa, não o guia canônico.** O passo-a-passo oficial e mais rigoroso é
+> o [guia de servidor e acesso multiusuário](server-multiuser-guide.md) (Qdrant em
+> loopback + TLS nativo + túnel SSH por pessoa + `qdrant_admin.py` com JWT ≤7 dias
+> e revogação por `value_exists`). Este documento descreve um caminho alternativo
+> via malha Tailscale + proxy TLS Caddy, mais simples de operar entre redes, porém
+> com credenciais menos rígidas (o `mint_jwt.py` inline emite JWT de 30 dias sem
+> `jti`/revogação). Use-o só se preferir Tailscale ao túnel SSH; para produção,
+> prefira o guia canônico.
+
 Como colocar 4 pesquisadores em redes distintas escrevendo/lendo no **mesmo Hive** pela
 internet, com segurança. Base: `qdrant-access.md` + `four-person-trial.md`.
 

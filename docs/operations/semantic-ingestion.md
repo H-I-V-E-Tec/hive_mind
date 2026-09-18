@@ -72,7 +72,31 @@ Configure o writer conforme o [guia de servidor e múltiplos usuários](server-m
 ./bin/hive-mind search acme "api.example.com"
 ```
 
-A primeira execução deve mostrar `created` para a nova fonte. A segunda deve mostrar `unchanged`, sem novos embeddings para esse documento. Erros individuais preservam os resultados dos outros arquivos e retornam código `15`; examine `summary.results`. A falha de uma conversão ou de uma nova revisão não troca a revisão ativa por um resultado parcial.
+A primeira execução deve mostrar `created` para a nova fonte.
+
+### Converter e ingerir em um passo (`convert --ingest`)
+
+Para evitar os dois comandos, `convert --ingest` converte a fonte e publica o
+envelope no Qdrant na mesma invocação. Ele exige `HIVE_ROLE=writer` e um
+`--output` **dentro de `HIVE_DATA_DIR/programs/<program_id>/`**, porque a
+identidade do documento, a idempotência e a propriedade por writer continuam
+baseadas no path. A conversão em si permanece offline; só a etapa de ingestão
+carrega a configuração e contata Qdrant/Ollama.
+
+```bash
+./bin/hive-mind convert /caminho/export.csv \
+  --program=acme \
+  --classification=internal \
+  --document-type=evidence \
+  --source=export-autorizado \
+  --output=hive-data/programs/acme/imports/alice-export.json \
+  --ingest
+```
+
+A saída é o mesmo relatório JSON por arquivo do `ingest` (schema v1), com
+`created` na primeira vez e `unchanged` ao repetir sem mudanças. Um `--output`
+fora de `HIVE_DATA_DIR` é recusado; um reader recebe código `12`. Sem `--ingest`
+o comando segue offline e apenas grava/imprime o envelope, como antes. A segunda deve mostrar `unchanged`, sem novos embeddings para esse documento. Erros individuais preservam os resultados dos outros arquivos e retornam código `15`; examine `summary.results`. A falha de uma conversão ou de uma nova revisão não troca a revisão ativa por um resultado parcial.
 
 CLI, watcher e ferramenta MCP `ingest_workspace` usam o mesmo pipeline. CSV/TSV/JSONL/NDJSON brutos também são selecionados pela ingestão, porém ficam com `classification: unknown`, fora da busca. O relatório agora avisa `classification_unknown`. Use `convert` com classificação explícita para uma importação pesquisável.
 

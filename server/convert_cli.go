@@ -15,6 +15,7 @@ import (
 type convertOptions struct {
 	Input, Output, Format, Program, Classification, DocumentType, Source, CollectedAt string
 	Tags, AssetRefs                                                                   []string
+	Ingest                                                                            bool
 	Limits                                                                            Config
 }
 
@@ -34,6 +35,14 @@ func parseConvertArgs(args []string) (convertOptions, error) {
 				return opts, errors.New("convert accepts one input path or -")
 			}
 			opts.Input = arg
+			continue
+		}
+		if arg == "--ingest" {
+			if seen[arg] {
+				return opts, errors.New("duplicate convert option")
+			}
+			seen[arg] = true
+			opts.Ingest = true
 			continue
 		}
 		key, value, ok := strings.Cut(arg, "=")
@@ -95,6 +104,12 @@ func parseConvertArgs(args []string) (convertOptions, error) {
 	}
 	if opts.Output != "" && strings.ToLower(filepath.Ext(opts.Output)) != ".json" {
 		return opts, errors.New("output must have a .json extension")
+	}
+	// --ingest publishes the envelope through the writer pipeline, so it needs a
+	// real destination file under HIVE_DATA_DIR (checked once the config loads),
+	// never stdout.
+	if opts.Ingest && opts.Output == "" {
+		return opts, errors.New("--ingest requires --output inside HIVE_DATA_DIR/programs/<program_id>/")
 	}
 	return opts, nil
 }

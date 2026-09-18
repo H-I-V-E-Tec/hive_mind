@@ -430,3 +430,14 @@ Fecha as três pendências da Fase 0.
 Validação: `go build ./...`, `go vet ./...`, `go test ./... -count=1` e `gofmt -l` limpos, com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. Nenhuma spec numerada foi alterada; `status.json` permanece como estava.
 
 Próxima entrega: extração de blocos localizáveis para MD/TXT/JSON e normalização determinística conforme o contrato dos adaptadores, com preservação da publicação atual (Fase 1: interfaces de ingestão e `--dry-run`).
+
+### Entrega 4 — Conversor versionado e ingestão em um passo (18/09/2026)
+
+- Adaptadores MD/TXT/JSON/JSONL/NDJSON/CSV/TSV e stdin produzindo o envelope `hive-document/v1` com blocos localizáveis, números JSON exatos, tabelas com cabeçalho/células e limites agregados (`server/converter.go`, `server/convert_cli.go`; commit `b80dc1d`).
+- Fluxo em um passo `convert --ingest`: converte offline e publica o envelope no Qdrant na mesma invocação, exigindo writer e `--output` dentro de `HIVE_DATA_DIR/programs/<id>/`. Reusa o pipeline existente (`IngestPathReport` → `syncFileResult`), preservando identidade por path, idempotência e propriedade por writer. Relatório de ingestão v1 inalterado.
+- Correções de base: `docs/spec/status.json` reconciliado com a spec 02 (v1.2.0, sha256 e proveniência); `bin/hive-mind` removido do versionamento e `bin/` adicionado ao `.gitignore` (docs já instruem `go build`).
+- Testes: `server/convert_cli_test.go` cobre parsing de `--ingest`, publicação e idempotência de arquivo único, e negação para reader (código 12).
+
+Validação: `go build ./...`, `go vet ./...`, `gofmt -l` limpos e `go test ./... -count=1` verde (inclui `tests/spec_status_test.go`), com `GOCACHE`/`GOMODCACHE` em `/tmp`.
+
+Fora de escopo desta entrega (mantidos como pendentes): adaptadores binários (PDF/DOCX/HTML/XLSX), normalização/admissão canônica, deduplicação semântica e sanitização de segredos — Fases 2–4 e decisão 003.

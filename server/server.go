@@ -49,6 +49,9 @@ func Start(version string) {
 			fmt.Fprintln(os.Stderr, conversionErrorMessage(err))
 			os.Exit(ExitUsage)
 		}
+		if opts.Ingest {
+			os.Exit(runConvertIngest(ctx, opts.Output))
+		}
 		return
 	}
 	if len(args) > 1 && args[1] == "inventory" {
@@ -331,6 +334,35 @@ func waitMCPClient(ctx context.Context, listen func(context.Context)) {
 	}
 }
 
+// runConvertIngest publishes a freshly converted envelope through the writer
+// pipeline in the same invocation. Conversion itself stays offline; only this
+// step loads configuration and contacts Qdrant/Ollama.
+func runConvertIngest(ctx context.Context, outputPath string) int {
+	cfg, err := LoadConfig()
+	if err != nil {
+		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: "configuration is invalid; check required Hive settings"}}})
+		return ExitConfiguration
+	}
+	if !cfg.IsWriter() {
+		fmt.Fprintln(os.Stderr, "authorization error: convert --ingest requires HIVE_ROLE=writer")
+		return ExitAuthorization
+	}
+	abs, err := filepath.Abs(outputPath)
+	if err != nil || !pathWithin(cfg.DataDirectory, abs) {
+		fmt.Fprintln(os.Stderr, "convert --ingest requires --output inside HIVE_DATA_DIR/programs/<program_id>/")
+		return ExitUsage
+	}
+	client, worker := mustCreateWorker(cfg)
+	defer client.Close()
+	defer worker.Close()
+	report := worker.IngestPathReport(ctx, abs)
+	printJSON(report)
+	if !report.OK {
+		return report.ExitCode
+	}
+	return 0
+}
+
 func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
 	client, worker, err := createWorker(cfg)
 	if err != nil {
@@ -472,6 +504,8 @@ func printCLIHelp() {
 	fmt.Println("                                 Offline hive-document/v1 conversion; md/txt/json/jsonl/ndjson/csv/tsv.")
 	fmt.Println("                                 --output publishes atomically and refuses overwrites; default stdout.")
 	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref (use =).")
+	fmt.Println("                                 --ingest (writer) also indexes the --output envelope into Qdrant;")
+	fmt.Println("                                 --output must be inside HIVE_DATA_DIR/programs/<program_id>/.")
 	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
 	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")

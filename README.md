@@ -234,6 +234,7 @@ Use `./bin/hive-mind` antes de cada comando:
 | `help` | Exibe comandos e flags, sem precisar de serviços. |
 | `inventory <dir>` | Inventário local de formatos, tamanhos e cópias integrais candidatas; não exige configuração Hive, Qdrant ou Ollama. |
 | `convert <arquivo\|-> --program=<id> --classification=internal --output=<novo.json>` | Converte para `hive-document/v1` sem serviços; stdin requer `--format` e `--source`. Gera arquivo completo sem sobrescrever; depois execute `ingest`. |
+| `convert … --output=<HIVE_DATA_DIR/programs/<id>/x.json> --ingest` | Converte e ingere no Qdrant em um passo (writer). `--output` deve ficar dentro de `HIVE_DATA_DIR/programs/<id>/`; retorna o relatório de ingestão v1. |
 | Sem comando | Inicia o MCP local. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |

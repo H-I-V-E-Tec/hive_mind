@@ -154,3 +154,60 @@ func TestRawStructuredFormatsSelectedAndUnknownClassificationReported(t *testing
 		}
 	}
 }
+
+func TestConvertIngestFlagParsing(t *testing.T) {
+	// --ingest without --output is rejected: publication needs a real file.
+	if _, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--ingest"}); err == nil {
+		t.Fatal("--ingest without --output must be rejected")
+	}
+	opts, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--ingest", "--output=/tmp/env.json"})
+	if err != nil || !opts.Ingest {
+		t.Fatalf("--ingest with --output must parse: %v %+v", err, opts)
+	}
+	// Duplicate boolean flag is rejected like the other options.
+	if _, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--output=/tmp/env.json", "--ingest", "--ingest"}); err == nil {
+		t.Fatal("duplicate --ingest must be rejected")
+	}
+}
+
+func TestIngestPathReportPublishesAndIsIdempotent(t *testing.T) {
+	q := newMemoryQdrant()
+	worker, root := specWorker(t, q)
+	opts, _ := parseConvertArgs([]string{"-", "--format=csv", "--program=acme", "--classification=internal", "--source=authorized-scan"})
+	encoded, err := runConvert(context.Background(), opts, strings.NewReader("host,status\napi.example.com,200\nlogin.example.com,401\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "programs", "acme", "imports.json")
+	if err := writeConvertedDocument(path, encoded); err != nil {
+		t.Fatal(err)
+	}
+	report := worker.IngestPathReport(context.Background(), path)
+	if !report.OK || report.Summary.Total != 1 || report.Summary.Created != 1 {
+		t.Fatalf("single-file ingestion failed: %+v", report)
+	}
+	count := len(q.points[worker.Cfg.CollectionName])
+	if count != 2 {
+		t.Fatalf("expected one chunk per data row, got %d", count)
+	}
+	before := worker.SnapshotEmbeddingStats().Calls
+	report = worker.IngestPathReport(context.Background(), path)
+	if !report.OK || report.Summary.Unchanged != 1 || worker.SnapshotEmbeddingStats().Calls != before || len(q.points[worker.Cfg.CollectionName]) != count {
+		t.Fatalf("single-file reingestion was not idempotent: %+v", report)
+	}
+}
+
+func TestIngestPathReportDeniesReader(t *testing.T) {
+	q := newMemoryQdrant()
+	writer, root := specWorker(t, q)
+	if err := writer.EnsureInfrastructure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	reader, _ := specWorkerAs(t, q, "reader-1", "", RoleReader)
+	reader.Cfg.DataDirectory = root
+	reader.Cfg.WatchDirectory = root
+	report := reader.IngestPathReport(context.Background(), filepath.Join(root, "programs", "acme", "whatever.json"))
+	if report.OK || report.ExitCode != ExitAuthorization {
+		t.Fatalf("reader single-file ingestion must be denied with code 12: %+v", report)
+	}
+}

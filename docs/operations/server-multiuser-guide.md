@@ -1,6 +1,10 @@
 # Qdrant no servidor e MCP para várias pessoas
 
+> **Guia canônico** de implantação multiusuário. A [variante Tailscale/Caddy](multi-machine-setup.md) é alternativa; para produção, siga este roteiro.
+
 Este roteiro instala um Qdrant compartilhado em um servidor Linux e conecta clientes individuais por túnel SSH, com TLS e credenciais revogáveis. O MCP deste projeto usa **stdio local**: cada pessoa executa seu próprio binário Hive e Ollama; o banco é compartilhado. Não existe neste projeto uma URL HTTP/SSE de MCP para publicar no servidor.
+
+**Modelo de acesso (leia antes de prometer isolamento):** "multiusuário" aqui significa **um Qdrant compartilhado + N clientes stdio locais**. A identidade é o par `HIVE_DEVICE_ID` + JWT do Qdrant — **não** há RBAC por pessoa na camada MCP, nem OAuth/sessão. Um token `rw` concede acesso à collection inteira; `program_id`/`classification`/propriedade por writer são filtros/regras da aplicação, não barreiras criptográficas. Writers são **colegas confiáveis, não tenants isolados**. Equipes que não podem ler os dados umas das outras precisam de pares de collections e tokens separados (ver seção 1).
 
 ```text
 Cliente MCP → Hive local → Ollama local (embeddings)
