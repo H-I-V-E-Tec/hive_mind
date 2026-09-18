@@ -9,6 +9,8 @@
 - [Como usar](../README.md): instalação, configuração, exemplos MCP e comandos.
 - [Conversão e ingestão](operations/semantic-ingestion.md): formatos, envelope comum, chunks, proveniência e exemplos copiáveis.
 - [Servidor e múltiplos usuários](operations/server-multiuser-guide.md): Qdrant privado, TLS, tokens individuais e MCP local em cada cliente.
+- [Preparar Ubuntu 24.04 recém-criado](../PREPARAR_SERVIDOR_UBUNTU_24_04.md): instalar e conferir os requisitos antes de configurar o servidor do teste.
+- [Passo a passo: Ubuntu 24.04 e quatro pessoas](../GUIA_SERVIDOR_TESTE_4_PESSOAS.md): pacote mínimo do servidor, clientes com dados novos e teste de conversão/ingestão via MCP.
 - [Estado da implementação](operations/implementation-status.md): progresso e validações externas pendentes.
 - [Acesso ao Qdrant](operations/qdrant-access.md): provisionamento, papéis, admissão e revogação.
 - [Backup e recuperação](operations/backup-recovery.md): backup pareado, ensaio isolado e incidentes.
