@@ -308,7 +308,7 @@ func splitCLIArgs(raw []string) ([]string, error) {
 		default:
 			return nil, errors.New("invalid audit command")
 		}
-	case "help", "-h", "--help", "status", "validate", "list-skills":
+	case "help", "-h", "--help", "version", "status", "validate", "list-skills":
 		if len(args) != 2 {
 			return nil, errors.New("unexpected arguments")
 		}

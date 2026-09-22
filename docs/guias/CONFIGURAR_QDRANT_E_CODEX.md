@@ -1,6 +1,6 @@
 # Configurar Qdrant e usar o Hive Mind no Codex
 
-Este guia prepara um laboratório local: Qdrant e Ollama em Docker, Hive Mind no host, um writer para ingestão e um reader para o Codex. Em produção ou entre máquinas, substitua loopback por uma rede privada/VPN com TLS válido. Para várias pessoas escrevendo no mesmo Hive (um writer por máquina, cada um dono das próprias notas), siga o [ensaio de quatro pessoas](docs/operations/four-person-trial.md).
+Este guia prepara um laboratório local: Qdrant e Ollama em Docker, Hive Mind no host, um writer para ingestão e um reader para o Codex. Em produção ou entre máquinas, substitua loopback por uma rede privada/VPN com TLS válido. Para várias pessoas escrevendo no mesmo Hive (um writer por máquina, cada um dono das próprias notas), siga o [ensaio de quatro pessoas](../operations/four-person-trial.md).
 
 ## Preciso criar conta no Qdrant?
 

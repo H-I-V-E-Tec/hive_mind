@@ -30,6 +30,10 @@ func Start(version string) {
 
 	// Setup localized logs redirected away from stdout to keep MCP channel clean
 	log.SetOutput(os.Stderr)
+	if len(args) > 1 && args[1] == "version" {
+		printJSON(map[string]any{"version": Version, "source_revision": SourceRevision})
+		return
+	}
 	if len(args) > 1 && (args[1] == "help" || args[1] == "-h" || args[1] == "--help") {
 		printCLIHelp()
 		return
@@ -474,7 +478,19 @@ func printCLIHelp() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
-	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; optionally prune expired pending deletes.")
+	fmt.Println("  version                        Show release version and source revision as JSON.")
+	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; report per-file outcomes as JSON (partial failure: 15).")
+	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
+	fmt.Println("  inventory <dir>                Offline JSON inventory of formats, sizes and byte-identical copies.")
+	fmt.Println("  convert <file|-> --program=<id> --classification=internal|restricted")
+	fmt.Println("    [--format=csv] [--source=label] [--output=/path/document.json]")
+	fmt.Println("                                 Offline hive-document/v1 conversion; md/txt/json/jsonl/ndjson/csv/tsv.")
+	fmt.Println("                                 --output publishes atomically and refuses overwrites; default stdout.")
+	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref (use =).")
+	fmt.Println("                                 --ingest (writer) also indexes the --output envelope into Qdrant;")
+	fmt.Println("                                 --output must be inside HIVE_DATA_DIR/programs/<program_id>/.")
+	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
+	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")

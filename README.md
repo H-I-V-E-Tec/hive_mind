@@ -26,7 +26,7 @@ Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda 
 
 ## Passo a passo para usar
 
-Para um roteiro completo e copiável de laboratório, incluindo tokens writer/reader e integração com Codex, consulte [Configurar Qdrant e Codex](CONFIGURAR_QDRANT_E_CODEX.md).
+Para um roteiro completo e copiável de laboratório, incluindo tokens writer/reader e integração com Codex, consulte [Configurar Qdrant e Codex](docs/guias/CONFIGURAR_QDRANT_E_CODEX.md).
 
 ### 1. Preparar requisitos e compilar
 
@@ -220,6 +220,7 @@ Use `./bin/hive-mind` antes de cada comando:
 | --- | --- |
 | `help` | Exibe comandos e flags, sem precisar de serviços. |
 | Sem comando | Inicia o MCP local. |
+| `version` | Exibe versão da release e revisão de origem em JSON; não exige serviços. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
 | `ingest` | Reconcilia os documentos deste writer; informa quantos foram ignorados por pertencerem a outro writer. |
@@ -275,6 +276,8 @@ go test -race ./...
 go vet ./...
 go build ./...
 python3 -m unittest discover -s scripts -p 'test_*.py'
+python3 -m unittest discover -s deploy -p 'test_*.py'
+bash deploy/test_deploy_server.sh
 ```
 
 A CI também executa govulncheck, Gitleaks no histórico/arquivos e verificação do container. A release exige [evidências operacionais](docs/operations/security-release.md) atuais e vinculadas ao código:
@@ -284,6 +287,6 @@ go run ./cmd/security-gate --digest
 go run ./cmd/security-gate --version v0.1.0
 ```
 
-O segundo comando deve falhar enquanto `docs/operations/release-evidence.json` não existir ou houver gates pendentes. Não substitua os ensaios reais por resultados inventados.
+O segundo comando deve falhar enquanto `docs/operations/release-evidence.json` não existir ou houver gates pendentes. Não substitua os ensaios reais por resultados inventados. Releases assinadas, atualização do `hive_instance` e promoção do Qdrant estão descritas em [entrega e deploy](docs/operations/delivery-and-deployment.md).
 
 Documentação: [índice](docs/README.md), [specs](docs/spec/README.md), [segurança](docs/spec/security/README.md), [decisões](docs/decisions/README.md). Use somente em programas e ativos explicitamente autorizados.
