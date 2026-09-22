@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "last_executed_spec": "10",
+  "last_executed_spec": "02",
   "last_verification": {
-    "verified_at": "2026-09-12T13:25:57Z",
-    "source_revision": "working-tree@61250c6",
+    "verified_at": "2026-09-18T13:00:00Z",
+    "source_revision": "working-tree@b80dc1d",
     "commands": [
       "go test ./... -count=1",
       "go vet ./..."
@@ -50,14 +50,18 @@
     {
       "id": "02",
       "file": "02-document-ingestion.md",
-      "version": "1.1.0",
-      "sha256": "0b0d72dc590af3748bcff4077b1dcc56808d21c6ac9c5ffc45b539c4c6468fce",
+      "version": "1.2.0",
+      "sha256": "279343f77dacefcb05c712457acd48403760d786af623c89d0c81c2772d2f069",
       "status": "completed",
-      "executed_at": "2026-09-12T10:26:57-03:00",
-      "commit": "61250c6",
+      "executed_at": "2026-09-18T10:00:00-03:00",
+      "commit": "b80dc1d",
       "evidence": [
         "server/revision_test.go:TestSpec002PublishesCompleteRevisionAndIsIdempotent",
-        "server/revision_test.go:TestMultiWriterDocumentOwnership"
+        "server/revision_test.go:TestMultiWriterDocumentOwnership",
+        "server/converter_test.go",
+        "server/convert_cli_test.go:TestConvertedEnvelopeIngestionProvenanceAndIdempotency",
+        "server/convert_cli_test.go:TestRawStructuredFormatsSelectedAndUnknownClassificationReported",
+        "server/convert_cli_test.go:TestIngestPathReportPublishesAndIsIdempotent"
       ]
     },
     {
@@ -112,8 +116,8 @@
     {
       "id": "07",
       "file": "07-operational-cli.md",
-      "version": "1.1.0",
-      "sha256": "228a7cb4b5e58fd214d4c37de498fc09f3d02b063c11510d06a298eb9c71440a",
+      "version": "1.3.0",
+      "sha256": "e7d6e6fefcb2b75ce6e50af333d7207554b788940ed42c44ba92e271508edc52",
       "status": "pending",
       "executed_at": null,
       "commit": null,

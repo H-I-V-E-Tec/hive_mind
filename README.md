@@ -5,10 +5,10 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 ## O que o projeto tem
 
 - Um ou mais writers, cada um dono dos documentos que publica, e readers somente para consulta, todos com credenciais individuais.
-- Ingestão de Markdown, texto e JSON; observação de arquivos, `.gitignore`, limites de tamanho/chunks e proteção de paths.
+- Ingestão de Markdown, texto, JSON, JSONL/NDJSON, CSV e TSV; conversão offline para `hive-document/v1`, proveniência por bloco, observação de arquivos, `.gitignore` e limites de tamanho/chunks.
 - Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
 - Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
-- Busca semântica, esparsa e híbrida com filtros de programa, classificação, escopo, tipo e tags.
+- Busca semântica (densa) com filtros de programa, classificação, escopo, tipo e tags. Vetores esparsos são gravados na ingestão e a fusão híbrida (RRF) existe no código, mas o modo de busca é fixo em `dense` e ainda não é configurável; ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
 - MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
 - CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada com métricas de uso (`audit report`).
 - Templates de skill para Claude Code e Codex que ensinam o agente a consultar escopo antes de agir e a escrever notas reutilizáveis.
@@ -27,6 +27,8 @@ Há implementação e testes automatizados, mas o aceite completo da v0.1 ainda 
 ## Passo a passo para usar
 
 Para um roteiro completo e copiável de laboratório, incluindo tokens writer/reader e integração com Codex, consulte [Configurar Qdrant e Codex](docs/guias/CONFIGURAR_QDRANT_E_CODEX.md).
+
+Para instalar em um servidor e conectar várias pessoas, use o [guia de servidor e acesso multiusuário](docs/operations/server-multiuser-guide.md). Para preparar exports antes de gerar vetores, siga [conversão e ingestão padronizada](docs/operations/semantic-ingestion.md), incluindo formatos suportados e limitações.
 
 ### 1. Preparar requisitos e compilar
 
@@ -94,6 +96,15 @@ Edite `.env.hive` com seus identificadores e caminhos absolutos. Ele não é car
 | `EMBEDDING_MODEL` | Modelo previamente instalado, por exemplo `nomic-embed-text`. |
 | `HIVE_MAX_CLASSIFICATION` | `internal` por padrão; `restricted` exige dispositivo autorizado. |
 | `HIVE_CONTEXT_MAX_CHARS` | Limite do contexto serializado; padrão `12000`. |
+| `QDRANT_TLS_SERVER_NAME` | Nome esperado no certificado, quando difere do host; só com TLS. |
+| `HIVE_MAX_FILE_BYTES` | Tamanho máximo por documento; padrão `5242880` (5 MiB), teto 50 MiB. Arquivos maiores são ignorados com `reason_code: file_size_limit`. |
+| `HIVE_MAX_CHUNKS_PER_FILE` | Chunks máximos por documento; padrão `1000`, teto `5000`. |
+| `HIVE_CHUNK_MAX_CHARS` | Tamanho do chunk em caracteres; padrão `2000`, teto `8000`. |
+| `HIVE_CHUNK_OVERLAP_CHARS` | Sobreposição entre chunks; padrão `200`, no máximo metade do chunk. |
+| `HIVE_JSON_MAX_DEPTH` | Profundidade máxima de JSON aceito; padrão e teto `64`. |
+| `HIVE_JSON_MAX_ELEMENTS` | Elementos máximos de JSON aceito; padrão e teto `100000`. |
+| `HIVE_MAX_EMBEDDING_WORKERS` | Chamadas de embedding concorrentes; padrão `2`, teto `16`. |
+| `HIVE_DELETE_GRACE_HOURS` | Carência antes de `ingest --prune` remover um documento ausente; padrão e teto `24`. |
 
 Para loopback, ajuste `QDRANT_URL` e remova `QDRANT_TLS_CA_FILE` do exemplo. Remova também o placeholder `QDRANT_API_KEY` se o token vier do secret manager.
 
@@ -138,6 +149,8 @@ Observação sobre o fluxo OAuth do ambiente autorizado.
 ```
 
 Crie `scope.json` conforme o [contrato e exemplo](docs/spec/contracts/scope-manifest.md), refletindo a política real do programa. `claimed_scope_status` em notas nunca autoriza um ativo.
+
+`classification` é obrigatório para que o documento seja pesquisável: a busca só devolve `internal` (ou `restricted`, quando `HIVE_MAX_CLASSIFICATION` permite). Arquivos `.txt` e `.json` sem esse campo — o `.json` aceita as mesmas chaves no objeto raiz — são ingeridos e embedados com `classification: unknown` e nunca aparecem em `hive_search`/`hive_get_context`.
 
 Depois do provisionamento administrativo das collections:
 
@@ -219,11 +232,14 @@ Use `./bin/hive-mind` antes de cada comando:
 | Comando | Efeito |
 | --- | --- |
 | `help` | Exibe comandos e flags, sem precisar de serviços. |
+| `inventory <dir>` | Inventário local de formatos, tamanhos e cópias integrais candidatas; não exige configuração Hive, Qdrant ou Ollama. |
+| `convert <arquivo\|-> --program=<id> --classification=internal --output=<novo.json>` | Converte para `hive-document/v1` sem serviços; stdin requer `--format` e `--source`. Gera arquivo completo sem sobrescrever; depois execute `ingest`. |
+| `convert … --output=<HIVE_DATA_DIR/programs/<id>/x.json> --ingest` | Converte e ingere no Qdrant em um passo (writer). `--output` deve ficar dentro de `HIVE_DATA_DIR/programs/<id>/`; retorna o relatório de ingestão v1. |
 | Sem comando | Inicia o MCP local. |
 | `version` | Exibe versão da release e revisão de origem em JSON; não exige serviços. |
 | `validate` | Verifica configuração, auditoria, serviços, schema/fingerprint e permissões. |
 | `status` | Estado sanitizado em JSON; requer infraestrutura válida. |
-| `ingest` | Reconcilia os documentos deste writer; informa quantos foram ignorados por pertencerem a outro writer. |
+| `ingest` | Reconcilia os documentos deste writer e retorna relatório JSON por arquivo, inclusive em falha parcial. |
 | `ingest --prune` | Remove documentos deste writer ausentes após carência. |
 | `remove programs/acme-bugbounty/notes/api.md` | Publica tombstone e verifica exclusão dos vetores; só para documentos deste writer; não apaga o arquivo local. |
 | `scope approve acme-bugbounty` | Mostra resumo/hash para revisão, sem confirmar. |
@@ -239,6 +255,18 @@ Use `./bin/hive-mind` antes de cada comando:
 Filtros CLI: `--document-type=note`, `--tag=oauth`, `--classification=internal`, `--scope-status=authorized`, `--limit=8`. Tipo e tag podem ser repetidos; tags usam semântica ALL. Limite: 1–20. Use `--chave=valor` para os filtros.
 
 Códigos: `0` sucesso; `2` uso/entrada; `10` configuração; `11` conectividade; `12` autenticação/permissão; `13` TLS; `14` schema/fingerprint; `15` falha parcial recuperável. Não trate `15` como sucesso: examine auditoria/estado antes de repetir mutações.
+
+### Relatório de ingestão
+
+Para analisar o acervo antes de ingerir, execute `./bin/hive-mind inventory /caminho/da/copia-do-hive-data`. O relatório conta qualquer extensão e calcula SHA-256 até 50 MiB por arquivo. `--program=<id>` restringe a análise; `--details` inclui caminhos relativos; `--hash-max-bytes=<n>` ajusta a cobertura. Ele respeita entradas ocultas e padrões locais de `.gitignore`, sem modificar o acervo. Repetição integral não equivale a conhecimento redundante: consulte o [contrato](docs/spec/contracts/inventory-report.md) e a [linha de base](docs/operations/inventory-baseline.md).
+
+Após a inicialização, `ingest` escreve um relatório JSON em stdout com `schema_version: 1`, `ok`, `exit_code`, `summary`, `prune_run` e `pruned`. O summary separa `created`, `updated`, `unchanged`, `skipped`, `missing`, `failed` e `cancelled`; `ingested` é a soma de criações e atualizações bem-sucedidas. Reingerir um arquivo inalterado não aumenta esse contador.
+
+`summary.results` contém os arquivos selecionados em ordem de path relativo, com `outcome`, `published` e, quando necessário, `reason_code` e diagnóstico sanitizado. Por exemplo, `file_size_limit` e `chunk_limit` identificam limites de entrada; `embedding_failed` identifica falha na geração do embedding. Não são incluídos textos dos documentos ou erros brutos dos serviços. Arquivos excluídos pela política e extensões não suportadas ficam fora da seleção.
+
+Falhas individuais não interrompem os outros arquivos. Ao terminar um lote com falhas, a CLI preserva o relatório e sai com `15`; `--prune` só é executado se a sincronização terminar sem erro. `scan_complete: false` indica que a seleção não terminou e não deve ser interpretado como pasta vazia.
+
+No MCP, `ingest_workspace` retorna o mesmo JSON no bloco `content` de texto. Falhas de execução usam `result.isError: true`, mantendo os resultados parciais. Isso substitui a antiga resposta Markdown/erro JSON-RPC de execução; clientes que interpretavam essas respostas precisam passar a ler o relatório. O contrato completo, incluindo publicação seguida de falha de limpeza, está em [relatório de ingestão](docs/spec/contracts/ingestion-report.md).
 
 ## Container MCP opcional
 

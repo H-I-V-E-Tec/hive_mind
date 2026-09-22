@@ -1,8 +1,13 @@
-# 📋 Go Qdrant-RAG MCP Server Roadmap & TODO
+# 📋 Hive Mind — Roadmap & TODO
 
-This document outlines the planned improvements, architectural enhancements, and functional updates to make this real-time RAG server highly robust, scalable, and intelligent.
+Itens abertos e relatos de uso real do Hive Mind. O andamento estruturado está no [plano de melhoria](plano%20de%20melhoria.md) e em [docs/operations/implementation-status.md](docs/operations/implementation-status.md).
 
 ---
+
+## 🗄️ Histórico: servidor RAG genérico (pré-Hive)
+
+> As seções abaixo até a linha de separação descrevem o servidor RAG original e **não** refletem o código atual. Diferenças conhecidas: a variável é `HIVE_MAX_EMBEDDING_WORKERS` (não `MAX_EMBEDDING_WORKERS`); o hash de conteúdo é SHA-256, não SHA1; as flags `--batch-size`, `--batch-timeout` e `--log-to-file` não existem — as flags aceitas estão em `hive-mind help`. A busca híbrida está implementada em `queryVariant`, mas a configuração é fixa em `dense` (ver item aberto mais abaixo).
+
 
 ## ⚡ Performance & Ingestion Concurrency
 
@@ -31,9 +36,9 @@ This document outlines the planned improvements, architectural enhancements, and
   - Expose the `hive_search` tool with optional filters for document types, tags, classification, and effective scope.
   - Enforce Hive, program, approved scope revision, and classification boundaries in native Qdrant filters.
   - Use Qdrant's high-speed payload keyword matching filters.
-- [x] **Hybrid Search (Dense + Sparse)**
-  - Combine semantic dense vector search (Ollama embeddings) with sparse vector representations (like BM25).
-  - Yield perfect search results for both high-level concepts and exact keyword matches (like specific variables, function names, or exact error codes).
+- [~] **Hybrid Search (Dense + Sparse)** — implementado, não habilitado
+  - `queryVariant` combina denso + esparso por RRF; vetores esparsos são gravados na ingestão.
+  - `SearchMode` é fixo em `dense` em `server/config.go` e não há env/flag; o esparso é ponderação de termos por hash, não BM25. Expor e avaliar é item da Fase 1 do plano.
 
 ---
 
@@ -68,6 +73,10 @@ This document outlines the planned improvements, architectural enhancements, and
 
 ---
 
+*Fim do histórico. Os itens a seguir referem-se ao Hive Mind atual.*
+
+---
+
 ## 🧪 Validação pendente do laboratório local (2026-09-12)
 
 Ambiente de lab montado sem Docker: Ollama + Qdrant como binários standalone em
@@ -79,12 +88,15 @@ Estado da ingestão: coinspot, demo, etoro (28 docs) e yahoo ingeridos; 5674 pon
   - Falta apenas `programs/coinspot/recon/recon__urls.txt` (~8.4 MB).
   - Excede `HIVE_MAX_FILE_BYTES` padrão (5 MiB); no lab foi elevado para 20 MiB (env do MCP).
   - Rodar `hive-mind ingest` novamente com os serviços no ar para completar.
+  - Nota 2026-09-16: `.txt` sem front matter recebe `classification: unknown` e nunca é devolvido pela busca; ingerir esse arquivo custa embeddings sem torná-lo pesquisável. Ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
 - [ ] **Revisar classificação/sanitização de erros operacionais** (`server/operations.go`)
   - Erro de arquivo grande ("document exceeds N bytes") cai no bucket default e é
     mostrado como "required service is unavailable" — mensagem enganosa.
   - Falha de embedding do Ollama (HTTP 500) contém "dimension" e é sanitizada como
     "embedding or collection schema is incompatible" — também enganoso.
   - Considerar buckets/mensagens dedicados (arquivo grande = uso/config; embedding 5xx = conectividade).
+  - Atualização 2026-09-15: relatório por arquivo usa motivos explícitos `file_size_limit`,
+    `chunk_limit` e `embedding_failed`. Revisão do classificador geral continua pendente.
 - [ ] **Validar `validate`/`status` fim-a-fim** após completar a ingestão (hoje: `ok: true`).
 - [ ] **Persistência/inicialização dos serviços**
   - Hoje o start é manual (`hive-lab/start-services.sh`). Avaliar `launchd`/`brew services`
@@ -104,19 +116,30 @@ Contexto: benchmark de retrieval (Hive vs grep) + dedup do corpus etoro. Ordem p
     máquina na nuvem" não achou os docs de SSRF→IMDS). Comportamento é de **vetor puro**.
   - Ação: confirmar se o sparse/BM25 está realmente fundido no ranking do `hive_search`
     (não só ingerido); se estiver, revisar peso denso×esparso e reranking.
-- [ ] **`ingest_workspace` aborta no 1º arquivo grande em vez de pular** 🔴
-  - `ingest recon__urls.txt: document exceeds 1000 chunks` derruba o batch inteiro; como o
-    scan é **global** (todos os programas), 1 dump de recon > `HIVE_MAX_CHUNKS_PER_FILE`
-    impede a ingestão de qualquer programa. Nunca passou limpo com o corpus atual.
-  - Ação: pular (warn) arquivos acima do limite e seguir; reportar lista no fim do summary.
+  - Inspeção 2026-09-15: `queryVariant` implementa RRF, mas a configuração usa `dense`.
+    O sparse atual é uma ponderação de termos por hash, não BM25 completo.
+  - Medição 2026-09-16 (harness offline, embedder sintético): `sparse` e `hybrid` superaram
+    `dense` em MRR (0,909 vs 0,795) no corpus de fixtures; não mede o modelo real. Expor
+    `SearchMode` e repetir com Ollama/Qdrant reais é item da Fase 1.
+- [x] **Preservar o relatório do lote quando arquivos falham**
+  - Inspeção 2026-09-15: os workers já continuavam após falha individual; o retorno de
+    apenas `firstErr` ocultava o resumo na CLI/MCP, dando a impressão de interrupção.
+  - Implementado relatório JSON por arquivo com todas as falhas, limites explícitos,
+    criações, atualizações e inalterados. CLI sai com `15`; MCP usa `isError: true`
+    preservando o relatório. Testes: `server/ingestion_report_test.go`.
 - [ ] **Watcher não purga vetores ao remover/mover arquivo (macOS)** 🟠
   - Mover 9 docs pra fora do `hive-data` **não** disparou o purge; os vetores órfãos
     continuaram aparecendo na busca. Só saíram via `hive-mind remove <path>` manual.
   - Ação: verificar fsnotify de `Remove`/`Rename` no macOS; ou reconciliar órfãos no `ingest`.
+  - Inspeção 2026-09-16: `server/watcher.go` trata Write/Create/Remove, não Rename. O `ingest`
+    já marca ausentes como `missing` (pending_delete) e `--prune` remove após a carência;
+    o watcher continua sem Rename (Fase 1).
 - [ ] **Sem cap por-documento no top-k** 🟠
   - 1 doc longo domina os N slots (ex.: 7/8 = `arapuca.md`); só ~2 docs únicos por busca
     de 8. Derruba diversidade/precisão e "gasta" o limite com chunks do mesmo doc.
   - Ação: retornar no máx. K chunks por documento, ou 1 melhor-chunk/doc + expandir sob demanda.
+  - Medição 2026-09-16: reproduzido no harness offline — `long-report.md` ocupou 8/8
+    resultados em duas consultas; média de 3,7–4,6 documentos distintos por top-8.
 - [ ] **Economia de token é função do `limit`, não do conteúdo** 🟡
   - Dedup do corpus (remover espelhos 2×) **não** baixou tokens (+3%): o servidor sempre
     devolve `limit` chunks. Melhora foi só de precisão/higiene.
@@ -124,6 +147,8 @@ Contexto: benchmark de retrieval (Hive vs grep) + dedup do corpus etoro. Ordem p
 - [ ] **Frontmatter YAML repetido em cada chunk retornado** 🟡
   - Todo resultado repete o cabeçalho (~150 chars: program_id, source, collected_at, tags…)
     = imposto de token por chunk. Ação: enxugar metadados na resposta (só o essencial).
+  - Medição 2026-09-16: no corpus de fixtures, 34% dos bytes indexados são prefixo
+    (front matter + título) repetido por seção; também infla o embedding de cada chunk.
 - [ ] **Embedding `nomic-embed-text` com lacuna semântica de domínio** 🟡
   - Falhou em conectar paráfrase de segurança (nuvem/segredos → IMDS/SSRF). Ação: avaliar
     modelo de embedding melhor/maior ou reranker; medir em corpus grande antes de trocar.

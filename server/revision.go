@@ -555,84 +555,144 @@ func deterministicUUID(parts ...string) string {
 
 // SyncFileState publishes one complete immutable revision and only then moves the head.
 func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error {
+	_, err := iw.syncFileResult(ctx, path)
+	return err
+}
+
+// syncFileResult records the outcome at the publication boundary, without a
+// second read of the head that could race with another synchronization.
+func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (result SyncFileResult, resultErr error) {
+	result = SyncFileResult{Path: iw.syncReportPath(path), Outcome: SyncFailed}
+	reason := "synchronization_failed"
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		switch {
+		case errors.Is(resultErr, errForeignDocument):
+			result.Outcome, reason = SyncSkipped, "foreign_writer"
+		case errors.Is(resultErr, context.Canceled), errors.Is(resultErr, context.DeadlineExceeded):
+			result.Outcome, reason = SyncCancelled, "cancelled"
+		default:
+			result.Outcome = SyncFailed
+			var inputErr *documentInputError
+			if errors.As(resultErr, &inputErr) {
+				reason = inputErr.reason
+			}
+		}
+		result.ReasonCode, result.Detail = reason, syncReasonDetail(reason)
+	}()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	if !iw.Cfg.IsWriter() {
-		return errors.New("file synchronization requires HIVE_ROLE=writer")
+		reason = "writer_required"
+		return result, errors.New("file synchronization requires HIVE_ROLE=writer")
 	}
 	if iw.ShouldIgnoreFile(path, false) {
-		return nil
+		result.Outcome, result.ReasonCode, result.Detail = SyncSkipped, "ignored", syncReasonDetail("ignored")
+		return result, nil
 	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return iw.MarkPendingDelete(ctx, path)
+		result.Outcome, result.ReasonCode, result.Detail = SyncMissing, "missing_file", syncReasonDetail("missing_file")
+		reason = "pending_delete_failed"
+		return result, iw.MarkPendingDelete(ctx, path)
 	}
+	reason = "infrastructure_failed"
 	if err := iw.EnsureInfrastructure(ctx); err != nil {
-		return err
+		return result, err
 	}
 
+	reason = "document_read_failed"
 	content, relPath, programID, info, err := iw.secureReadDocument(path)
 	if err != nil {
-		return err
+		return result, err
 	}
+	reason = "scope_unavailable"
 	scopeRevision, scopeManifest, err := iw.resolveActiveScope(ctx, programID)
 	if err != nil {
-		return err
+		return result, err
 	}
+	reason = "invalid_metadata"
 	metadata, err := extractReconMetadata(relPath, programID, content)
 	if err != nil {
-		return fmt.Errorf("extract recon metadata: %w", err)
+		return result, fmt.Errorf("extract recon metadata: %w", err)
 	}
-	chunks, err := iw.parseDocument(relPath, content)
+	if metadata.Classification == "unknown" {
+		result.Warnings = []string{"classification_unknown: document will not be returned by search"}
+	}
+	reason = "invalid_document"
+	chunks, converted, err := iw.prepareDocument(ctx, relPath, content)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if len(chunks) == 0 {
-		return errors.New("document produced no chunks")
+		reason = "empty_document"
+		return result, errors.New("document produced no chunks")
 	}
 	if len(chunks) > iw.Cfg.MaxChunksPerFile {
-		return fmt.Errorf("document exceeds %d chunks", iw.Cfg.MaxChunksPerFile)
+		reason = "chunk_limit"
+		return result, fmt.Errorf("document exceeds %d chunks", iw.Cfg.MaxChunksPerFile)
 	}
 
 	contentHash := sha256Hex(content)
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, relPath)
-	documentRevision := sha256Hex([]byte(strings.Join([]string{contentHash, iw.parserFingerprint(), iw.chunkerFingerprint()}, "\x00")))
+	revisionParts := []string{contentHash, iw.parserFingerprint(), iw.chunkerFingerprint()}
+	if converted != nil {
+		// New adapters have their own version domain. Existing MD/TXT/JSON
+		// collections and unchanged legacy documents keep their fingerprints.
+		revisionParts = append(revisionParts, converted.ConverterFingerprint, "hive-document-projection-v1")
+	}
+	documentRevision := sha256Hex([]byte(strings.Join(revisionParts, "\x00")))
 	effectiveScope := effectiveScopeStatus(scopeManifest, metadata.AssetRefs)
+	reason = "control_unavailable"
 	head, err := iw.readDocumentHead(ctx, documentID)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if !iw.ownsHead(head) {
 		_ = iw.audit(AuditEvent{Action: "document_skipped", Outcome: "foreign_writer", Program: programID, Document: documentID, Path: relPath}, false)
-		return errForeignDocument
+		return result, errForeignDocument
 	}
 	tombstoned, err := iw.isTombstoned(ctx, documentID)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if tombstoned {
-		return errors.New("document is tombstoned; explicit revocation is required before reingestion")
+		reason = "tombstoned"
+		return result, errors.New("document is tombstoned; explicit revocation is required before reingestion")
 	}
 	if head != nil && head.State == "deleted" {
-		return errors.New("document is tombstoned; explicit revocation is required before reingestion")
+		reason = "tombstoned"
+		return result, errors.New("document is tombstoned; explicit revocation is required before reingestion")
 	}
 	if head != nil && head.DocumentRevision == documentRevision && head.ScopeRevision == scopeRevision {
 		if head.State == "active" {
-			return nil
+			result.Outcome = SyncUnchanged
+			return result, nil
 		}
 		if head.State == "pending_delete" {
 			now := time.Now().UTC().Format(time.RFC3339Nano)
 			revived := *head
 			revived.State, revived.PendingSince, revived.WriterDeviceID, revived.Bytes = "active", "", iw.Cfg.DeviceID, int64(len(content))
-			return iw.upsertControl(ctx, "document_head", documentID, headPayload(&revived, now))
+			reason = "commit_failed"
+			if err := iw.upsertControl(ctx, "document_head", documentID, headPayload(&revived, now)); err != nil {
+				return result, err
+			}
+			result.Outcome, result.Published = SyncUpdated, true
+			return result, nil
 		}
 	}
 
 	indexedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	points := make([]*qdrant.PointStruct, len(chunks))
+	reason = "embedding_failed"
 	for ordinal, chunk := range chunks {
-		vector, err := iw.FetchRemoteEmbedding(ctx, chunk)
+		vector, err := iw.FetchRemoteEmbedding(ctx, chunk.Text)
 		if err != nil {
-			return fmt.Errorf("embed chunk %d: %w", ordinal, err)
+			return result, fmt.Errorf("embed chunk %d: %w", ordinal, err)
 		}
-		indices, values := ComputeSparseVector(chunk, iw.CustomStopWords)
+		indices, values := ComputeSparseVector(chunk.Text, iw.CustomStopWords)
 		pointID := deterministicUUID("chunk", documentID, documentRevision, scopeRevision, fmt.Sprint(ordinal))
 		payload := map[string]any{
 			"record_type": "chunk", "hive_id": iw.Cfg.HiveID, "program_id": programID,
@@ -640,26 +700,39 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 			"claimed_scope_status": metadata.ClaimedScope, "effective_scope_status": effectiveScope,
 			"classification": metadata.Classification, "source": metadata.Source, "collected_at": metadata.CollectedAt,
 			"tags": convertStringSlice(metadata.Tags), "asset_refs": convertStringSlice(metadata.AssetRefPayload), "path": relPath,
-			"file_path": relPath, "relative_path": relPath, "content": chunk,
+			"file_path": relPath, "relative_path": relPath, "content": chunk.Text,
 			"document_id": documentID, "document_revision": documentRevision,
 			"scope_revision": scopeRevision, "chunk_ordinal": int64(ordinal),
 			"content_hash": contentHash, "indexed_at": indexedAt, "modified": info.ModTime().Unix(),
 			"type": "doc_chunk", "extension": strings.TrimPrefix(filepath.Ext(relPath), "."),
+		}
+		if converted != nil {
+			payload["ingestion_schema"] = converted.Schema
+			payload["source_format"] = converted.SourceFormat
+			payload["source_raw_hash"] = converted.RawHash
+			payload["converter_fingerprint"] = converted.ConverterFingerprint
+			payload["source_locator"] = chunk.Locator
+			payload["block_ordinal"] = int64(chunk.BlockOrdinal)
+			payload["canonical_hash"] = chunk.CanonicalHash
+			payload["writer_device_id"] = iw.Cfg.DeviceID
+			payload["untrusted_content"] = true
 		}
 		points[ordinal] = &qdrant.PointStruct{Id: qdrant.NewIDUUID(pointID), Vectors: qdrant.NewVectorsMap(map[string]*qdrant.Vector{
 			"": qdrant.NewVector(vector...), "sparse": qdrant.NewVectorSparse(indices, values),
 		}), Payload: qdrant.NewValueMap(payload)}
 	}
 
+	reason = "staging_failed"
 	if _, err := iw.QdrantClient.Upsert(ctx, &qdrant.UpsertPoints{CollectionName: iw.Cfg.CollectionName, Wait: qdrant.PtrOf(true), Points: points}); err != nil {
-		return fmt.Errorf("stage document revision: %w", err)
+		return result, fmt.Errorf("stage document revision: %w", err)
 	}
+	reason = "verification_failed"
 	count, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.CollectionName, Exact: qdrant.PtrOf(true), Filter: revisionFilter(documentID, documentRevision, scopeRevision)})
 	if err != nil {
-		return fmt.Errorf("verify document revision: %w", err)
+		return result, fmt.Errorf("verify document revision: %w", err)
 	}
 	if count != uint64(len(points)) {
-		return fmt.Errorf("verify document revision: expected %d chunks, found %d", len(points), count)
+		return result, fmt.Errorf("verify document revision: expected %d chunks, found %d", len(points), count)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -667,21 +740,27 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 	if head != nil && head.CreatedAt != "" {
 		created = head.CreatedAt
 	}
+	reason = "commit_failed"
 	if err := iw.upsertControl(ctx, "document_head", documentID, headPayload(&documentHead{
 		DocumentID: documentID, ProgramID: programID, Path: relPath,
 		DocumentRevision: documentRevision, ScopeRevision: scopeRevision,
 		ChunkCount: len(points), State: "active", CreatedAt: created,
 		WriterDeviceID: iw.Cfg.DeviceID, Bytes: int64(len(content)),
 	}, now)); err != nil {
-		return fmt.Errorf("commit document head: %w", err)
+		return result, fmt.Errorf("commit document head: %w", err)
+	}
+	result.Outcome, result.Published = SyncCreated, true
+	if head != nil {
+		result.Outcome = SyncUpdated
 	}
 
+	reason = "cleanup_pending"
 	if head != nil && (head.DocumentRevision != documentRevision || head.ScopeRevision != scopeRevision) {
 		if _, err := iw.QdrantClient.Delete(ctx, &qdrant.DeletePoints{CollectionName: iw.Cfg.CollectionName, Wait: qdrant.PtrOf(true), Points: qdrant.NewPointsSelectorFilter(revisionFilter(documentID, head.DocumentRevision, head.ScopeRevision))}); err != nil {
-			return fmt.Errorf("new revision active; stale revision cleanup pending: %w", err)
+			return result, fmt.Errorf("new revision active; stale revision cleanup pending: %w", err)
 		}
 	}
-	return nil
+	return result, nil
 }
 
 func revisionFilter(documentID, documentRevision, scopeRevision string) *qdrant.Filter {
@@ -786,8 +865,8 @@ func (iw *IngestionWorker) secureReadDocument(path string) ([]byte, string, stri
 		return nil, "", "", nil, err
 	}
 	ext := strings.ToLower(filepath.Ext(relPath))
-	if ext != ".md" && ext != ".txt" && ext != ".json" {
-		return nil, "", "", nil, fmt.Errorf("unsupported document extension %q", ext)
+	if !supportedDocumentExtension(ext) {
+		return nil, "", "", nil, &documentInputError{"unsupported_format", fmt.Sprintf("unsupported document extension %q", ext)}
 	}
 	real, err := filepath.EvalSymlinks(path)
 	if err != nil {
@@ -801,7 +880,7 @@ func (iw *IngestionWorker) secureReadDocument(path string) ([]byte, string, stri
 		return nil, "", "", nil, errors.New("document is not a regular file")
 	}
 	if before.Size() > iw.Cfg.MaxFileSize {
-		return nil, "", "", nil, fmt.Errorf("document exceeds %d bytes", iw.Cfg.MaxFileSize)
+		return nil, "", "", nil, &documentInputError{"file_size_limit", fmt.Sprintf("document exceeds %d bytes", iw.Cfg.MaxFileSize)}
 	}
 	file, err := os.Open(real)
 	if err != nil {
@@ -817,17 +896,17 @@ func (iw *IngestionWorker) secureReadDocument(path string) ([]byte, string, stri
 		return nil, "", "", nil, errors.New("document cannot be read")
 	}
 	if int64(len(content)) > iw.Cfg.MaxFileSize {
-		return nil, "", "", nil, fmt.Errorf("document exceeds %d bytes", iw.Cfg.MaxFileSize)
+		return nil, "", "", nil, &documentInputError{"file_size_limit", fmt.Sprintf("document exceeds %d bytes", iw.Cfg.MaxFileSize)}
 	}
 	after, err := file.Stat()
 	if err != nil || !os.SameFile(opened, after) || opened.Size() != after.Size() || !opened.ModTime().Equal(after.ModTime()) {
 		return nil, "", "", nil, errors.New("document changed while being read")
 	}
 	if len(content) == 0 {
-		return nil, "", "", nil, errors.New("document is empty")
+		return nil, "", "", nil, &documentInputError{"empty_document", "document is empty"}
 	}
 	if !utf8.Valid(content) || isBinaryContent(content) {
-		return nil, "", "", nil, errors.New("binary or non-UTF-8 document is not supported")
+		return nil, "", "", nil, &documentInputError{"invalid_encoding", "binary or non-UTF-8 document is not supported"}
 	}
 	return content, relPath, programID, after, nil
 }
@@ -872,6 +951,39 @@ func (iw *IngestionWorker) parseDocument(path string, content []byte) ([]string,
 	default:
 		return nil, errors.New("unsupported document type")
 	}
+}
+
+// prepareDocument is shared by CLI ingestion, watcher and MCP. Legacy parsing
+// stays byte-compatible; the versioned envelope and new formats use adapters.
+func (iw *IngestionWorker) prepareDocument(ctx context.Context, path string, content []byte) ([]ConvertedChunk, *ConvertedDocument, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	var converted *ConvertedDocument
+	var err error
+	if ext == ".json" {
+		converted, err = DecodeConvertedDocument(content, iw.Cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else if ext != ".md" && ext != ".txt" {
+		doc, convertErr := ConvertDocument(ctx, strings.TrimPrefix(ext, "."), content, iw.Cfg)
+		if convertErr != nil {
+			return nil, nil, convertErr
+		}
+		converted = &doc
+	}
+	if converted != nil {
+		chunks, err := ChunkConvertedDocument(ctx, *converted, iw.Cfg)
+		return chunks, converted, err
+	}
+	texts, err := iw.parseDocument(path, content)
+	if err != nil {
+		return nil, nil, err
+	}
+	chunks := make([]ConvertedChunk, len(texts))
+	for i, text := range texts {
+		chunks[i].Text = text
+	}
+	return chunks, nil, nil
 }
 
 func chunkRunes(text string, maxChars, overlap int) []string {
@@ -1116,22 +1228,22 @@ func (iw *IngestionWorker) PrunePending(ctx context.Context, now time.Time) (int
 	return removed, nil
 }
 
-// SyncSummary reports one workspace reconciliation. Skipped counts documents
-// owned by other writers; they are not errors.
-type SyncSummary struct {
-	Ingested int `json:"ingested"`
-	Skipped  int `json:"skipped"`
-}
-
 func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (SyncSummary, error) {
+	summary := SyncSummary{Results: []SyncFileResult{}}
 	if !iw.Cfg.IsWriter() {
-		return SyncSummary{}, errors.New("workspace ingestion requires HIVE_ROLE=writer")
+		return summary, &operationalError{ExitAuthorization, "workspace ingestion requires HIVE_ROLE=writer"}
+	}
+	if err := ctx.Err(); err != nil {
+		return summary, err
 	}
 	if err := iw.EnsureInfrastructure(ctx); err != nil {
-		return SyncSummary{}, err
+		return summary, err
 	}
 	var paths []string
 	err := filepath.WalkDir(iw.Cfg.DataDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return walkErr
 		}
@@ -1143,56 +1255,58 @@ func (iw *IngestionWorker) SyncWorkspace(ctx context.Context) (SyncSummary, erro
 		}
 		if !entry.IsDir() {
 			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".md" || ext == ".txt" || ext == ".json" {
+			if supportedDocumentExtension(ext) {
 				paths = append(paths, path)
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return SyncSummary{}, err
+		return summary, err
 	}
 	sort.Strings(paths)
+	summary.ScanComplete = true
+	summary.Total = len(paths)
+	summary.Results = make([]SyncFileResult, len(paths))
+	for i, path := range paths {
+		summary.Results[i] = SyncFileResult{Path: iw.syncReportPath(path), Outcome: SyncCancelled,
+			ReasonCode: "cancelled", Detail: syncReasonDetail("cancelled")}
+	}
 	workers := iw.Cfg.MaxEmbeddingWorkers
 	if workers < 1 {
 		workers = 1
 	}
-	jobs := make(chan string)
+	jobs := make(chan int)
 	var wg sync.WaitGroup
-	var firstErr error
-	var errMu sync.Mutex
-	var summary SyncSummary
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for path := range jobs {
-				err := iw.SyncFileState(ctx, path)
-				errMu.Lock()
-				switch {
-				case err == nil:
-					summary.Ingested++
-				case errors.Is(err, errForeignDocument):
-					summary.Skipped++
-				case firstErr == nil:
-					firstErr = fmt.Errorf("ingest %s: %w", filepath.Base(path), err)
-				}
-				errMu.Unlock()
+			for index := range jobs {
+				// Each job owns one slot; aggregate only after every worker exits.
+				summary.Results[index], _ = iw.syncFileResult(ctx, paths[index])
 			}
 		}()
 	}
 sendLoop:
-	for _, path := range paths {
+	for index := range paths {
+		if ctx.Err() != nil {
+			break
+		}
 		select {
-		case jobs <- path:
+		case jobs <- index:
 		case <-ctx.Done():
 			break sendLoop
 		}
 	}
 	close(jobs)
 	wg.Wait()
-	if firstErr != nil {
-		return summary, firstErr
+	summary.tallyOutcomes()
+	if err := ctx.Err(); err != nil {
+		return summary, err
 	}
-	return summary, ctx.Err()
+	if summary.Failed > 0 || summary.Cancelled > 0 {
+		return summary, &operationalError{ExitPartialFailure, "workspace ingestion is incomplete; inspect per-file results"}
+	}
+	return summary, nil
 }

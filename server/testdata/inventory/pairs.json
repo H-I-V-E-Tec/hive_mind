@@ -1,0 +1,7 @@
+[
+  {"left":"programs/demo/base.txt","right":"programs/demo/copy.txt","relation":"exact_duplicate","same_program":true},
+  {"left":"programs/demo/base.txt","right":"programs/demo/complement.txt","relation":"complement","same_program":true},
+  {"left":"programs/demo/base.txt","right":"programs/demo/contradiction.txt","relation":"contradiction","same_program":true},
+  {"left":"programs/demo/base.txt","right":"programs/demo/temporal.txt","relation":"temporal_change","same_program":true},
+  {"left":"programs/demo/base.txt","right":"programs/other/base.txt","relation":"exact_duplicate","same_program":false}
+]

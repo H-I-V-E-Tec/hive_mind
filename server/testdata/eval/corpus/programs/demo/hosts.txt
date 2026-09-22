@@ -1,0 +1,8 @@
+gateway.example.test
+media.example.test
+billing.example.test
+vpn.example.test
+git.example.test
+grafana.example.test
+old-cms.example.test
+mail-relay.example.test

@@ -2,7 +2,7 @@
 
 Data: 15/09/2026. Base analisada: commit `961a3d7` e arquivos locais do projeto.
 
-Estado: proposta para implementação. Este documento resulta de inspeção de código, testes existentes, contratos e documentação; não representa validação dos serviços em execução nem medição do índice atual.
+Estado: implementação iniciada em 15/09/2026. O diagnóstico abaixo registra a base anterior às mudanças; o andamento está na seção 16. Não representa validação dos serviços em produção nem medição do índice atual.
 
 ## 1. Objetivo e direção
 
@@ -285,21 +285,21 @@ Evitar ampliar `server/worker.go` e `server/revision.go` com todos os formatos e
 
 ## 12. Roadmap e critérios de aceite
 
-As fases são ordenadas por dependências; duração e custo devem ser estimados após a linha de base. Entregas documentais desta lista ainda não estão implementadas.
+As fases são ordenadas por dependências; duração e custo devem ser estimados após a linha de base. Itens marcados foram implementados; os demais permanecem pendentes.
 
 ### Fase 0 — Linha de base e contratos
 
-- [ ] Inventariar formatos, tamanhos e duplicatas exatas em cópia controlada do corpus, sem publicar conteúdo sensível.
-- [ ] Criar amostras sanitizadas e pares rotulados: duplicata, complemento, contradição e mudança temporal.
-- [ ] Medir recuperação, repetição no top-k, custo de embeddings e tempo de ingestão.
-- [ ] Reconciliar README/TODO/specs com os caminhos executados; registrar pendências operacionais.
-- [ ] Especificar unidade canônica, domínio de deduplicação, retenção e contrato dos adaptadores.
+- [x] Inventariar formatos, tamanhos e duplicatas exatas em cópia controlada do corpus, sem publicar conteúdo sensível.
+- [x] Criar amostras sanitizadas e pares rotulados: duplicata, complemento, contradição e mudança temporal.
+- [x] Medir recuperação, repetição no top-k, custo de embeddings e tempo de ingestão.
+- [x] Reconciliar README/TODO/specs com os caminhos executados; registrar pendências operacionais.
+- [x] Especificar unidade canônica, domínio de deduplicação, retenção e contrato dos adaptadores.
 
 Aceite: benchmark reproduzível, critérios de qualidade explícitos e decisão arquitetural de persistência registrada.
 
 ### Fase 1 — Base atual mais utilizável
 
-- [ ] Relatório completo de lote com resultados tipados e contagem de arquivos inalterados.
+- [x] Relatório completo de lote com resultados tipados e contagem de arquivos inalterados.
 - [ ] Tratar Rename e reconciliar ausências sem violar carência/propriedade.
 - [ ] Expor configuração de busca e adicionar avaliação do ranking/diversidade.
 - [ ] Extrair interfaces de ingestão e prévia `--dry-run` para formatos atuais.
@@ -380,10 +380,64 @@ Nenhuma limpeza física do acervo atual faz parte da criação deste plano. A de
 
 As metas são critérios futuros, não resultados obtidos. Para semântica, relatar tamanho da amostra e erros observados; zero erros em um conjunto finito não comprova perfeição universal.
 
-Cada mudança comportamental deve incluir testes apropriados, conforme [a decisão de testes obrigatórios](docs/decisions/001-tests-are-required.md). Rodar `go test ./...` e verificações relevantes na implementação; fluxos de banco/Qdrant e concorrência precisam de integração real. Esta entrega altera apenas documentação e não executou testes nem serviços.
+Cada mudança comportamental deve incluir testes apropriados, conforme [a decisão de testes obrigatórios](docs/decisions/001-tests-are-required.md). Rodar `go test ./...` e verificações relevantes na implementação; fluxos de banco/Qdrant e concorrência precisam de integração real. A criação inicial deste plano alterou apenas documentação; a validação das implementações está registrada abaixo.
 
 ## 15. Primeira entrega recomendada
 
 Começar pela linha de base e pelos relatórios de ingestão, em seguida implementar o MVP com normalização conservadora, deduplicação exata de unidades e proveniência múltipla. Isso torna a redução de repetição mensurável e prepara o sistema para formatos adicionais e análise semântica.
 
 O resultado esperado é um Hive Mind que explica o que recebeu, o que aproveitou e por quê, mantém cada conhecimento admitido uma vez no seu domínio de acesso e conserva as evidências necessárias para verificá-lo.
+
+## 16. Andamento da implementação
+
+### Entrega 1 — Relatório de ingestão (15/09/2026)
+
+Implementados [contrato v1](docs/spec/contracts/ingestion-report.md), [tipos e integração de relatório](server/ingestion_report.go) e [testes de regressão](server/ingestion_report_test.go).
+
+- Resultados individuais e ordenação determinística com workers concorrentes.
+- Contadores de criados, atualizados, inalterados, ignorados, ausentes, falhos e cancelados.
+- CLI e MCP preservam o relatório quando parte do lote falha; a poda não executa nessa situação.
+- Motivos explícitos por etapa, incluindo tamanho/chunks, embedding e publicação com limpeza pendente.
+- Publicação confirmada distinguida de falha de processamento; nenhuma deduplicação entre arquivos é alegada nesta entrega.
+- TODO reconciliado nos relatos de interrupção de lote e disponibilidade da busca híbrida.
+
+Linha de base automatizada: `go test ./...` passou antes das alterações, usando caches em `/tmp`. Os testes novos usam fontes sintéticas e serviços simulados; não foi executada ingestão do acervo privado nem migração de collections.
+
+Validação da entrega: `go test ./... -count=1`, `go vet ./...` e `go test -race ./server -run 'TestIngestion|TestMultiWriter|TestSpec002' -count=1` passaram. Executados com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. A spec operacional 07 foi atualizada para 1.2.0, mantendo o aceite de implantação como `pending`.
+
+Próxima entrega prevista: inventário reproduzível de formatos/tamanhos/duplicação exata e contratos do conversor, acompanhados da avaliação de recuperação. O restante das fases 0 e 1 segue pendente.
+
+### Entrega 2 — Inventário local e amostras (15/09/2026)
+
+- Implementado `inventory <dir>`, sem configuração ou serviços, com relatório JSON determinístico de formatos, tamanhos e cobertura de hashes.
+- Duplicatas integrais candidatas agrupadas somente dentro do mesmo programa; caminhos opcionais e nenhum conteúdo/hash exportado.
+- Leitura delimitada, políticas de exclusão locais, recusa de symlinks/arquivos especiais e detecção de alterações durante leitura.
+- Adicionada amostra sintética com cinco pares rotulados: duplicata, complemento, contradição, mudança temporal e cópia entre programas.
+- Documentados [contrato do inventário](docs/spec/contracts/inventory-report.md) e [proposta do conversor](docs/spec/contracts/converter-pipeline.md).
+- Executado inventário em cópia controlada: 100 arquivos, 25.343.943 bytes, 16 vazios; o único grupo de repetição integral reúne esses vazios, com zero bytes repetidos. [Linha de base](docs/operations/inventory-baseline.md).
+
+A proposta de contrato não ativa novos formatos na ingestão. Deduplicação de trechos/semântica continua pendente; a decisão de persistência/retenção e a avaliação de recuperação foram fechadas na Entrega 3.
+
+### Entrega 3 — Linha de base de recuperação, reconciliação e contratos (16/09/2026)
+
+Fecha as três pendências da Fase 0.
+
+- **Benchmark offline reproduzível** ([contrato](docs/spec/contracts/eval-report.md), [resultados](docs/operations/retrieval-baseline.md)): harness em [server/eval.go](server/eval.go) executado por `TestRetrievalBaseline`, com Qdrant em memória que pontua (cosseno, esparso, RRF) e embedder sintético bag-of-words. Corpus de 13 arquivos e 11 consultas rotuladas em `server/testdata/eval/`. Mede Recall@k, MRR, documentos distintos e maior fração de um documento no top-k, bytes de prefixo repetido por chunk, chamadas/bytes de embedding e tempo de ingestão e reingestão. Contadores de embedding foram adicionados ao worker (`SnapshotEmbeddingStats`), sem alterar o relatório de ingestão v1.
+- **Achados estruturais:** 34% do texto indexado nas fixtures é front matter + título repetido por seção; um documento longo ocupou 8/8 resultados em duas consultas; a reingestão sem mudanças fez zero chamadas de embedding; documentos sem `classification` (`.txt`/`.json` sem o campo) são embedados e nunca devolvidos pela busca. Recall/MRR reportados descrevem o embedder sintético e não o modelo real — a execução com Ollama/Qdrant reais fica para a Fase 1.
+- **Reconciliação:** README corrige a alegação de busca híbrida ativa, documenta nove variáveis de ambiente ausentes e o requisito de `classification`; `help` lista as três flags omitidas; TODO ganha cabeçalho de histórico, corrige o item de híbrido e anota as medições; subcomando morto `evaluate-search` removido. Pendências operacionais consolidadas em [implementation-status.md](docs/operations/implementation-status.md).
+- **Contratos e decisão:** [canonical-unit.md](docs/spec/contracts/canonical-unit.md) define objetos, identidades UUID v5, chave de unicidade com `access_partition`, separação `observed_at`/`ingested_at`, retenção, contrato dos adaptadores e `reason_codes`; a [decisão 003](docs/decisions/003-canonical-persistence.md) fixa PostgreSQL compartilhado como fonte canônica com fila transacional, Qdrant como índice derivado e proíbe alegar unicidade global antes disso.
+
+Validação: `go build ./...`, `go vet ./...`, `go test ./... -count=1` e `gofmt -l` limpos, com `GOCACHE=/tmp/hive-mind-go-cache` e `GOMODCACHE=/tmp/hive-mind-modcache`. Nenhuma spec numerada foi alterada; `status.json` permanece como estava.
+
+Próxima entrega: extração de blocos localizáveis para MD/TXT/JSON e normalização determinística conforme o contrato dos adaptadores, com preservação da publicação atual (Fase 1: interfaces de ingestão e `--dry-run`).
+
+### Entrega 4 — Conversor versionado e ingestão em um passo (18/09/2026)
+
+- Adaptadores MD/TXT/JSON/JSONL/NDJSON/CSV/TSV e stdin produzindo o envelope `hive-document/v1` com blocos localizáveis, números JSON exatos, tabelas com cabeçalho/células e limites agregados (`server/converter.go`, `server/convert_cli.go`; commit `b80dc1d`).
+- Fluxo em um passo `convert --ingest`: converte offline e publica o envelope no Qdrant na mesma invocação, exigindo writer e `--output` dentro de `HIVE_DATA_DIR/programs/<id>/`. Reusa o pipeline existente (`IngestPathReport` → `syncFileResult`), preservando identidade por path, idempotência e propriedade por writer. Relatório de ingestão v1 inalterado.
+- Correções de base: `docs/spec/status.json` reconciliado com a spec 02 (v1.2.0, sha256 e proveniência); `bin/hive-mind` removido do versionamento e `bin/` adicionado ao `.gitignore` (docs já instruem `go build`).
+- Testes: `server/convert_cli_test.go` cobre parsing de `--ingest`, publicação e idempotência de arquivo único, e negação para reader (código 12).
+
+Validação: `go build ./...`, `go vet ./...`, `gofmt -l` limpos e `go test ./... -count=1` verde (inclui `tests/spec_status_test.go`), com `GOCACHE`/`GOMODCACHE` em `/tmp`.
+
+Fora de escopo desta entrega (mantidos como pendentes): adaptadores binários (PDF/DOCX/HTML/XLSX), normalização/admissão canônica, deduplicação semântica e sanitização de segredos — Fases 2–4 e decisão 003.
