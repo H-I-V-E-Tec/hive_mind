@@ -30,6 +30,8 @@ Para um roteiro completo e copiável de laboratório, incluindo tokens writer/re
 
 Para instalar em um servidor e conectar várias pessoas, use o [guia de servidor e acesso multiusuário](docs/operations/server-multiuser-guide.md). Para preparar exports antes de gerar vetores, siga [conversão e ingestão padronizada](docs/operations/semantic-ingestion.md), incluindo formatos suportados e limitações.
 
+Para alterar uma ferramenta MCP, publicar uma versão e atualizar as instalações existentes, siga [Atualizar o Hive Mind e os clientes](docs/guias/ATUALIZAR_HIVE_MIND.md).
+
 ### 1. Preparar requisitos e compilar
 
 É necessário Go 1.25 ou superior, compilador C/C++ (CGO/tree-sitter), Git, Ollama local e Qdrant privado. Para containers, use Docker com Compose. Backup requer Python 3.10+ e restic instalado separadamente.

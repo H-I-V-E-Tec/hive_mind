@@ -13,6 +13,7 @@
 - [Preparar Ubuntu 24.04 recém-criado](guias/PREPARAR_SERVIDOR_UBUNTU_24_04.md): instalar e conferir os requisitos antes de configurar o servidor do teste.
 - [Passo a passo: Ubuntu 24.04 e quatro pessoas](guias/GUIA_SERVIDOR_TESTE_4_PESSOAS.md): pacote mínimo do servidor, clientes com dados novos e teste de conversão/ingestão via MCP.
 - [Adicionar uma pessoa no servidor existente](guias/ADICIONAR_PESSOA_NO_SERVIDOR.md): conta SSH, JWT individual e entrega privada de credenciais para `hive_instance`.
+- [Atualizar o Hive Mind e os clientes](guias/ATUALIZAR_HIVE_MIND.md): ferramenta MCP nova, release, atualização do `hive_instance`, deploy do Qdrant e cadastro de pessoa.
 - [Estado da implementação](operations/implementation-status.md): progresso e validações externas pendentes.
 - [Acesso ao Qdrant](operations/qdrant-access.md): provisionamento, papéis, admissão e revogação.
 - [Backup e recuperação](operations/backup-recovery.md): backup pareado, ensaio isolado e incidentes.
