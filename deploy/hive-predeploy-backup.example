@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Instale como /usr/local/sbin/hive-predeploy-backup, root:root 0755.
+set -Eeuo pipefail
+umask 077
+
+ENV_FILE="${HIVE_BACKUP_ENV_FILE:-/srv/hive-private/backup.env}"
+[ -f "$ENV_FILE" ] && [ ! -L "$ENV_FILE" ] || {
+  printf 'Arquivo privado de backup ausente ou inválido: %s\n' "$ENV_FILE" >&2
+  exit 1
+}
+MODE="$(stat -c '%a' "$ENV_FILE")"
+[[ "$MODE" =~ ^[0-7]{3,4}$ ]] && (( (8#$MODE & 8#77) == 0 )) || {
+  printf 'O arquivo de backup deve ter modo 0600\n' >&2
+  exit 1
+}
+
+set -a
+# shellcheck disable=SC1090 -- arquivo root-owned, privado e documentado.
+source "$ENV_FILE"
+set +a
+
+[ "${HIVE_BACKUP_WRITER_STOPPED:-}" = yes ] || {
+  printf 'A janela deve confirmar HIVE_BACKUP_WRITER_STOPPED=yes\n' >&2
+  exit 1
+}
+exec python3 /opt/hive-test/current/scripts/hive_backup.py backup

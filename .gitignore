@@ -11,3 +11,5 @@ audit-*.jsonl
 backup-*-prepared.json
 backup-*-completed.json
 .DS_Store
+bin/
+dist/

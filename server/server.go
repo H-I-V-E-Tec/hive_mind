@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/qdrant/go-client/qdrant"
@@ -30,8 +29,48 @@ func Start(version string) {
 
 	// Setup localized logs redirected away from stdout to keep MCP channel clean
 	log.SetOutput(os.Stderr)
+	if len(args) > 1 && args[1] == "version" {
+		printJSON(map[string]any{"version": Version, "source_revision": SourceRevision})
+		return
+	}
 	if len(args) > 1 && (args[1] == "help" || args[1] == "-h" || args[1] == "--help") {
 		printCLIHelp()
+		return
+	}
+	if len(args) > 1 && args[1] == "convert" {
+		opts, _ := parseConvertArgs(args[2:]) // Already checked by splitCLIArgs.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		encoded, err := runConvert(ctx, opts, os.Stdin)
+		if err == nil {
+			if opts.Output != "" {
+				err = writeConvertedDocument(opts.Output, encoded)
+			} else {
+				_, err = os.Stdout.Write(encoded)
+			}
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, conversionErrorMessage(err))
+			os.Exit(ExitUsage)
+		}
+		if opts.Ingest {
+			os.Exit(runConvertIngest(ctx, opts.Output))
+		}
+		return
+	}
+	if len(args) > 1 && args[1] == "inventory" {
+		opts, err := parseInventoryArgs(args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "invalid inventory arguments")
+			os.Exit(ExitUsage)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		report := BuildInventory(ctx, opts)
+		stop()
+		printJSON(report)
+		if !report.OK {
+			os.Exit(report.ExitCode)
+		}
 		return
 	}
 
@@ -147,18 +186,13 @@ func Start(version string) {
 			defer worker.Close()
 
 			log.Println("Starting manual Hive ingestion...")
-			summary, err := worker.SyncWorkspace(context.Background())
-			if err != nil {
-				failCommand(client, worker, "ingest", err)
+			report := worker.IngestWorkspaceReport(context.Background(), sliceContains(args[2:], "--prune"))
+			printJSON(report)
+			if !report.OK {
+				worker.Close()
+				client.Close()
+				os.Exit(report.ExitCode)
 			}
-			if sliceContains(args[2:], "--prune") {
-				pruned, err := worker.PrunePending(context.Background(), time.Now())
-				if err != nil {
-					failCommand(client, worker, "ingest prune", err)
-				}
-				fmt.Printf("Pruned %d documents after the deletion grace period.\n", pruned)
-			}
-			fmt.Printf("🎉 Success! Ingested %d files into collection '%s' (%d skipped: owned by other writers).\n", summary.Ingested, cfg.CollectionName, summary.Skipped)
 			return
 		case "remove":
 			if !cfg.IsWriter() {
@@ -238,36 +272,6 @@ func Start(version string) {
 			}
 			fmt.Println(string(encoded))
 			return
-		case "evaluate-search", "eval-search", "eval":
-			if !cfg.IsWriter() {
-				fmt.Fprintln(os.Stderr, "authorization error: evaluate-search requires HIVE_ROLE=writer")
-				os.Exit(12)
-			}
-			client, worker := mustCreateWorker(cfg)
-			defer client.Close()
-			defer worker.Close()
-
-			log.Printf("Running self-evaluation against workspace %s", cfg.WatchDirectory)
-			if _, err := worker.SyncWorkspace(context.Background()); err != nil {
-				log.Fatalf("Self-ingestion failed before evaluation: %v", err)
-			}
-
-			suites := defaultEvaluationQueries(cfg.WatchDirectory)
-			passed := 0
-			for _, suite := range suites {
-				result, err := worker.ExecuteVectorSearch(context.Background(), "default", suite.Query, suite.FileExtensions, suite.PathPrefix)
-				if err != nil {
-					log.Printf("Evaluation query failed for %q: %v", suite.Query, err)
-					continue
-				}
-				ok := strings.Contains(strings.ToLower(result), strings.ToLower(suite.ExpectContains))
-				if ok {
-					passed++
-				}
-				fmt.Printf("\n=== Query: %s ===\nExpected: %s\nPass: %t\n\n%s\n", suite.Query, suite.ExpectContains, ok, result)
-			}
-			fmt.Printf("\nEvaluation summary: %d/%d queries matched expected fragments.\n", passed, len(suites))
-			return
 		case "help", "-h", "--help":
 			printCLIHelp()
 			return
@@ -286,8 +290,10 @@ func Start(version string) {
 	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		log.Fatalf("Hive startup validation failed: %v", err)
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	if cfg.IsReader() {
-		worker.ListenToMCPClient(context.Background())
+		waitMCPClient(ctx, worker.ListenToMCPClient)
 		return
 	}
 
@@ -297,9 +303,6 @@ func Start(version string) {
 		log.Fatalf("Failed to spin up filesystem notification systems: %v", err)
 	}
 	defer watcher.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancelHandle(cancel)
 
 	// Spawn decoupled debounced file processor
 	eventChan := make(chan string, 100)
@@ -312,23 +315,56 @@ func Start(version string) {
 		log.Printf("Warning: Directory traversal hit path restrictions: %v", err)
 	}
 
-	// Launch standard MCP protocol engine on main thread
-	go worker.ListenToMCPClient(ctx)
-
-	// Block gracefully until system signal caught
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	// A disconnected stdio client owns this process's lifetime, just like a
+	// termination signal. Otherwise writers keep watching after their client exits.
+	waitMCPClient(ctx, worker.ListenToMCPClient)
+	cancel()
 	log.Println("Shutting down Go MCP Server cleanly.")
 }
 
-func cancelHandle(c context.CancelFunc) { c() }
+func waitMCPClient(ctx context.Context, listen func(context.Context)) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		listen(ctx)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// stdin may still be blocked in Decode; do not wait for another client
+		// message to honor a termination signal.
+	}
+}
 
-type EvaluationQuery struct {
-	Query          string
-	ExpectContains string
-	FileExtensions []string
-	PathPrefix     string
+// runConvertIngest publishes a freshly converted envelope through the writer
+// pipeline in the same invocation. Conversion itself stays offline; only this
+// step loads configuration and contacts Qdrant/Ollama.
+func runConvertIngest(ctx context.Context, outputPath string) int {
+	cfg, err := LoadConfig()
+	if err != nil {
+		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: "configuration is invalid; check required Hive settings"}}})
+		return ExitConfiguration
+	}
+	if !cfg.IsWriter() {
+		fmt.Fprintln(os.Stderr, "authorization error: convert --ingest requires HIVE_ROLE=writer")
+		return ExitAuthorization
+	}
+	abs, err := filepath.Abs(outputPath)
+	if err != nil || !pathWithin(cfg.DataDirectory, abs) {
+		fmt.Fprintln(os.Stderr, "convert --ingest requires --output inside HIVE_DATA_DIR/programs/<program_id>/")
+		return ExitUsage
+	}
+	client, worker := mustCreateWorker(cfg)
+	defer client.Close()
+	defer worker.Close()
+	report := worker.IngestPathReport(ctx, abs)
+	printJSON(report)
+	if !report.OK {
+		return report.ExitCode
+	}
+	return 0
 }
 
 func mustCreateWorker(cfg Config) (*qdrant.Client, *IngestionWorker) {
@@ -458,23 +494,25 @@ func newQdrantClientWithOptions(cfg Config, options []grpc.DialOption) (*qdrant.
 	})
 }
 
-func defaultEvaluationQueries(watchDir string) []EvaluationQuery {
-	return []EvaluationQuery{
-		{Query: "recursive watcher for newly created directories", ExpectContains: "server/watcher.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "vector search execution and reranking", ExpectContains: "server/worker.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "auto discover mcp and codex config", ExpectContains: "server/config.go", FileExtensions: []string{"go"}, PathPrefix: "server"},
-		{Query: "tree sitter parse code metadata and imports", ExpectContains: "ast/ast.go", FileExtensions: []string{"go"}, PathPrefix: "ast"},
-		{Query: "worker tags and search tests", ExpectContains: "tests/worker_test.go", FileExtensions: []string{"go"}, PathPrefix: "tests"},
-	}
-}
-
 func printCLIHelp() {
 	fmt.Println("Hive Mind MCP")
 	fmt.Println("Private shared recon memory backed by Qdrant and local Ollama.")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  (no arguments)                 Starts the active MCP server.")
-	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; optionally prune expired pending deletes.")
+	fmt.Println("  version                        Show release version and source revision as JSON.")
+	fmt.Println("  ingest [--prune]               Ingest HIVE_DATA_DIR; report per-file outcomes as JSON (partial failure: 15).")
+	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
+	fmt.Println("  inventory <dir>                Offline JSON inventory of formats, sizes and byte-identical copies.")
+	fmt.Println("  convert <file|-> --program=<id> --classification=internal|restricted")
+	fmt.Println("    [--format=csv] [--source=label] [--output=/path/document.json]")
+	fmt.Println("                                 Offline hive-document/v1 conversion; md/txt/json/jsonl/ndjson/csv/tsv.")
+	fmt.Println("                                 --output publishes atomically and refuses overwrites; default stdout.")
+	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref (use =).")
+	fmt.Println("                                 --ingest (writer) also indexes the --output envelope into Qdrant;")
+	fmt.Println("                                 --output must be inside HIVE_DATA_DIR/programs/<program_id>/.")
+	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
+	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")
 	fmt.Println("  status                         Show sanitized configuration and synchronization state.")
 	fmt.Println("  validate                       Verify role, services, permissions, TLS and fingerprint.")
@@ -509,6 +547,9 @@ func printCLIHelp() {
 	fmt.Println("  --chunk-max-chars <n>          Chunk size in characters (default 2000; ceiling 8000).")
 	fmt.Println("  --chunk-overlap-chars <n>      Text overlap, at most half the chunk size (default 200).")
 	fmt.Println("  --max-embedding-workers <n>    Concurrent embedding calls (default 2; ceiling 16).")
+	fmt.Println("  --json-max-depth <n>           Maximum JSON nesting accepted (default 64; ceiling 64).")
+	fmt.Println("  --json-max-elements <n>        Maximum JSON elements accepted (default 100000; ceiling 100000).")
+	fmt.Println("  --delete-grace-hours <n>       Hours before a pending delete may be pruned (default 24; ceiling 24).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")

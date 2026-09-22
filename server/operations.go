@@ -270,6 +270,20 @@ func splitCLIArgs(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("missing invocation")
 	}
+	if len(raw) > 1 && raw[1] == "convert" {
+		if _, err := parseConvertArgs(raw[2:]); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
+	// Offline inventory has its own explicit options; never silently strip or
+	// load service configuration flags for this command.
+	if len(raw) > 1 && raw[1] == "inventory" {
+		if _, err := parseInventoryArgs(raw[2:]); err != nil {
+			return nil, err
+		}
+		return raw, nil
+	}
 	args := []string{raw[0]}
 	for i := 1; i < len(raw); i++ {
 		name, _, inline := strings.Cut(raw[i], "=")
@@ -308,7 +322,7 @@ func splitCLIArgs(raw []string) ([]string, error) {
 		default:
 			return nil, errors.New("invalid audit command")
 		}
-	case "help", "-h", "--help", "status", "validate", "list-skills":
+	case "help", "-h", "--help", "version", "status", "validate", "list-skills":
 		if len(args) != 2 {
 			return nil, errors.New("unexpected arguments")
 		}

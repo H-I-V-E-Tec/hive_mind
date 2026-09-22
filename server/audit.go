@@ -69,12 +69,24 @@ func OpenFileAudit(cfg Config) (*FileAudit, error) {
 	if err != nil {
 		return nil, fail
 	}
+	real, err = filepath.Abs(real)
+	if err != nil {
+		return nil, fail
+	}
 	info, err := os.Stat(real)
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
 		return nil, fail
 	}
 	if cfg.DataDirectory != "" {
-		rel, err := filepath.Rel(cfg.DataDirectory, real)
+		dataReal, err := filepath.EvalSymlinks(cfg.DataDirectory)
+		if err != nil {
+			return nil, fail
+		}
+		dataReal, err = filepath.Abs(dataReal)
+		if err != nil {
+			return nil, fail
+		}
+		rel, err := filepath.Rel(dataReal, real)
 		if err != nil || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
 			return nil, fail
 		}

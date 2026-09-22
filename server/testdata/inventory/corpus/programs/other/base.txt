@@ -1,0 +1,1 @@
+Em 2026-09-01, api.example.test aceita upload de arquivos PDF.

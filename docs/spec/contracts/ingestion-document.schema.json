@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hive:document:v1",
+  "title": "Hive ingestion document v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["hive_document_schema", "program_id", "classification", "document_type", "source", "source_format", "raw_hash", "converter_fingerprint", "blocks"],
+  "properties": {
+    "hive_document_schema": {"const": "hive-document/v1"},
+    "program_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+    "classification": {"enum": ["internal", "restricted", "unknown"]},
+    "document_type": {"enum": ["scope", "rules", "asset", "endpoint", "note", "evidence", "unknown"]},
+    "source": {"type": "string", "minLength": 1},
+    "collected_at": {"type": "string", "format": "date-time"},
+    "tags": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "asset_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "source_format": {"enum": ["md", "txt", "json", "jsonl", "ndjson", "csv", "tsv"]},
+    "raw_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "converter_fingerprint": {"type": "string", "pattern": "^hive-converter-v1:"},
+    "blocks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordinal", "kind", "text", "locator"],
+        "properties": {
+          "ordinal": {"type": "integer", "minimum": 0},
+          "kind": {"enum": ["text", "markdown", "json", "table_row"]},
+          "text": {"type": "string", "minLength": 1},
+          "locator": {"type": "string", "minLength": 1, "maxLength": 1024}
+        }
+      }
+    }
+  }
+}
