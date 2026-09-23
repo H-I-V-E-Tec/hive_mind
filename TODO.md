@@ -77,6 +77,21 @@ Itens abertos e relatos de uso real do Hive Mind. O andamento estruturado está 
 
 ---
 
+## 🧭 Catálogo de alvos v1.0.0
+
+Contrato e implementação inicial: [catálogo de alvos](docs/vision/target-catalog-v1.md).
+
+- [x] Extrair ativos normalizados de listas de recon reconhecidas, com origem e
+  sem transformar texto livre em autorização.
+- [ ] Reingerir o corpus piloto para preencher observações de alvo antigas.
+- [x] Implementar `hive_list_targets` com escopo aprovado, documentos ativos
+  distintos, limites de leitura e ranking balanceado explicável.
+- [x] Testar isolamento básico, exclusões, classificação, revisões antigas,
+  remoção/tombstones e leitura sem manifesto local; atualizar as instruções dos agentes.
+- [ ] Ensaiar limites de catálogo e corpus real.
+
+---
+
 ## 🧪 Validação pendente do laboratório local (2026-09-12)
 
 Ambiente de lab montado sem Docker: Ollama + Qdrant como binários standalone em

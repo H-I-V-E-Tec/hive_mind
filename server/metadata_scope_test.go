@@ -152,7 +152,8 @@ func TestSpec003CreatesPayloadIndexesIdempotently(t *testing.T) {
 	if err := worker.EnsureInfrastructure(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(q.indexes["hive_data"]) != 16 || q.indexes["hive_data"]["chunk_ordinal"] != qdrant.FieldType_FieldTypeInteger {
+	if len(q.indexes["hive_data"]) != 18 || q.indexes["hive_data"]["chunk_ordinal"] != qdrant.FieldType_FieldTypeInteger ||
+		q.indexes["hive_data"]["platform"] != qdrant.FieldType_FieldTypeKeyword || q.indexes["hive_data"]["target_name"] != qdrant.FieldType_FieldTypeKeyword {
 		t.Fatalf("unexpected data indexes: %v", q.indexes["hive_data"])
 	}
 }

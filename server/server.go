@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -39,6 +40,19 @@ func Start(version string) {
 	}
 	if len(args) > 1 && args[1] == "convert" {
 		opts, _ := parseConvertArgs(args[2:]) // Already checked by splitCLIArgs.
+		opts, err = completeInteractiveConvert(opts, os.Stdin, os.Stderr)
+		if err == nil {
+			opts, err = prepareConvertIngestOutput(opts)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			code := ExitUsage
+			var operational *operationalError
+			if errors.As(err, &operational) {
+				code = operational.code
+			}
+			os.Exit(code)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		encoded, err := runConvert(ctx, opts, os.Stdin)
@@ -505,12 +519,16 @@ func printCLIHelp() {
 	fmt.Println("                                Prune expired pending deletes only after a successful sync.")
 	fmt.Println("  inventory <dir>                Offline JSON inventory of formats, sizes and byte-identical copies.")
 	fmt.Println("  convert <file|-> --program=<id> --classification=internal|restricted")
-	fmt.Println("    [--format=csv] [--source=label] [--output=/path/document.json]")
+	fmt.Println("    [--platform=h1|bugcrowd|...] [--target='Project Name'] [--format=csv]")
+	fmt.Println("    [--source=label] [--output=/path/document.json]")
 	fmt.Println("                                 Offline hive-document/v1 conversion; md/txt/json/jsonl/ndjson/csv/tsv.")
 	fmt.Println("                                 --output publishes atomically and refuses overwrites; default stdout.")
-	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref (use =).")
-	fmt.Println("                                 --ingest (writer) also indexes the --output envelope into Qdrant;")
+	fmt.Println("                                 Optional --document-type, --collected-at, --tag, --asset-ref,")
+	fmt.Println("                                 --observed-target (use =; repeatable).")
+	fmt.Println("                                 --ingest (writer) requires --platform, --target and --document-type;")
 	fmt.Println("                                 --output must be inside HIVE_DATA_DIR/programs/<program_id>/.")
+	fmt.Println("                                 --interactive --ingest prompts for missing metadata and")
+	fmt.Println("                                 defaults --output to programs/<id>/<input-name>.json.")
 	fmt.Println("    [--program=<id>] [--details]  Restrict to a program; opt in to relative paths. No Hive config needed.")
 	fmt.Println("    [--hash-max-bytes=<n>]        Hash files up to n bytes (default 50 MiB; ceiling 1 GiB).")
 	fmt.Println("  remove <path>                  Tombstone and remove one document (writer only).")

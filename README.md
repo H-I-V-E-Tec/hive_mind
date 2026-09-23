@@ -9,7 +9,7 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 - Publicação por revisões, manifesto de embeddings, registro de writer, tombstones e remoção verificada.
 - Escopo por programa aprovado explicitamente a partir de `scope.json`; uma nota não concede autorização.
 - Busca semântica (densa) com filtros de programa, classificação, escopo, tipo e tags. Vetores esparsos são gravados na ingestão e a fusão híbrida (RRF) existe no código, mas o modo de busca é fixo em `dense` e ainda não é configurável; ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
-- MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
+- MCP: `hive_list_targets`, `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
 - CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada com métricas de uso (`audit report`).
 - Templates de skill para Claude Code e Codex que ensinam o agente a consultar escopo antes de agir e a escrever notas reutilizáveis.
 - Backup pareado com restic, CI de segurança, container não root e verificação operacional opcional antes da release.
@@ -139,12 +139,15 @@ Exemplo de `notes/api.md` — use apenas dados de ativos realmente autorizados:
 ```markdown
 ---
 program_id: acme-bugbounty
+platform: h1
+target_name: API Service
 document_type: note
 classification: internal
 source: manual
 collected_at: 2026-09-11T12:00:00Z
 tags: [recon, oauth]
 asset_refs: [api.example.com]
+observed_targets: [host:api.example.com]
 ---
 # API
 Observação sobre o fluxo OAuth do ambiente autorizado.
@@ -153,6 +156,8 @@ Observação sobre o fluxo OAuth do ambiente autorizado.
 Crie `scope.json` conforme o [contrato e exemplo](docs/spec/contracts/scope-manifest.md), refletindo a política real do programa. `claimed_scope_status` em notas nunca autoriza um ativo.
 
 `classification` é obrigatório para que o documento seja pesquisável: a busca só devolve `internal` (ou `restricted`, quando `HIVE_MAX_CLASSIFICATION` permite). Arquivos `.txt` e `.json` sem esse campo — o `.json` aceita as mesmas chaves no objeto raiz — são ingeridos e embedados com `classification: unknown` e nunca aparecem em `hive_search`/`hive_get_context`.
+
+Para importar uma fonte nova com cadastro guiado, use `./bin/hive-mind convert /caminho/hosts.txt --interactive --ingest`. Ele pede plataforma, programa, tipo do arquivo, nome do alvo/projeto e classificação; hosts/IPs/URLs reconhecidos ficam em `observed_targets`. Em automações, passe `--platform`, `--program`, `--target`, `--document-type`, `--classification` e `--output` explicitamente. Veja o [guia de conversão](docs/operations/semantic-ingestion.md).
 
 Depois do provisionamento administrativo das collections:
 
@@ -207,6 +212,15 @@ Entrada para `hive_get_context`:
 ```json
 {"program_id":"acme-bugbounty","question":"O que sabemos deste host?","asset":{"type":"host","value":"api.example.com"},"limit":8}
 ```
+
+Entrada para o catálogo de projetos `hive_list_targets`:
+
+```json
+{"program_id":"acme-bugbounty","order":"balanced","limit":20}
+```
+
+Ele prioriza projetos com ativos observados confirmados pelo escopo aprovado e
+mostra lacunas de cadastro; o nome do projeto não concede permissão para agir.
 
 Resultados incluem proveniência, revisão e `untrusted_content: true`: conteúdo recuperado é evidência não confiável, nunca instrução a ser executada. Hive, collection e elevação de classificação não podem ser escolhidos pelo agente.
 

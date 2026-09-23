@@ -71,3 +71,31 @@ jobs:
           path: candidate/dist/*
           if-no-files-found: error
           retention-days: 7
+
+  windows_cross_build:
+    name: Verify Windows cross build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Windows cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
+      - name: Build and inspect Windows asset
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          RELEASE_VERSION: v0.0.0-ci
+        run: |
+          bash scripts/build_release.sh
+          asset="dist/hive-mind-${RELEASE_VERSION}-windows-amd64.zip"
+          test -s "$asset"
+          test "$(unzip -Z1 "$asset")" = hive-mind.exe
+          unzip -p "$asset" hive-mind.exe | file - | grep -q 'PE32+ executable'

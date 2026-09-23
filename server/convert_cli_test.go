@@ -160,13 +160,84 @@ func TestConvertIngestFlagParsing(t *testing.T) {
 	if _, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--ingest"}); err == nil {
 		t.Fatal("--ingest without --output must be rejected")
 	}
-	opts, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--ingest", "--output=/tmp/env.json"})
+	opts, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--platform=h1", "--target=API Service", "--document-type=asset", "--classification=internal", "--ingest", "--output=/tmp/env.json"})
 	if err != nil || !opts.Ingest {
 		t.Fatalf("--ingest with --output must parse: %v %+v", err, opts)
 	}
 	// Duplicate boolean flag is rejected like the other options.
 	if _, err := parseConvertArgs([]string{"x.csv", "--program=acme", "--classification=internal", "--output=/tmp/env.json", "--ingest", "--ingest"}); err == nil {
 		t.Fatal("duplicate --ingest must be rejected")
+	}
+}
+
+func TestInteractiveTargetRegistrationAndIndexedProvenance(t *testing.T) {
+	opts, err := parseConvertArgs([]string{"-", "--format=txt", "--program=acme", "--classification=internal", "--platform=h1", "--target=API Service", "--observed-target=api.example.com", "--source=operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := runConvert(context.Background(), opts, strings.NewReader("observed api.example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc ConvertedDocument
+	if err := json.Unmarshal(encoded, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Platform != "h1" || doc.TargetName != "API Service" || !containsString(doc.ObservedTargets, "host:api.example.com") {
+		t.Fatalf("registration was not normalized: %+v", doc)
+	}
+	q := newMemoryQdrant()
+	worker, root := specWorker(t, q)
+	path := filepath.Join(root, "programs", "acme", "registered.json")
+	if err := writeConvertedDocument(path, encoded); err != nil {
+		t.Fatal(err)
+	}
+	report := worker.IngestPathReport(context.Background(), path)
+	if !report.OK {
+		t.Fatalf("registered document was not ingested: %+v", report)
+	}
+	for _, point := range q.points[worker.Cfg.CollectionName] {
+		if payloadString(point.Payload, "platform", "") != "h1" ||
+			payloadString(point.Payload, "target_name", "") != "API Service" ||
+			!containsString(payloadStringList(point.Payload, "observed_targets"), "host:api.example.com") {
+			t.Fatalf("registration missing from indexed point: %v", point.Payload)
+		}
+	}
+
+	interactive, err := parseConvertArgs([]string{"sample.txt", "--interactive", "--ingest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompt bytes.Buffer
+	interactive, err = completeInteractiveConvert(interactive, strings.NewReader("Bugcrowd\nacme\nasset\nAPI Service\nrestricted\n"), &prompt)
+	if err != nil || interactive.Platform != "bugcrowd" || interactive.Program != "acme" || interactive.DocumentType != "asset" || interactive.Classification != "restricted" || prompt.Len() == 0 {
+		t.Fatalf("interactive registration failed: %+v, %v", interactive, err)
+	}
+	if _, err := completeInteractiveConvert(interactive, strings.NewReader(""), &prompt); err != nil {
+		t.Fatalf("completed fields should not prompt again: %v", err)
+	}
+}
+
+func TestTargetRegistrationRejectsIncompleteMetadata(t *testing.T) {
+	for _, content := range []string{
+		"---\nplatform: h1\n---\ncontent",
+		"---\ntarget_name: API Service\n---\ncontent",
+		"---\nplatform: h1\ntarget_name: @program\n---\ncontent",
+		"---\nplatform: h1\ntarget_name: API Service\nobserved_targets: [host:API.Example.COM]\n---\ncontent",
+	} {
+		if _, err := extractReconMetadata("programs/acme/notes/example.md", "acme", []byte(content)); err == nil {
+			t.Fatalf("accepted invalid registration: %q", content)
+		}
+	}
+	for _, args := range [][]string{
+		{"x.txt", "--program=acme", "--classification=internal", "--ingest", "--output=/tmp/x.json"},
+		{"x.txt", "--program=acme", "--classification=internal", "--platform=h1", "--target=@program", "--ingest", "--output=/tmp/x.json"},
+		{"x.json", "--program=acme", "--classification=internal", "--platform=h1", "--target=@program", "--document-type=scope", "--ingest", "--output=/tmp/x.json"},
+		{"-", "--interactive", "--ingest", "--format=txt"},
+	} {
+		if _, err := parseConvertArgs(args); err == nil {
+			t.Fatalf("accepted invalid import args: %v", args)
+		}
 	}
 }
 

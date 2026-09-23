@@ -23,12 +23,15 @@ const converterVersion = "hive-converter-v1"
 type ConvertedDocument struct {
 	Schema               string           `json:"hive_document_schema"`
 	ProgramID            string           `json:"program_id"`
+	Platform             string           `json:"platform,omitempty"`
+	TargetName           string           `json:"target_name,omitempty"`
 	Classification       string           `json:"classification"`
 	DocumentType         string           `json:"document_type"`
 	Source               string           `json:"source"`
 	CollectedAt          string           `json:"collected_at,omitempty"`
 	Tags                 []string         `json:"tags,omitempty"`
 	AssetRefs            []string         `json:"asset_refs,omitempty"`
+	ObservedTargets      []string         `json:"observed_targets,omitempty"`
 	SourceFormat         string           `json:"source_format"`
 	RawHash              string           `json:"raw_hash"`
 	ConverterFingerprint string           `json:"converter_fingerprint"`

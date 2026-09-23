@@ -17,6 +17,7 @@ Non-negotiable rules:
 
 | Tool | Use it for |
 | --- | --- |
+| `hive_list_targets` | Discover named projects inside one program, balanced by approved observed assets and distinct recon/notes/evidence documents. A project name is not permission to test an asset. |
 | `hive_get_context` | **First call before touching any asset.** Input: `program_id`, `question`, typed `asset` (`host`, `wildcard_domain`, `ip`, `cidr`, `url_prefix`). Returns the scope verdict, matched rules, and a bounded package of relevant rules/notes/evidence. |
 | `hive_search` | Broad questions inside one program: "what do we know about the OAuth flow?", "which endpoints accept uploads?". Filters: `document_types`, `tags`, `classification`, `effective_scope_status`, `limit` (1–20). |
 | `get_sync_status` | Check whether recently written notes are indexed before you rely on them. |
@@ -40,12 +41,15 @@ Required front matter (YAML, RFC 3339 timestamps, lowercase tags):
 ```markdown
 ---
 program_id: acme-bugbounty
-document_type: note            # scope | rules | asset | endpoint | note | evidence
-classification: internal       # internal | restricted
-source: manual                 # tool or origin, e.g. httpx, burp, manual
+platform: h1
+target_name: API Service
+document_type: note
+classification: internal
+source: manual
 collected_at: 2026-09-14T15:04:00Z
-tags: [team-a, alice, oauth]   # ALWAYS include your team and your handle
-asset_refs: [api.example.com]  # hosts, IPs, CIDRs or URL prefixes this note is about
+tags: [team-a, alice, oauth]
+asset_refs: [api.example.com]
+observed_targets: [host:api.example.com]
 ---
 # OAuth redirect_uri handling on api.example.com
 
@@ -59,6 +63,8 @@ hypothesis | confirmed | discarded — and why.
 Rules:
 
 - `program_id` must match the `programs/<program_id>/` folder.
+- `platform` identifies where the program was found; `target_name` names the project, not a host. Use `@program` only for scope/rules.
+- Keep metadata values free of inline comments; the Hive accepts only a small flat YAML subset.
 - `tags` must contain your team (`team-a` / `team-b`) and your handle; the trial uses them to attribute work.
 - `asset_refs` is what lets `hive_get_context` find the note for an asset. Fill it in.
 - Never set `claimed_scope_status: authorized` as a way to authorize anything; it is informational only.

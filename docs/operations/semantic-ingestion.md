@@ -25,6 +25,8 @@ go build -trimpath -o bin/hive-mind .
 mkdir -p hive-data/programs/acme/imports
 ./bin/hive-mind convert /caminho/export.csv \
   --program=acme \
+  --platform=h1 \
+  --target='API Service' \
   --classification=internal \
   --document-type=evidence \
   --source=export-autorizado \
@@ -35,7 +37,7 @@ mkdir -p hive-data/programs/acme/imports
 
 `convert` funciona sem Qdrant, Ollama, tokens ou configuração Hive. O arquivo de saída é privado (`0600`) e publicado inteiro; se o destino já existir, o comando falha sem sobrescrevê-lo. Use um caminho novo para uma nova fonte. Para atualizar a mesma fonte, revise o novo envelope fora da pasta observada e substitua o arquivo existente de forma atômica, preservando o path; a próxima ingestão publicará a nova revisão. Nunca direcione stdout com `>` para um arquivo já observado enquanto o watcher estiver ativo.
 
-Sem `--output`, a saída é o envelope JSON em stdout para inspeção. Ela **contém o conteúdo da fonte** e não deve ir para logs compartilhados. Erros vão para stderr sem trechos da entrada. Os argumentos opcionais aceitam `--nome=valor`; `--tag` e `--asset-ref` podem se repetir. `--collected-at` aceita RFC 3339, como `2026-09-17T12:00:00Z`; não informar mantém a data de observação ausente.
+Sem `--output`, a saída é o envelope JSON em stdout para inspeção. Ela **contém o conteúdo da fonte** e não deve ir para logs compartilhados. Erros vão para stderr sem trechos da entrada. Os argumentos opcionais aceitam `--nome=valor`; `--tag`, `--asset-ref` e `--observed-target` podem se repetir. `--collected-at` aceita RFC 3339, como `2026-09-17T12:00:00Z`; não informar mantém a data de observação ausente.
 
 Para consumir um export existente por stdin:
 
@@ -44,6 +46,8 @@ Para consumir um export existente por stdin:
   --format=jsonl \
   --source=export-api \
   --program=acme \
+  --platform=h1 \
+  --target='API Service' \
   --classification=internal \
   --output=hive-data/programs/acme/imports/alice-api.json < /caminho/export.jsonl
 ```
@@ -56,7 +60,18 @@ O envelope tem o marcador `hive_document_schema: "hive-document/v1"`, os metadad
 
 - `source_format`, `raw_hash` (SHA-256 dos bytes recebidos) e `converter_fingerprint`;
 - `blocks`, em ordem, com `ordinal`, `kind`, `text` e `locator`;
-- `program_id`, `classification`, `document_type`, `source` e, quando fornecidos, `collected_at`, `tags`, `asset_refs`.
+- `program_id`, `classification`, `document_type`, `source` e, quando fornecidos, `platform`, `target_name`, `observed_targets`, `collected_at`, `tags`, `asset_refs`.
+
+`platform` é a plataforma (`h1`, `bugcrowd` etc.); `program_id` é o programa
+específico dentro dela; `target_name` é o nome do projeto (`API Service`), não
+um host. `observed_targets` contém hosts, IPs e URLs encontrados no recon,
+normalizados como `host:api.example.com`, `ip:203.0.113.10` ou
+`url_prefix:https://api.example.com/v1`. Linhas TXT inteiras, colunas
+`host`/`hostname`/`ip`/`url`/`target` em CSV/TSV e campos equivalentes em
+JSON/JSONL/NDJSON são extraídos; Markdown e prosa não são interpretados.
+`--observed-target` adiciona um ativo revisado manualmente. Esses campos não
+aprovam escopo: só o `scope.json` aprovado faz isso. `asset_refs` continua
+separado, para ligar uma nota à busca contextual após revisão.
 
 O envelope é o documento de entrada; não é um payload Qdrant pronto. A ingestão transforma cada bloco em chunks com os limites do writer. Só o texto útil do chunk é embedado; as chaves de transporte do envelope não entram no texto. A busca inclui `source_format`, `source_locator` e `canonical_hash` para os chunks convertidos.
 
@@ -86,6 +101,8 @@ carrega a configuração e contata Qdrant/Ollama.
 ```bash
 ./bin/hive-mind convert /caminho/export.csv \
   --program=acme \
+  --platform=h1 \
+  --target='API Service' \
   --classification=internal \
   --document-type=evidence \
   --source=export-autorizado \
@@ -97,6 +114,24 @@ A saída é o mesmo relatório JSON por arquivo do `ingest` (schema v1), com
 `created` na primeira vez e `unchanged` ao repetir sem mudanças. Um `--output`
 fora de `HIVE_DATA_DIR` é recusado; um reader recebe código `12`. Sem `--ingest`
 o comando segue offline e apenas grava/imprime o envelope, como antes. A segunda deve mostrar `unchanged`, sem novos embeddings para esse documento. Erros individuais preservam os resultados dos outros arquivos e retornam código `15`; examine `summary.results`. A falha de uma conversão ou de uma nova revisão não troca a revisão ativa por um resultado parcial.
+
+Para cadastrar uma fonte nova respondendo a perguntas no terminal:
+
+```bash
+./bin/hive-mind convert /caminho/hosts.txt --interactive --ingest
+```
+
+O comando pergunta plataforma, programa, tipo do arquivo, nome do alvo/projeto
+e classificação. Para listas de recon, escolha `asset` ou `endpoint`; para
+anotações, `note`; para provas, `evidence`. A
+origem (`source`) assume o nome do arquivo. Sem `--output`, publica em
+`HIVE_DATA_DIR/programs/<program_id>/<nome-do-arquivo>.json`; o diretório do
+programa deve existir; a aprovação de escopo é separada. O destino nunca é sobrescrito.
+Em scripts/CI, passe `--platform`, `--program`, `--target`,
+`--document-type`, `--classification` e `--output` explicitamente. O watcher e o MCP não fazem
+perguntas por stdin: eles apenas ingerem o registro persistido. Arquivos
+históricos sem esses campos continuam legíveis, mas exigem revisão para entrar
+no catálogo completo.
 
 CLI, watcher e ferramenta MCP `ingest_workspace` usam o mesmo pipeline. CSV/TSV/JSONL/NDJSON brutos também são selecionados pela ingestão, porém ficam com `classification: unknown`, fora da busca. O relatório agora avisa `classification_unknown`. Use `convert` com classificação explícita para uma importação pesquisável.
 
