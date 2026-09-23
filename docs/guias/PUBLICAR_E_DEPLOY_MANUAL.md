@@ -12,7 +12,7 @@ Depois de a PR de correção estar incorporada à `main`:
 2. Selecione **Publish v0.2.0 clients (Linux and macOS)**.
 3. Clique em **Run workflow**, escolha `main` e confirme.
 4. Aguarde os quatro jobs `Build (...)` e o job `Sign and publish client assets`.
-5. Confirme a release em `https://github.com/Tiago-Balbino/hive_mind/releases/tag/v0.2.0`.
+5. Confirme a release em `https://github.com/H-I-V-E-Tec/hive_mind/releases/tag/v0.2.0`.
 
 Também é possível disparar pela API. Use um token com permissão de Actions; mantenha-o apenas na variável local:
 
@@ -23,7 +23,7 @@ curl --fail-with-body -L \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  https://api.github.com/repos/Tiago-Balbino/hive_mind/actions/workflows/publish-client-v020.yml/dispatches \
+  https://api.github.com/repos/H-I-V-E-Tec/hive_mind/actions/workflows/publish-client-v020.yml/dispatches \
   -d '{"ref":"main"}'
 unset GITHUB_TOKEN
 ```
@@ -50,7 +50,7 @@ bash scripts/inicializar.sh nome-do-dispositivo
 bin/hive-mind version
 ```
 
-O instalador baixa o asset da plataforma, confere SHA-256, confere a assinatura Cosign e instala o binário atomicamente. A `v0.2.0` usa a identidade do workflow manual `publish-client-v020.yml`; as versões futuras usam a identidade do workflow normal de release.
+O instalador baixa o asset da plataforma, confere SHA-256, confere a assinatura Cosign e instala o binário atomicamente. A `v0.2.0` usa a identidade do workflow manual `publish-client-v020.yml` sob o proprietário antigo. Ao fixar uma release nova, altere `repository` para `H-I-V-E-Tec/hive_mind` e `version` para a nova tag no mesmo PR; ela usa a identidade do workflow normal de release sob o novo proprietário.
 
 ## Deploy do Qdrant no servidor
 

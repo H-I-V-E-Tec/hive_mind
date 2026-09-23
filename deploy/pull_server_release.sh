@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-REPOSITORY="${HIVE_GITHUB_REPOSITORY:-Tiago-Balbino/hive_mind}"
+REPOSITORY="${HIVE_GITHUB_REPOSITORY:-H-I-V-E-Tec/hive_mind}"
 TOKEN_FILE="${HIVE_GITHUB_TOKEN_FILE:-/srv/hive-private/github-release.token}"
 VERSION="${1:-}"
 INITIAL_FLAG="${2:-}"
