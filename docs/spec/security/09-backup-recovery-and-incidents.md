@@ -6,7 +6,7 @@ Recuperar dados íntegros e responder rapidamente a perda, vazamento ou acesso i
 
 ## Backup e restauração
 
-- Definir RPO, RTO e retenções como valores numéricos no [perfil operacional](../../operations/deployment-profile.md) antes do uso real; valor ausente reprova o gate de release.
+- Definir RPO, RTO e retenções como valores numéricos no [perfil operacional](../../operations/deployment-profile.md) antes do uso real. Valores ausentes reprovam a verificação operacional opcional, mas não impedem a publicação do binário.
 - Backups são criptografados, autenticados, versionados, retidos pelo prazo definido e acessíveis somente aos operadores autorizados.
 - Procedimento de restauração verifica integridade, collections de dados e controle, `hive_id`, revisões/tombstones, aprovações, metadados e fingerprint de embedding/schema.
 - Teste periódico prova que o backup pode ser restaurado; existência do arquivo não é evidência suficiente.

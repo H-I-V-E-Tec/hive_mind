@@ -1,8 +1,8 @@
-# Gate de segurança para release
+# Verificação operacional opcional para release
 
-O workflow de release depende da CI de segurança e de `cmd/security-gate`. Sem evidências aprovadas, ele não compila/publica os artefatos da release. O gate valida estrutura, recência e hashes; a veracidade dos ensaios continua sendo responsabilidade do operador e da revisão humana.
+O workflow de release depende da CI de segurança, mas **não executa `cmd/security-gate` nem exige relatórios operacionais**. O dono do projeto pode publicar uma release por tag mesmo sem essas evidências. O comando abaixo é uma verificação adicional, executada por opção do operador: valida estrutura, recência e hashes dos relatórios. A veracidade dos ensaios continua sendo responsabilidade do operador e da revisão humana. Nenhum relatório pendente deve ser apresentado como aprovado.
 
-## Preparar evidências
+## Preparar evidências, se desejar uma verificação auditada
 
 1. Preencha o [perfil operacional](deployment-profile.md): responsável acionável, canal privado, RPO/RTO, retenções e writer/reader autorizados. Nenhum `UNSET` pode permanecer na aprovação.
 2. Execute os ensaios no código candidato e registre resultados sanitizados em `docs/operations/evidence/`. Não inclua tokens, documentos, queries reais, certificados privados ou paths absolutos. Esses arquivos serão versionados e não são um cofre.
@@ -15,10 +15,10 @@ sha256sum docs/operations/evidence/<relatorio>.md
 go run ./cmd/security-gate --version v0.1.0
 ```
 
-5. Registre o primeiro resultado como `source_digest`. O gate exige a mesma versão solicitada, evidências com até 30 dias, parâmetros positivos, carência de prune até 24 horas e retenção de auditoria de 30 dias (política implementada).
-6. Revise e faça commit do candidato e evidências. No checkout da CI, o digest deve continuar idêntico. Alterar produto, README, testes, deployment ou pipeline invalida a vinculação anterior. Não recalcule o digest para reutilizar ensaios que já não verificam o código alterado.
+5. Registre o primeiro resultado como `source_digest`. O verificador opcional exige a mesma versão solicitada, evidências com até 30 dias, parâmetros positivos, carência de prune até 24 horas e retenção de auditoria de 30 dias (política implementada).
+6. Revise e faça commit do candidato e evidências. No checkout usado para a verificação auditada, o digest deve continuar idêntico. Alterar produto, README, testes, deployment ou pipeline invalida a vinculação anterior. Não recalcule o digest para reutilizar ensaios que já não verificam o código alterado.
 
-## Gates obrigatórios
+## Controles avaliados no modo auditado
 
 | Gate | Evidência mínima |
 | --- | --- |
@@ -35,4 +35,4 @@ go run ./cmd/security-gate --version v0.1.0
 
 Mapeie cada ameaça de `threat_controls` para controle e teste/relatório verificável. Resultados de scanner devem registrar versões e data. A CI Go não substitui um scanner dos pacotes da imagem, e um teste com mocks não substitui TLS/VPN ou restauração real.
 
-A release inclui versão/revisão no binário, arquivo `SOURCE.txt` e `SHA256SUMS`. Tag existente apontando para outro commit bloqueia publicação. A alteração dos workflows e a aprovação das evidências devem passar pela proteção/revisão do repositório; um gate editável por quem publica não substitui governança de acesso.
+A release inclui versão/revisão no binário, arquivo `SOURCE.txt` e `SHA256SUMS`. Tag existente apontando para outro commit bloqueia publicação. Alterações dos workflows devem passar pela proteção/revisão do repositório. O relatório opcional não substitui governança de acesso nem os controles reais da implantação.

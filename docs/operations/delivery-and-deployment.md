@@ -45,16 +45,16 @@ O workflow `security.yml` é obrigatório para pull requests e pushes em branche
 
 ### Release de produção
 
-1. Atualize a versão desejada no `hive_instance` somente depois que a release existir.
-2. Preencha `docs/operations/deployment-profile.md` e produza `release-evidence.json` conforme [security-release.md](security-release.md).
-3. Crie e envie uma tag apontando para o commit aprovado:
+1. Escolha um commit aprovado em `main`, com CI de segurança verde. [Relatórios operacionais](security-release.md) e o [perfil de implantação](deployment-profile.md) são opcionais para publicar o binário; não declare ensaios pendentes como concluídos.
+2. Crie e envie uma tag apontando para esse commit:
 
    ```bash
-   git tag -s v0.2.0 -m 'Hive Mind v0.2.0'
+   git tag -a v0.2.0 -m 'Hive Mind v0.2.0'
    git push origin v0.2.0
    ```
 
-4. `release.yml` recusa tag inválida, evidência ausente, teste falho ou scanner falho.
+3. `release.yml` recusa tag inválida, teste falho ou scanner falho; não verifica relatórios operacionais.
+4. Atualize a versão desejada no `hive_instance` somente depois que a release existir.
 5. Verifique o artefato localmente, quando necessário:
 
    ```bash
@@ -67,7 +67,7 @@ O workflow `security.yml` é obrigatório para pull requests e pushes em branche
    sha256sum -c SHA256SUMS --ignore-missing
    ```
 
-O gate operacional continua deliberadamente fail-closed. Não crie evidência fictícia apenas para publicar um binário; use o candidate para testes anteriores ao aceite.
+O operador pode publicar uma release assinada sem relatório operacional. Isso **não é autorização para promover o servidor sem backup e validação**: o deploy do Qdrant continua uma ação manual e separada, com backup, checagem de saúde e rollback. Não crie evidência fictícia apenas para publicar um binário.
 
 ## Preparação única do servidor
 
@@ -131,5 +131,5 @@ Para atualizar os clientes, publique primeiro a release, altere o arquivo de ver
 
 - Reviewers e regras do Environment são configurados no GitHub, não em YAML.
 - A conta SSH, regra sudo, firewall, token de leitura e repositório restic são provisionados pelo operador.
-- A primeira release permanece bloqueada enquanto as evidências reais e o perfil operacional estiverem pendentes.
-- O endpoint SSH atualmente precisa voltar a responder antes que o deploy remoto funcione.
+- Relatórios reais e perfil operacional continuam pendentes para aceite auditado, mas não bloqueiam a release por tag.
+- Antes de promover o servidor existente, é preciso migrá-lo para o layout de releases e configurar/testar o hook de backup; publicar o cliente não reinicia o Qdrant.

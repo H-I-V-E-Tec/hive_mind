@@ -14,7 +14,7 @@ Cada writer usa um token read-write individual e cada reader um token read-only 
 
 ## Segurança
 
-MCP continua local via `stdio`; somente Qdrant é compartilhado. TLS é obrigatório fora de loopback. Uma exceção só pode seguir a decisão 002, ter prazo e risco registrados e bloqueia o gate padrão de release enquanto não estiver explicitamente aprovada. Segredos não entram no repositório, logs, erros, respostas de ferramenta ou `status`.
+MCP continua local via `stdio`; somente Qdrant é compartilhado. TLS é obrigatório fora de loopback. Uma exceção só pode seguir a decisão 002, ter prazo e risco registrados; sem aprovação explícita, o aceite operacional continua pendente, mesmo que o binário seja publicado. Segredos não entram no repositório, logs, erros, respostas de ferramenta ou `status`.
 
 ## Aceite e testes
 

@@ -1,6 +1,6 @@
 # Perfil operacional da implantação v0.1
 
-Este arquivo é um template. Antes de usar dados reais, substitua todos os valores `UNSET`; qualquer campo não definido reprova o gate de release.
+Este arquivo é um template operacional, não um requisito de publicação. Para usar a verificação auditada opcional, substitua todos os valores `UNSET`; campos não definidos fazem essa verificação falhar, mas não bloqueiam a release por tag. Defina os parâmetros reais antes de operar uma implantação de produção.
 
 | Parâmetro | Valor | Evidência esperada |
 | --- | --- | --- |

@@ -12,7 +12,7 @@ Memória privada e compartilhada de reconhecimento autorizado, escrita em Go. O 
 - MCP: `hive_search`, `hive_get_context`, `get_sync_status` e `ingest_workspace`.
 - CLI operacional, TLS fora de loopback, validação de permissões e auditoria sanitizada com métricas de uso (`audit report`).
 - Templates de skill para Claude Code e Codex que ensinam o agente a consultar escopo antes de agir e a escrever notas reutilizáveis.
-- Backup pareado com restic, CI de segurança, container não root e bloqueio de release sem evidências operacionais.
+- Backup pareado com restic, CI de segurança, container não root e verificação operacional opcional antes da release.
 
 ```text
 Writer A: arquivos + agente → Hive Mind + Ollama local ─┐
@@ -310,13 +310,13 @@ python3 -m unittest discover -s deploy -p 'test_*.py'
 bash deploy/test_deploy_server.sh
 ```
 
-A CI também executa govulncheck, Gitleaks no histórico/arquivos e verificação do container. A release exige [evidências operacionais](docs/operations/security-release.md) atuais e vinculadas ao código:
+A CI também executa govulncheck, Gitleaks no histórico/arquivos e verificação do container. A release por tag exige que testes e scanners passem, mas **não exige relatórios operacionais**. Se quiser uma verificação adicional, o operador pode preparar [evidências operacionais](docs/operations/security-release.md) e executar localmente:
 
 ```bash
 go run ./cmd/security-gate --digest
 go run ./cmd/security-gate --version v0.1.0
 ```
 
-O segundo comando deve falhar enquanto `docs/operations/release-evidence.json` não existir ou houver gates pendentes. Não substitua os ensaios reais por resultados inventados. Releases assinadas, atualização do `hive_instance` e promoção do Qdrant estão descritas em [entrega e deploy](docs/operations/delivery-and-deployment.md).
+O segundo comando falha enquanto `docs/operations/release-evidence.json` não existir ou houver gates pendentes; isso **não bloqueia a publicação**. Não substitua os ensaios reais por resultados inventados. Releases assinadas, atualização do `hive_instance` e promoção do Qdrant estão descritas em [entrega e deploy](docs/operations/delivery-and-deployment.md).
 
 Documentação: [índice](docs/README.md), [specs](docs/spec/README.md), [segurança](docs/spec/security/README.md), [decisões](docs/decisions/README.md). Use somente em programas e ativos explicitamente autorizados.

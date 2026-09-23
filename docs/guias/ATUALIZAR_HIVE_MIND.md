@@ -55,11 +55,11 @@ git commit -m 'Adiciona ferramenta MCP hive_resumo'
 git push -u origin feat/hive-resumo
 ```
 
-Abra um pull request dessa branch para `main`. A CI roda testes, scanners e validação da imagem. Um push em `main` produz um candidate temporário para ensaio; o candidate não é a release que o `hive_instance` instala. Só crie a tag depois do merge e da aprovação das evidências.
+Abra um pull request dessa branch para `main`. A CI roda testes, scanners e validação da imagem. Um push em `main` produz um candidate temporário para ensaio; o candidate não é a release que o `hive_instance` instala. Crie a tag depois do merge e da CI aprovada. Relatórios operacionais não são requisito para publicar o binário.
 
 ## 2. Publicar a versão do `hive_mind`
 
-Depois que o código e a documentação estiverem estáveis, siga o [gate de segurança](../operations/security-release.md): preencha o [perfil operacional](../operations/deployment-profile.md), execute os ensaios reais, grave evidências sanitizadas e vincule `source_digest` aos arquivos candidatos já adicionados ao índice Git. A release só é publicada se o gate e a CI passarem. Não há, neste momento, `release-evidence.json` preenchido nem uma versão aprovada fixada no `hive_instance`.
+Depois que o código e a documentação estiverem estáveis, publique a partir de um commit aprovado em `main`. A release exige CI de segurança, testes e tag válida, mas não o [relatório operacional opcional](../operations/security-release.md) nem o [perfil operacional](../operations/deployment-profile.md). Ainda não há uma versão publicada fixada no `hive_instance`.
 
 Com o commit aprovado em `main`, crie uma tag nova. Se você configurou assinatura de tags Git, pode usar `git tag -s`; uma tag anotada também é aceita pelo workflow atual:
 
@@ -68,7 +68,7 @@ git tag -a v0.2.0 -m 'Hive Mind v0.2.0'
 git push origin v0.2.0
 ```
 
-O workflow `Build and Release` valida a tag e o commit, executa o gate, compila os binários, cria o bundle `hive-server-v0.2.0.tar.gz`, o SBOM, `SHA256SUMS` assinado e publica a GitHub Release. Confira que a execução terminou com sucesso e que o asset para a plataforma do cliente existe antes de seguir. Não reutilize uma tag apontando para outro commit.
+O workflow `Build and Release` valida a tag e o commit, executa testes e scanners, compila os binários, cria o bundle `hive-server-v0.2.0.tar.gz`, o SBOM, `SHA256SUMS` assinado e publica a GitHub Release. Confira que a execução terminou com sucesso e que o asset para a plataforma do cliente existe antes de seguir. Não reutilize uma tag apontando para outro commit.
 
 ## 3. Atualizar o `hive_instance`
 

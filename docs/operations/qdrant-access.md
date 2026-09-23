@@ -44,7 +44,7 @@ Essas são operações administrativas de criação. Confira que o destino está
 
 Gere um token novo com validade sobreposta curta, atualize apenas o dispositivo correspondente, execute `validate` e então expire/revogue o token antigo. Emitir outro JWT não revoga automaticamente o anterior: configure um mecanismo efetivo de revogação e comprove o bloqueio, inclusive pela identidade de rede. Para remover um dispositivo, revogue primeiro sua identidade de rede e seu token; depois verifique os logs desde o último acesso conhecido. Para admitir um writer, emita um token `rw` próprio e um `HIVE_WRITER_APPROVAL_ID` próprio; o registro é criado pelo próprio writer no primeiro `ingest`. Para remover um writer, revogue seu token e identidade de rede, registre `audit record credential_revocation` e decida o destino dos documentos que ele possui (permanecem ativos até tombstone).
 
-Registre somente dispositivo, operador, data, resultado e identificador do change. Nunca registre o token. Uma implantação sem JWT granular é uma exceção de segurança: requer instância exclusiva, decisão com prazo/risco e bloqueia o gate normal de release enquanto não for aprovada.
+Registre somente dispositivo, operador, data, resultado e identificador do change. Nunca registre o token. Uma implantação sem JWT granular é uma exceção de segurança: requer instância exclusiva e decisão com prazo/risco. Enquanto não for aprovada, o aceite operacional fica pendente, mas a publicação do binário continua possível.
 
 ## Admissão de dispositivo
 
