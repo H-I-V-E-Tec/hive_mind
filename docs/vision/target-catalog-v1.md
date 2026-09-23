@@ -80,6 +80,14 @@ extração de alvos na ingestão e reingestão dos arquivos antigos. Até essa
 reingestão, a resposta deve indicar cobertura parcial em `warnings`; não deve
 inventar alvos a partir da ausência de dados.
 
+Há ainda uma decisão de classificação: os `.txt` sem metadados recebem
+`classification: unknown` e a busca atual não os devolve. Para usar essas
+listas no catálogo sem enfraquecer a fronteira de dados, a importação precisa
+receber uma classificação explícita do operador (por exemplo, um descritor de
+importação que marque uma fonte de recon como `internal`). O parser pode extrair
+hosts e URLs dessa fonte aprovada; conteúdo sem classificação explícita não
+entra no ranking e aparece apenas como lacuna de cobertura.
+
 ## Ranking balanceado
 
 O escopo é uma condição de elegibilidade, não um número que possa ser
