@@ -68,7 +68,9 @@ git tag -a v0.2.0 -m 'Hive Mind v0.2.0'
 git push origin v0.2.0
 ```
 
-O workflow `Build and Release` valida a tag e o commit, executa testes e scanners, compila os binários, cria o bundle `hive-server-v0.2.0.tar.gz`, o SBOM, `SHA256SUMS` assinado e publica a GitHub Release. Confira que a execução terminou com sucesso e que o asset para a plataforma do cliente existe antes de seguir. Não reutilize uma tag apontando para outro commit.
+No fluxo normal, o workflow `Build and Release` valida a tag e o commit, executa testes e scanners, compila os binários, cria o bundle `hive-server-<versão>.tar.gz`, o SBOM, `SHA256SUMS` assinado e publica a GitHub Release. Confira que a execução terminou com sucesso e que o asset para a plataforma do cliente existe antes de seguir. Não reutilize uma tag apontando para outro commit.
+
+Exceção desta primeira publicação: a `v0.2.0` será disponibilizada por um [workflow manual de recuperação](../operations/delivery-and-deployment.md), somente para clientes Linux/macOS, após falha do build Windows. Ela não incluirá Windows nem bundle do servidor. Para versões seguintes, use novamente o workflow normal por tag.
 
 ## 3. Atualizar o `hive_instance`
 
