@@ -75,7 +75,7 @@ A tag `v0.2.0` é imutável. Na primeira execução, os testes e a CI de seguran
 
 ## Preparação única do servidor
 
-Instale Docker/Compose, Python, restic, curl e Cosign `v3.1.3` por um canal verificado. Depois instale o bootstrap, que deve permanecer root-owned:
+Instale Docker/Compose, Python, restic, curl e Cosign `v2.5.2` por um canal verificado. Depois instale o bootstrap, que deve permanecer root-owned:
 
 ```bash
 sudo install -o root -g root -m 0755 \
