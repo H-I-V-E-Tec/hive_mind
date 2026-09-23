@@ -12,6 +12,8 @@ set -Eeuo pipefail
 
 if [ "$GOOS" = linux ] && [ "$GOARCH" = arm64 ]; then
   export CC=aarch64-linux-gnu-gcc
+elif [ "$GOOS" = windows ] && [ "$GOARCH" = amd64 ]; then
+  export CC=x86_64-w64-mingw32-gcc
 fi
 
 rm -rf dist/package
