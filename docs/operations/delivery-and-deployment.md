@@ -69,6 +69,10 @@ O workflow `security.yml` é obrigatório para pull requests e pushes em branche
 
 O operador pode publicar uma release assinada sem relatório operacional. Isso **não é autorização para promover o servidor sem backup e validação**: o deploy do Qdrant continua uma ação manual e separada, com backup, checagem de saúde e rollback. Não crie evidência fictícia apenas para publicar um binário.
 
+### Exceção da v0.2.0: clientes Linux/macOS
+
+A tag `v0.2.0` é imutável. Na primeira execução, os testes, a CI de segurança e os quatro builds Linux/macOS passaram, mas o build Windows falhou; por isso o job normal de assinatura/publicação foi pulado. O workflow manual `publish-client-v020.yml`, executado a partir de `main`, só pode reutilizar os quatro artefatos da execução `35867915480` depois de conferir o commit da tag e os dois jobs aprovados. Ele cria checksums, SBOM, assinatura OIDC e uma release **somente de cliente**. Windows e o bundle de servidor não são publicados nessa exceção. O `hive_instance` deve verificar a identidade exata desse workflow manual ao instalar a `v0.2.0`; releases futuras continuam usando a identidade padrão de `release.yml` na tag. Esta exceção não promove o Qdrant.
+
 ## Preparação única do servidor
 
 Instale Docker/Compose, Python, restic, curl e Cosign `v3.1.3` por um canal verificado. Depois instale o bootstrap, que deve permanecer root-owned:
