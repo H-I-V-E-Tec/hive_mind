@@ -1,6 +1,6 @@
 module qdrant-mcp-server
 
-go 1.25.14
+go 1.26.0
 
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
@@ -9,14 +9,14 @@ require (
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/qdrant/go-client v1.19.2
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.59.0
 	google.golang.org/grpc v1.83.2
 )
 
 require (
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
