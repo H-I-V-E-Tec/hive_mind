@@ -69,7 +69,7 @@ jobs:
             os: macos-latest
           - goos: windows
             goarch: amd64
-            os: windows-latest
+            os: ubuntu-latest
 
     steps:
       - name: Checkout source
@@ -89,13 +89,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Set up MinGW for Windows CGO
+      - name: Install Windows cross compiler
         if: matrix.goos == 'windows'
-        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
-        with:
-          msystem: MINGW64
-          update: false
-          install: mingw-w64-x86_64-gcc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
 
       - name: Build Unix release archive
         if: matrix.goos != 'windows'
@@ -108,12 +106,22 @@ jobs:
 
       - name: Build Windows release archive
         if: matrix.goos == 'windows'
-        shell: msys2 {0}
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           RELEASE_VERSION: ${{ github.ref_name }}
         run: bash scripts/build_release.sh
+
+      - name: Verify Windows release archive
+        if: matrix.goos == 'windows'
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          asset="dist/hive-mind-${RELEASE_VERSION}-windows-amd64.zip"
+          test -s "$asset"
+          test "$(unzip -Z1 "$asset")" = hive-mind.exe
+          unzip -p "$asset" hive-mind.exe | file - | grep -q 'PE32+ executable'
 
       - name: Upload matrix artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
