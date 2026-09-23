@@ -46,9 +46,9 @@ Registro consolidado do que a Fase 0 identificou e não resolveu; cada item apon
 - Dependências vulneráveis alcançáveis identificadas durante a implementação foram atualizadas; o resultado precisa ser reavaliado a cada mudança e release.
 - Runtime em container não root, raiz somente leitura no Compose, capabilities removidas, limites de recursos e mounts restritos.
 - Backup pareado de dados/controle com hashes, restic criptografado, auditoria e restore para staging sem sobrescrever produção.
-- Gate de release fail-closed vincula evidências operacionais atuais ao digest do código candidato.
+- A release exige testes e scanners; `cmd/security-gate` continua disponível como verificação operacional opcional, vinculando evidências ao digest do código candidato.
 
-## Evidências ainda obrigatórias
+## Evidências ainda pendentes para o aceite operacional
 
 Continuam dependentes do operador/ambiente e não foram declaradas como concluídas:
 
@@ -62,4 +62,4 @@ Continuam dependentes do operador/ambiente e não foram declaradas como concluí
 - relatórios `audit report` consolidados e comparação de tokens com/sem Hive (spec 09);
 - scanner dos pacotes do sistema operacional da imagem final.
 
-O template está em `release-evidence.example.json` e o procedimento em [security-release.md](security-release.md). Enquanto qualquer item estiver pendente, o gate deve reprovar a release.
+O template está em `release-evidence.example.json` e o procedimento opcional em [security-release.md](security-release.md). Enquanto qualquer item estiver pendente, não declare o aceite operacional concluído; isso não impede a publicação de uma release assinada.

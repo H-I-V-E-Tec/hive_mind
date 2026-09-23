@@ -106,8 +106,8 @@
     {
       "id": "06",
       "file": "06-private-qdrant.md",
-      "version": "1.1.0",
-      "sha256": "1ce40604a481e825082726aadad90f7d49d085ad4fc7ca2b53d6397bfc5e6103",
+      "version": "1.2.0",
+      "sha256": "4cbe46186e28e7839aa3f5dbd6c37537f6bb17d33e873d0aca60e577369fa17d",
       "status": "pending",
       "executed_at": null,
       "commit": null,

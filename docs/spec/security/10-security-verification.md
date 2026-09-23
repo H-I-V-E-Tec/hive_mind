@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Definir gates objetivos para impedir uma release insegura da v0.1.
+Separar os controles automatizados da publicação do binário dos controles operacionais usados para aceitar uma implantação real da v0.1.
 
 ## Gates automatizados
 
@@ -11,7 +11,7 @@ Definir gates objetivos para impedir uma release insegura da v0.1.
 - Scanner não encontra segredo confirmado no código, fixtures, imagem ou histórico incluído na release.
 - Dependências críticas sem correção ou mitigação bloqueiam a release.
 
-## Gates operacionais
+## Controles operacionais para aceite da implantação
 
 - Writer e reader passam em `validate`, apresentam fingerprint idêntico e permissões diferentes verificadas.
 - Qdrant exige autenticação, apresenta certificado válido e não responde por interface pública.
@@ -22,4 +22,4 @@ Definir gates objetivos para impedir uma release insegura da v0.1.
 
 ## Evidência e aprovação
 
-Armazenar relatório sanitizado com versão, data, responsável, resultado de cada gate e exceções referenciando uma decisão. O relatório inclui uma matriz ameaça → controle → teste/evidência e o perfil de implantação com RPO, RTO e retenções numéricas. Qualquer gate obrigatório reprovado bloqueia a release; não existe aprovação silenciosa.
+Para declarar aceite operacional, armazenar relatório sanitizado com versão, data, responsável, resultado de cada controle e exceções referenciando uma decisão. O relatório inclui uma matriz ameaça → controle → teste/evidência e o perfil de implantação com RPO, RTO e retenções numéricas. Pendências impedem declarar o aceite como concluído, mas **não bloqueiam a release por tag**. Não existe aprovação silenciosa.

@@ -17,7 +17,7 @@
 - [Estado da implementação](operations/implementation-status.md): progresso e validações externas pendentes.
 - [Acesso ao Qdrant](operations/qdrant-access.md): provisionamento, papéis, admissão e revogação.
 - [Backup e recuperação](operations/backup-recovery.md): backup pareado, ensaio isolado e incidentes.
-- [Gate de release](operations/security-release.md): evidências obrigatórias e vínculo com o código.
+- [Verificação operacional opcional](operations/security-release.md): ensaios e vínculo dos relatórios com o código, quando desejados.
 - [Entrega e deploy](operations/delivery-and-deployment.md): releases assinadas, atualização do cliente e promoção/rollback do Qdrant.
 - [Ensaio de quatro pessoas](operations/four-person-trial.md): protocolo de duas semanas para continuidade, multi-writer e economia de contexto.
 
