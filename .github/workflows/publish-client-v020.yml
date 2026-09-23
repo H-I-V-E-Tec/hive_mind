@@ -35,6 +35,7 @@ jobs:
             os: macos-latest
     env:
       VERSION: v0.2.0
+      RELEASE_VERSION: v0.2.0
       SOURCE_COMMIT: 834757579e1aa84ae061e80cf6c2c483550bc183
     steps:
       - name: Checkout immutable release source
