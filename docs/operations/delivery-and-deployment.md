@@ -61,7 +61,7 @@ O workflow `security.yml` é obrigatório para pull requests e pushes em branche
    cosign verify-blob \
      --bundle SHA256SUMS.sigstore.json \
      --certificate-identity \
-       'https://github.com/Tiago-Balbino/hive_mind/.github/workflows/release.yml@refs/tags/v0.2.0' \
+       'https://github.com/H-I-V-E-Tec/hive_mind/.github/workflows/release.yml@refs/tags/v1.0.0' \
      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
      SHA256SUMS
    sha256sum -c SHA256SUMS --ignore-missing
@@ -71,7 +71,7 @@ O operador pode publicar uma release assinada sem relatório operacional. Isso *
 
 ### Exceção da v0.2.0: clientes Linux/macOS
 
-A tag `v0.2.0` é imutável. Na primeira execução, os testes e a CI de segurança passaram, mas o build Windows falhou; por isso o job normal de assinatura/publicação foi pulado. O workflow manual `publish-client-v020.yml`, executado a partir de `main`, recompila os quatro clientes Linux/macOS diretamente da tag, conferindo o commit imutável. Ele cria checksums, SBOM, assinatura OIDC e uma release **somente de cliente**. Windows e o bundle de servidor não são publicados nessa exceção. O `hive_instance` deve verificar a identidade exata desse workflow manual ao instalar a `v0.2.0`; releases futuras continuam usando a identidade padrão de `release.yml` na tag. Esta exceção não promove o Qdrant.
+A tag `v0.2.0` é imutável. Na primeira execução, os testes e a CI de segurança passaram, mas o build Windows falhou; por isso o job normal de assinatura/publicação foi pulado. O workflow manual `publish-client-v020.yml`, executado a partir de `main`, recompila os quatro clientes Linux/macOS diretamente da tag, conferindo o commit imutável. Ele cria checksums, SBOM, assinatura OIDC e uma release **somente de cliente**. Windows e o bundle de servidor não são publicados nessa exceção. O `hive_instance` deve verificar a identidade exata desse workflow manual ao instalar a `v0.2.0`, inclusive o proprietário antigo quando a assinatura foi criada antes da transferência. Releases futuras usam `H-I-V-E-Tec/hive_mind` e a identidade padrão de `release.yml` na tag. Esta exceção não promove o Qdrant.
 
 ## Preparação única do servidor
 
