@@ -179,6 +179,21 @@ func matchesFilter(payload map[string]*qdrant.Value, filter *qdrant.Filter) bool
 		if field == nil {
 			continue
 		}
+		if field.Match == nil {
+			continue
+		}
+		if integer, ok := field.Match.MatchValue.(*qdrant.Match_Integer); ok {
+			if payloadInt(payload, field.Key) != integer.Integer {
+				return false
+			}
+			continue
+		}
+		if keywords, ok := field.Match.MatchValue.(*qdrant.Match_Keywords); ok {
+			if !containsString(keywords.Keywords.Strings, payloadString(payload, field.Key, "")) {
+				return false
+			}
+			continue
+		}
 		if payloadString(payload, field.Key, "") != field.Match.GetKeyword() {
 			return false
 		}

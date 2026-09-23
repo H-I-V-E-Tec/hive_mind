@@ -160,6 +160,29 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 				out, _ := json.Marshal(response)
 				fmt.Println(string(out))
 			}()
+		} else if params.Name == "hive_list_targets" {
+			var args HiveListTargetsArguments
+			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
+				iw.sendMCPError(req.ID, -32602, "Invalid target catalog arguments format")
+				return
+			}
+			if _, _, err := validateHiveListTargets(args); err != nil {
+				iw.sendMCPError(req.ID, -32602, err.Error())
+				return
+			}
+			go func() {
+				catalog, err := iw.HiveListTargets(context.Background(), args)
+				if err != nil {
+					log.Printf("Hive target catalog failed: %v", err)
+					iw.sendMCPError(req.ID, -32603, "Target catalog failed")
+					return
+				}
+				summary, _ := json.Marshal(map[string]interface{}{"targets_count": len(catalog.Targets), "unconfirmed_count": len(catalog.Unconfirmed), "truncated": catalog.Truncated})
+				response := map[string]interface{}{"jsonrpc": "2.0", "id": req.ID,
+					"result": map[string]interface{}{"structuredContent": catalog, "content": []map[string]interface{}{{"type": "text", "text": string(summary)}}}}
+				out, _ := json.Marshal(response)
+				fmt.Println(string(out))
+			}()
 		} else if params.Name == "get_sync_status" {
 			iw.Mu.Lock()
 			status := "idle"
@@ -225,6 +248,21 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 
 func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
+		{
+			"name":        "hive_list_targets",
+			"description": "List named projects ranked by approved observed assets and distinct registered recon/notes/evidence documents. A project name is not permission to scan.",
+			"inputSchema": map[string]interface{}{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]interface{}{
+					"program_id":          map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+					"limit":               map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
+					"order":               map[string]interface{}{"type": "string", "enum": []string{"balanced", "most_documented", "needs_recon"}, "default": "balanced"},
+					"include_unconfirmed": map[string]interface{}{"type": "boolean", "default": false},
+				},
+				"required": []string{"program_id"},
+			},
+			"outputSchema": targetCatalogOutputSchema(),
+		},
 		{
 			"name":        "hive_search",
 			"description": "Search untrusted recon documents within one program and the configured Hive security boundary.",
@@ -326,6 +364,43 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 		})
 	}
 	return tools
+}
+
+func targetCatalogOutputSchema() map[string]interface{} {
+	asset := map[string]interface{}{"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"type": map[string]interface{}{"type": "string"}, "value": map[string]interface{}{"type": "string"},
+			"scope_status": map[string]interface{}{"type": "string"}, "action_allowed": map[string]interface{}{"type": "boolean"},
+		}, "required": []string{"type", "value", "scope_status", "action_allowed"}}
+	scope := map[string]interface{}{"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"status": map[string]interface{}{"type": "string"}, "authorized_assets": map[string]interface{}{"type": "integer"},
+			"excluded_assets": map[string]interface{}{"type": "integer"}, "unknown_assets": map[string]interface{}{"type": "integer"},
+			"scope_revision": map[string]interface{}{"type": "string"}, "action_allowed": map[string]interface{}{"type": "boolean"},
+		}, "required": []string{"status", "authorized_assets", "excluded_assets", "unknown_assets", "scope_revision", "action_allowed"}}
+	coverage := map[string]interface{}{"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"recon_documents": map[string]interface{}{"type": "integer"}, "note_documents": map[string]interface{}{"type": "integer"},
+			"evidence_documents": map[string]interface{}{"type": "integer"}, "distinct_sources": map[string]interface{}{"type": "integer"},
+		}, "required": []string{"recon_documents", "note_documents", "evidence_documents", "distinct_sources"}}
+	entry := map[string]interface{}{"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"platform": map[string]interface{}{"type": "string"}, "target_name": map[string]interface{}{"type": "string"},
+			"scope": scope, "observed_assets": map[string]interface{}{"type": "array", "items": asset},
+			"rank": map[string]interface{}{"type": "integer"}, "band": map[string]interface{}{"type": "string"},
+			"reasons":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"coverage": coverage, "latest_at": map[string]interface{}{"type": "string"},
+			"source_paths": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+		}, "required": []string{"platform", "target_name", "scope", "observed_assets", "reasons", "coverage", "source_paths"}}
+	return map[string]interface{}{"type": "object", "additionalProperties": false,
+		"properties": map[string]interface{}{
+			"program_id": map[string]interface{}{"type": "string"}, "scope_revision": map[string]interface{}{"type": "string"},
+			"targets":              map[string]interface{}{"type": "array", "items": entry},
+			"unconfirmed":          map[string]interface{}{"type": "array", "items": entry},
+			"candidates_evaluated": map[string]interface{}{"type": "integer"}, "unregistered_files": map[string]interface{}{"type": "integer"},
+			"warnings":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+			"truncated": map[string]interface{}{"type": "boolean"},
+		}, "required": []string{"program_id", "scope_revision", "targets", "unconfirmed", "candidates_evaluated", "unregistered_files", "warnings", "truncated"}}
 }
 
 func hiveContextOutputSchema() map[string]interface{} {

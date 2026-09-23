@@ -15,12 +15,15 @@ func TestSpec010InstallsMaintainedSkillTemplates(t *testing.T) {
 		"untrusted_content",                // 1. nature: retrieved text is data
 		"never grants permission",          // 1. scope authority comes from the server
 		"`hive_get_context`",               // 2. tools table
+		"`hive_list_targets`",              // 2. catalog
 		"`hive_search`",                    // 2.
 		"`get_sync_status`",                // 2.
 		"`ingest_workspace`",               // 2.
 		"Before acting on an asset",        // 3. workflow
 		"discarded hypotheses",             // 3. negative results
 		"program_id:",                      // 4. front matter
+		"platform:",                        // 4. target registration
+		"target_name:",                     // 4.
 		"document_type:",                   // 4.
 		"collected_at:",                    // 4.
 		"asset_refs:",                      // 4.

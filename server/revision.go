@@ -156,6 +156,7 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 func (iw *IngestionWorker) ensurePayloadIndexes(ctx context.Context) error {
 	dataIndexes := map[string]qdrant.FieldType{
 		"hive_id": qdrant.FieldType_FieldTypeKeyword, "program_id": qdrant.FieldType_FieldTypeKeyword,
+		"platform": qdrant.FieldType_FieldTypeKeyword, "target_name": qdrant.FieldType_FieldTypeKeyword,
 		"record_type": qdrant.FieldType_FieldTypeKeyword, "document_type": qdrant.FieldType_FieldTypeKeyword,
 		"claimed_scope_status": qdrant.FieldType_FieldTypeKeyword, "effective_scope_status": qdrant.FieldType_FieldTypeKeyword,
 		"classification": qdrant.FieldType_FieldTypeKeyword, "source": qdrant.FieldType_FieldTypeKeyword,
@@ -621,6 +622,9 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 	if metadata.Classification == "unknown" {
 		result.Warnings = []string{"classification_unknown: document will not be returned by search"}
 	}
+	if metadata.Platform == "" || metadata.TargetName == "" {
+		result.Warnings = append(result.Warnings, "target_registration_missing: review platform and target_name before relying on the target catalog")
+	}
 	reason = "invalid_document"
 	chunks, converted, err := iw.prepareDocument(ctx, relPath, content)
 	if err != nil {
@@ -696,6 +700,7 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 		pointID := deterministicUUID("chunk", documentID, documentRevision, scopeRevision, fmt.Sprint(ordinal))
 		payload := map[string]any{
 			"record_type": "chunk", "hive_id": iw.Cfg.HiveID, "program_id": programID,
+			"platform": metadata.Platform, "target_name": metadata.TargetName,
 			"document_type":        metadata.DocumentType,
 			"claimed_scope_status": metadata.ClaimedScope, "effective_scope_status": effectiveScope,
 			"classification": metadata.Classification, "source": metadata.Source, "collected_at": metadata.CollectedAt,
@@ -705,6 +710,9 @@ func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (res
 			"scope_revision": scopeRevision, "chunk_ordinal": int64(ordinal),
 			"content_hash": contentHash, "indexed_at": indexedAt, "modified": info.ModTime().Unix(),
 			"type": "doc_chunk", "extension": strings.TrimPrefix(filepath.Ext(relPath), "."),
+		}
+		if ordinal == 0 {
+			payload["observed_targets"] = convertStringSlice(metadata.ObservedTargets)
 		}
 		if converted != nil {
 			payload["ingestion_schema"] = converted.Schema

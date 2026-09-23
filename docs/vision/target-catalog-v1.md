@@ -1,128 +1,90 @@
-# Catálogo de alvos do Hive Mind — proposta para v1.0.0
+# Catálogo de alvos do Hive Mind — v1.0.0
 
-## Problema
+## O que é um alvo
 
-`hive_search` responde a uma pergunta quando o programa e o assunto já são
-conhecidos. Ele não responde de modo confiável a “quais alvos deste programa
-existem e em quais vale investir o próximo ciclo de recon?”. A quantidade de
-chunks retornados não mede cobertura: um arquivo grande pode ocupar milhares de
-chunks, e várias notas podem se referir somente ao domínio principal.
+Um **alvo** é o nome do projeto/organização que o operador investiga, não um
+host. Todo documento novo de recon, nota ou evidência deve registrar três
+valores separados:
 
-O catálogo deve ser uma ferramenta de **inventário e priorização de leitura**.
-Ele consulta dados já ingeridos; não faz varreduras nem altera o escopo.
-
-## Contrato da ferramenta MCP
-
-Nome proposto: `hive_list_targets`.
-
-Entrada:
-
-```json
-{
-  "program_id": "acme",
-  "limit": 20,
-  "order": "balanced",
-  "include_unconfirmed": false
-}
-```
-
-`program_id` é obrigatório e preserva o isolamento atual. `limit` fica entre 1
-e 50. `order` aceita `balanced`, `most_documented` e `needs_recon`. O padrão
-retorna apenas alvos concretos que o manifesto de escopo **aprovado** confirma
-como autorizados. `include_unconfirmed` mostra candidatos desconhecidos ou
-excluídos em uma seção separada, sem posição no ranking e com
-`action_allowed: false`. Nenhum texto de nota ou recon concede autorização.
-
-Cada resultado deve trazer o ativo normalizado e tipado, o escopo calculado,
-posição, motivo da posição, cobertura por documentos distintos, data mais
-recente e caminhos de até três fontes. Exemplo ilustrativo:
-
-```json
-{
-  "asset": {"type": "host", "value": "api.example.com"},
-  "scope": {"status": "authorized", "confirmed": true},
-  "rank": 1,
-  "band": "emerging",
-  "reasons": ["2 fontes de recon", "1 nota", "sem evidência recente"],
-  "coverage": {
-    "recon_documents": 2,
-    "note_documents": 1,
-    "evidence_documents": 0,
-    "distinct_sources": 2
-  },
-  "source_paths": ["programs/acme/recon/hosts.txt", "programs/acme/notes/api.md"]
-}
-```
-
-A resposta inclui `scope_revision`, `warnings`, `truncated` e o total de
-candidatos avaliados. O catálogo é um índice de navegação; antes de agir em um
-ativo, o agente continua chamando `hive_get_context` para confirmar as regras
-aplicáveis e obter o contexto completo.
-
-## Formação dos candidatos
-
-1. Regras `include` concretas do manifesto aprovado fornecem alvos iniciais.
-   Uma regra `wildcard_domain` é um **agrupador**, não uma lista infinita de
-   hosts. Ela só fornece candidatos concretos quando algum host é observado.
-2. `asset_refs` de notas, ativos, endpoints e evidências acrescentam candidatos
-   explícitos. Eles são normalizados pelo mesmo contrato de escopo existente.
-3. Arquivos de recon estruturados acrescentam observações de host, IP ou URL.
-   A extração deve aceitar somente formatos reconhecidos (por exemplo, uma
-   linha contendo um host ou URL), registrar proveniência e descartar linhas
-   ambíguas. Texto livre não vira alvo automaticamente.
-4. Candidatos duplicados são unidos pelo par `(asset_type, normalized_value)`.
-   URLs restritas a um caminho mantêm a identidade `url_prefix`; não autorizam
-   automaticamente o host inteiro. Uma regra `exclude` prevalece sempre.
-
-Hoje muitos `.txt` de recon não têm `asset_refs`, e notas existentes apontam
-somente para um host geral do programa. Portanto, o inventário completo requer
-extração de alvos na ingestão e reingestão dos arquivos antigos. Até essa
-reingestão, a resposta deve indicar cobertura parcial em `warnings`; não deve
-inventar alvos a partir da ausência de dados.
-
-Há ainda uma decisão de classificação: os `.txt` sem metadados recebem
-`classification: unknown` e a busca atual não os devolve. Para usar essas
-listas no catálogo sem enfraquecer a fronteira de dados, a importação precisa
-receber uma classificação explícita do operador (por exemplo, um descritor de
-importação que marque uma fonte de recon como `internal`). O parser pode extrair
-hosts e URLs dessa fonte aprovada; conteúdo sem classificação explícita não
-entra no ranking e aparece apenas como lacuna de cobertura.
-
-## Ranking balanceado
-
-O escopo é uma condição de elegibilidade, não um número que possa ser
-compensado por muitas notas. Entre alvos autorizados, o catálogo separa três
-faixas, sempre com motivos visíveis:
-
-| Faixa | Significado | Próximo passo sugerido |
+| Campo | Exemplo | Papel |
 | --- | --- | --- |
-| `emerging` | Há recon verificável, mas poucas notas/evidências. | Revisar e aprofundar o alvo. |
-| `ready` | Há recon e contexto documental suficiente. | Analisar hipóteses e evidências. |
-| `unmapped` | Consta do escopo, mas não há recon ligado a ele. | Fazer primeiro mapeamento. |
+| `platform` | `h1`, `bugcrowd` | Onde o programa foi encontrado. |
+| `program_id` | `acme` | Isolamento dos dados e do escopo no Hive. |
+| `target_name` | `API Service` | Projeto a que o arquivo pertence. |
 
-O modo `balanced` intercala alvos `emerging` e `ready` e reserva posições para
-`unmapped`, evitando que um programa com muitos arquivos sobre um único host
-ocupe a lista inteira. `most_documented` ordena pela diversidade de fontes e
-quantidade de documentos, com teto por tipo. `needs_recon` coloca os menos
-cobertos primeiro. Empates são resolvidos por recência e identificador do
-ativo, para resultado estável. Contagens usam **documentos ativos distintos**,
-nunca chunks; documentos removidos, revisões antigas e duplicatas não contam.
+Um programa pode ter vários alvos; um alvo pode ter vários documentos e vários
+ativos observados (`host`, `ip`, `url_prefix`). O valor desses campos varia por
+arquivo. Não há inferência de plataforma, programa ou nome do projeto a partir
+do nome do arquivo. `scope.json` e regras cobrem o programa inteiro e podem
+registrar `target_name: "@program"`; isso não cria um alvo no ranking.
 
-O catálogo não atribui probabilidade de vulnerabilidade nem valor financeiro.
-O ranking representa somente cobertura e oportunidade de investigação com
-base nos dados locais do programa.
+O catálogo é inventário para decidir o próximo ciclo de leitura/recon. Ele não
+faz varredura e não transforma observações em autorização.
 
-## Limites e aceite
+## Cadastro e ingestão
 
-- Respeitar `HIVE_ID`, `program_id`, revisão de escopo aprovada e classificação
-  máxima do cliente em todas as consultas ao Qdrant.
-- Não divulgar texto de notas, tokens ou conteúdo bruto de recon na listagem.
-  Caminhos de origem são limitados e tratados como dados não confiáveis.
-- Resposta e leitura do índice devem ter limites explícitos. Se o limite de
-  varredura for atingido, retornar `truncated: true` e aviso de cobertura parcial.
-- Testar exclusões, wildcard, URL com caminho, escopo não aprovado, reader sem
-  cópia local do manifesto, revisão antiga, documento removido, classificação
-  acima do permitido e arquivos de recon ambíguos.
-- Validar em um corpus piloto que um documento enorme não pesa mais que vários
-  documentos independentes e que alvos sem recon ainda aparecem como
-  `unmapped` quando constam do escopo aprovado.
+O writer oferece `convert <arquivo> --interactive --ingest`, que pergunta os
+campos ausentes (plataforma, programa, tipo, nome do alvo e classificação). A origem
+assume o nome do arquivo ou pode ser informada em `--source`. O envelope
+persistido registra `platform`, `program_id`, `target_name` e
+`observed_targets`. Em automações, os mesmos valores são argumentos explícitos:
+`--platform`, `--program`, `--target`, `--document-type`,
+`--classification` e `--output`.
+
+Listas de recon podem conter vários ativos. Um arquivo mantém **um nome de
+alvo** e registra **todos os ativos observados reconhecidos**. A extração é
+determinística e restrita: linhas TXT inteiras que sejam hosts/IPs/URLs,
+colunas `host`, `hostname`, `ip`, `url` ou `target` em CSV/TSV e campos com
+esses nomes em registros JSON/JSONL/NDJSON. Markdown e texto livre não viram
+ativos por suposição. `--observed-target` permite adicionar manualmente um
+ativo revisado. Wildcards/CIDRs são regras de escopo, não ativos concretos do
+catálogo. O parser normaliza, deduplica e limita as observações por arquivo.
+
+Watcher e MCP não fazem perguntas por stdin. Eles leem os campos registrados.
+Arquivos históricos sem cadastro permanecem legíveis, mas a ingestão avisa
+`target_registration_missing`; o catálogo reporta `unregistered_files` entre
+os documentos ativos visíveis para a classificação do cliente e considera sua
+cobertura parcial. Arquivos com `classification: unknown` também exigem revisão,
+mas não entram nessa contagem. Migração histórica exige revisão humana:
+nenhum arquivo recebe H1, Bugcrowd, alvo ou classificação por heurística.
+
+## Ferramenta MCP
+
+`hive_list_targets` recebe `program_id` (obrigatório), `limit` (1–50), `order`
+(`balanced`, `most_documented`, `needs_recon`) e `include_unconfirmed` (padrão
+`false`). A resposta separa `targets` de `unconfirmed`, inclui
+`scope_revision`, `candidates_evaluated`, `unregistered_files`, `warnings` e
+`truncated`.
+
+Cada alvo mostra nome, plataforma, ativos observados e o status de escopo de
+cada ativo; cobertura em **documentos ativos distintos** de recon, notas e
+evidências; diversidade de fontes; recência; e até três caminhos de origem.
+Um arquivo com mil chunks conta uma vez. O nome do projeto nunca tem
+`action_allowed: true`: apenas um ativo concreto confirmado pelo `scope.json`
+aprovado pode receber essa indicação. Exclusões prevalecem sobre inclusões.
+Um alvo com pelo menos um ativo autorizado entra no ranking; alvos sem nenhum
+ativo autorizado aparecem apenas em `unconfirmed` quando solicitados. Fontes
+ligadas somente a ativos excluídos/desconhecidos não aumentam a cobertura
+rankeada. Antes de agir, use `hive_get_context` no ativo específico.
+
+`balanced` intercala três faixas: `emerging` (recon sem notas/evidência),
+`ready` (recon com contexto) e `unmapped` (ativo aprovado ligado ao alvo, mas
+sem recon). `most_documented` favorece diversidade de fontes e documentos;
+`needs_recon` favorece alvos com menos recon. Empates usam recência e nome do
+alvo para produzir uma ordem estável. O ranking mede cobertura de informação,
+não probabilidade de vulnerabilidade nem valor financeiro.
+
+## Limites e próximos passos
+
+- Toda leitura respeita `HIVE_ID`, `program_id`, revisão de escopo, estado ativo
+  da revisão e `HIVE_MAX_CLASSIFICATION`. O catálogo não retorna texto bruto.
+- A varredura do índice tem limite de 5.000 documentos (chunk ordinal zero);
+  quando atingido, a resposta
+  traz `truncated: true` e aviso de cobertura parcial. Um futuro índice por
+  documento pode remover essa limitação em corpora grandes.
+- `observed_targets` serve ao catálogo. Um ativo extraído automaticamente não
+  passa a ser `asset_refs` de busca contextual sem revisão, sobretudo quando
+  um arquivo mistura ativos autorizados e excluídos. Para ligar a nota ao
+  `hive_get_context`, adicione `asset_refs` revisados.
+- Ainda é necessário ensaiar o catálogo contra um corpus real e cadastrar os
+  arquivos históricos; até lá, os resultados não são um inventário completo.

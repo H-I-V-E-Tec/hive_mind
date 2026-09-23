@@ -79,15 +79,16 @@ Itens abertos e relatos de uso real do Hive Mind. O andamento estruturado está 
 
 ## 🧭 Catálogo de alvos v1.0.0
 
-Proposta e contrato inicial: [catálogo de alvos](docs/vision/target-catalog-v1.md).
+Contrato e implementação inicial: [catálogo de alvos](docs/vision/target-catalog-v1.md).
 
-- [ ] Extrair alvos normalizados de listas de recon reconhecidas, com origem e
+- [x] Extrair ativos normalizados de listas de recon reconhecidas, com origem e
   sem transformar texto livre em autorização.
 - [ ] Reingerir o corpus piloto para preencher observações de alvo antigas.
-- [ ] Implementar `hive_list_targets` com escopo aprovado, documentos ativos
+- [x] Implementar `hive_list_targets` com escopo aprovado, documentos ativos
   distintos, limites de leitura e ranking balanceado explicável.
-- [ ] Testar isolamento, exclusões, classificação, revisões antigas e
-  comportamento reader/writer; atualizar as instruções dos agentes.
+- [x] Testar isolamento básico, exclusões, classificação, revisões antigas,
+  remoção/tombstones e leitura sem manifesto local; atualizar as instruções dos agentes.
+- [ ] Ensaiar limites de catálogo e corpus real.
 
 ---
 

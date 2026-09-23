@@ -26,6 +26,8 @@ var allowedClassifications = map[string]bool{
 
 type reconMetadata struct {
 	DocumentType    string
+	Platform        string
+	TargetName      string
 	ClaimedScope    string
 	Classification  string
 	Source          any
@@ -33,6 +35,7 @@ type reconMetadata struct {
 	Tags            []string
 	AssetRefs       []normalizedAsset
 	AssetRefPayload []string
+	ObservedTargets []string
 }
 
 func extractReconMetadata(relPath, pathProgramID string, content []byte) (reconMetadata, error) {
@@ -61,6 +64,20 @@ func extractReconMetadata(relPath, pathProgramID string, content []byte) (reconM
 		if !ok || strings.TrimSpace(claimedProgram) != pathProgramID {
 			return meta, errors.New("program_id in document does not match programs/<program_id>/ path")
 		}
+	}
+	if raw, exists := values["platform"]; exists {
+		value, ok := raw.(string)
+		if !ok || !validIdentifier(value, 64) {
+			return meta, errors.New("platform must be a lowercase identifier")
+		}
+		meta.Platform = value
+	}
+	if raw, exists := values["target_name"]; exists {
+		value, ok := raw.(string)
+		if !ok {
+			return meta, errors.New("target_name must be a project name")
+		}
+		meta.TargetName = value
 	}
 	if raw, exists := values["document_type"]; exists {
 		value, ok := raw.(string)
@@ -161,7 +178,53 @@ func extractReconMetadata(relPath, pathProgramID string, content []byte) (reconM
 			meta.AssetRefPayload = append(meta.AssetRefPayload, asset.Value)
 		}
 	}
+	if raw, exists := values["observed_targets"]; exists {
+		items, listErr := metadataStringList(raw, "observed_targets")
+		if listErr != nil || len(items) > 5000 {
+			return meta, errors.New("observed_targets must be a bounded list of concrete assets")
+		}
+		seen := map[string]bool{}
+		for _, item := range items {
+			asset, normalizeErr := normalizeConcreteTarget(item)
+			if normalizeErr != nil || item != asset.Type+":"+asset.Value {
+				return meta, errors.New("observed_targets must contain canonical host:, ip: or url_prefix: assets")
+			}
+			if !seen[item] {
+				seen[item] = true
+				meta.ObservedTargets = append(meta.ObservedTargets, item)
+			}
+		}
+		sort.Strings(meta.ObservedTargets)
+	}
+	if (meta.Platform == "") != (meta.TargetName == "") {
+		return meta, errors.New("platform and target_name must be registered together")
+	}
+	if meta.TargetName != "" && !validTargetName(meta.TargetName, meta.DocumentType) {
+		return meta, errors.New("target_name must be a valid project name, or @program for scope/rules")
+	}
+	if len(meta.ObservedTargets) > 0 && meta.TargetName == "" {
+		return meta, errors.New("observed_targets require platform and target_name registration")
+	}
 	return meta, nil
+}
+
+// Observed assets are concrete. Wildcards and ranges remain scope rules only.
+func normalizeConcreteTarget(value string) (normalizedAsset, error) {
+	asset, err := normalizeAssetReference(value)
+	if err != nil {
+		return normalizedAsset{}, err
+	}
+	if asset.Type != "host" && asset.Type != "ip" && asset.Type != "url_prefix" {
+		return normalizedAsset{}, errors.New("primary target must be a host, IP or URL prefix")
+	}
+	return asset, nil
+}
+
+func validTargetName(value, documentType string) bool {
+	if value == "@program" {
+		return documentType == "scope" || documentType == "rules"
+	}
+	return value != "" && value == strings.TrimSpace(value) && len(value) <= 120 && !containsControl(value)
 }
 
 func inferDocumentType(relPath string) string {

@@ -35,11 +35,14 @@ type scopeRule struct {
 }
 
 type scopeManifest struct {
-	SchemaVersion int         `json:"schema_version"`
-	ProgramID     string      `json:"program_id"`
-	Source        string      `json:"source"`
-	CollectedAt   string      `json:"collected_at"`
-	Rules         []scopeRule `json:"rules"`
+	SchemaVersion  int         `json:"schema_version"`
+	ProgramID      string      `json:"program_id"`
+	Platform       string      `json:"platform,omitempty"`
+	TargetName     string      `json:"target_name,omitempty"`
+	Classification string      `json:"classification,omitempty"`
+	Source         string      `json:"source"`
+	CollectedAt    string      `json:"collected_at"`
+	Rules          []scopeRule `json:"rules"`
 }
 
 type ScopeApprovalSummary struct {
@@ -87,6 +90,13 @@ func parseScopeManifest(content []byte, pathProgramID string) (*scopeManifest, e
 	}
 	if manifest.SchemaVersion != 1 || manifest.ProgramID != pathProgramID || !validIdentifier(manifest.ProgramID, 64) {
 		return nil, errors.New("scope manifest schema_version or program_id is invalid")
+	}
+	if (manifest.Platform == "") != (manifest.TargetName == "") ||
+		(manifest.Platform != "" && (!validIdentifier(manifest.Platform, 64) || manifest.TargetName != "@program")) {
+		return nil, errors.New("scope manifest platform and target_name must identify @program together")
+	}
+	if manifest.Classification != "" && manifest.Classification != "internal" && manifest.Classification != "restricted" {
+		return nil, errors.New("scope manifest classification is invalid")
 	}
 	if strings.TrimSpace(manifest.Source) == "" || len(manifest.Source) > 500 {
 		return nil, errors.New("scope manifest source is invalid")

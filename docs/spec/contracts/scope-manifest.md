@@ -2,6 +2,12 @@
 
 O arquivo autoritativo de cada programa é `programs/<program_id>/scope.json` e deve validar contra [`scope-manifest.schema.json`](scope-manifest.schema.json). O `program_id` do conteúdo deve ser idêntico ao segmento do path.
 
+Para registrar a origem do manifesto, use `platform` (`h1`, `bugcrowd` etc.) e
+`target_name: "@program"` em conjunto: o escopo cobre o programa inteiro,
+não um único projeto. `classification` pode marcar o documento como `internal`
+ou `restricted` para busca. Manifestos históricos sem esses campos continuam válidos;
+incluí-los muda os bytes e o SHA-256 aprovado, exigindo nova aprovação.
+
 ## Normalização
 
 - `host`: hostname IDNA em A-label, minúsculo, sem ponto final; correspondência exata.
@@ -29,6 +35,9 @@ A aprovação grava na collection de controle `program_id`, SHA-256 dos bytes ex
 {
   "schema_version": 1,
   "program_id": "acme-bugbounty",
+  "platform": "h1",
+  "target_name": "@program",
+  "classification": "internal",
   "source": "program policy portal",
   "collected_at": "2026-09-10T12:00:00Z",
   "rules": [
