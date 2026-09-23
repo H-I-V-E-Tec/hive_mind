@@ -14,6 +14,7 @@
 - [Passo a passo: Ubuntu 24.04 e quatro pessoas](guias/GUIA_SERVIDOR_TESTE_4_PESSOAS.md): pacote mínimo do servidor, clientes com dados novos e teste de conversão/ingestão via MCP.
 - [Adicionar uma pessoa no servidor existente](guias/ADICIONAR_PESSOA_NO_SERVIDOR.md): conta SSH, JWT individual e entrega privada de credenciais para `hive_instance`.
 - [Atualizar o Hive Mind e os clientes](guias/ATUALIZAR_HIVE_MIND.md): ferramenta MCP nova, release, atualização do `hive_instance`, deploy do Qdrant e cadastro de pessoa.
+- [Publicar e fazer deploy manualmente](guias/PUBLICAR_E_DEPLOY_MANUAL.md): disparo da `v0.2.0`, atualização do `hive_instance`, deploy separado do Qdrant e próximas tags.
 - [Estado da implementação](operations/implementation-status.md): progresso e validações externas pendentes.
 - [Acesso ao Qdrant](operations/qdrant-access.md): provisionamento, papéis, admissão e revogação.
 - [Backup e recuperação](operations/backup-recovery.md): backup pareado, ensaio isolado e incidentes.
