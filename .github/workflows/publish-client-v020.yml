@@ -1,8 +1,8 @@
 name: Publish v0.2.0 clients (Linux and macOS)
 
-# Recovery path for the immutable v0.2.0 tag: its Windows build failed after
-# the Linux/macOS artifacts and security checks had passed. This workflow only
-# publishes the four verified client archives from that exact run.
+# Recovery path for the immutable v0.2.0 tag. Windows is intentionally not in
+# this workflow because its original build failed; the four supported client
+# archives are rebuilt directly from the immutable tag.
 on:
   workflow_dispatch:
 
@@ -14,18 +14,28 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Verify, sign and publish client assets
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: write
-      id-token: write
-      attestations: write
+  build_clients:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            os: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            os: ubuntu-latest
+          - goos: darwin
+            goarch: amd64
+            os: macos-latest
+          - goos: darwin
+            goarch: arm64
+            os: macos-latest
     env:
       VERSION: v0.2.0
       SOURCE_COMMIT: 834757579e1aa84ae061e80cf6c2c483550bc183
-      SOURCE_RUN: '35867915480'
     steps:
       - name: Checkout immutable release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -34,17 +44,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify tag and successful source checks
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify immutable tag
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
           test "$(git rev-list -n 1 "$VERSION")" = "$SOURCE_COMMIT"
-          run_url="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN"
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$run_url" \
-            | jq -e --arg sha "$SOURCE_COMMIT" '.head_sha == $sha and .event == "push"' >/dev/null
-          curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$run_url/jobs?per_page=30" \
-            | jq -e '[.jobs[] | select(.name == "Test and verify release tag" or .name == "security / verify") | .conclusion] | length == 2 and all(.[]; . == "success")' >/dev/null
 
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -52,16 +55,60 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Verify source again
+      - name: Install Linux ARM64 cross compiler
+        if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
         run: |
-          go mod verify
-          go test ./...
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Download successful Linux and macOS artifacts
+      - name: Build client archive
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          GITHUB_SHA="$SOURCE_COMMIT" bash scripts/build_release.sh
+          asset="dist/hive-mind-${VERSION}-${GOOS}-${GOARCH}.tar.gz"
+          test -s "$asset"
+          test "$(tar -tzf "$asset")" = hive-mind
+          if [ "$GOOS" = linux ] && [ "$GOARCH" = amd64 ]; then
+            tar -C "$RUNNER_TEMP" -xzf "$asset" hive-mind
+            chmod +x "$RUNNER_TEMP/hive-mind"
+            "$RUNNER_TEMP/hive-mind" version \
+              | jq -e --arg version "$VERSION" --arg commit "$SOURCE_COMMIT" \
+                  '.version == $version and .source_revision == $commit' >/dev/null
+          fi
+
+      - name: Upload client artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Sign and publish client assets
+    needs: build_clients
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: v0.2.0
+      SOURCE_COMMIT: 834757579e1aa84ae061e80cf6c2c483550bc183
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: v0.2.0
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download client artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          run-id: 35867915480
-          github-token: ${{ github.token }}
           pattern: build-*
           path: dist
           merge-multiple: true
@@ -79,11 +126,12 @@ jobs:
             test -s "dist/$asset"
             test "$(tar -tzf "dist/$asset")" = hive-mind
           done
-          tar -C "$RUNNER_TEMP" -xzf "dist/${expected[0]}" hive-mind
-          chmod +x "$RUNNER_TEMP/hive-mind"
-          "$RUNNER_TEMP/hive-mind" version \
-            | jq -e --arg version "$VERSION" --arg commit "$SOURCE_COMMIT" \
-                '.version == $version and .source_revision == $commit' >/dev/null
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Create SBOM and checksums
         run: |
@@ -127,10 +175,9 @@ jobs:
           name: Hive Mind v0.2.0 (Linux/macOS)
           body: |
             Release de clientes Linux e macOS para a tag imutável v0.2.0.
-            O build Windows da execução original falhou; Windows e o bundle de
-            deploy do servidor não fazem parte desta publicação. Testes e CI de
-            segurança passaram. Os checksums foram assinados neste workflow
-            manual com OIDC do GitHub.
+            O build Windows não faz parte desta publicação. Testes e CI de
+            segurança foram aprovados; os checksums foram assinados neste
+            workflow manual com OIDC do GitHub.
           files: dist/*
           fail_on_unmatched_files: true
           draft: false

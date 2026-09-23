@@ -71,7 +71,7 @@ O operador pode publicar uma release assinada sem relatório operacional. Isso *
 
 ### Exceção da v0.2.0: clientes Linux/macOS
 
-A tag `v0.2.0` é imutável. Na primeira execução, os testes, a CI de segurança e os quatro builds Linux/macOS passaram, mas o build Windows falhou; por isso o job normal de assinatura/publicação foi pulado. O workflow manual `publish-client-v020.yml`, executado a partir de `main`, só pode reutilizar os quatro artefatos da execução `35867915480` depois de conferir o commit da tag e os dois jobs aprovados. Ele cria checksums, SBOM, assinatura OIDC e uma release **somente de cliente**. Windows e o bundle de servidor não são publicados nessa exceção. O `hive_instance` deve verificar a identidade exata desse workflow manual ao instalar a `v0.2.0`; releases futuras continuam usando a identidade padrão de `release.yml` na tag. Esta exceção não promove o Qdrant.
+A tag `v0.2.0` é imutável. Na primeira execução, os testes e a CI de segurança passaram, mas o build Windows falhou; por isso o job normal de assinatura/publicação foi pulado. O workflow manual `publish-client-v020.yml`, executado a partir de `main`, recompila os quatro clientes Linux/macOS diretamente da tag, conferindo o commit imutável. Ele cria checksums, SBOM, assinatura OIDC e uma release **somente de cliente**. Windows e o bundle de servidor não são publicados nessa exceção. O `hive_instance` deve verificar a identidade exata desse workflow manual ao instalar a `v0.2.0`; releases futuras continuam usando a identidade padrão de `release.yml` na tag. Esta exceção não promove o Qdrant.
 
 ## Preparação única do servidor
 
