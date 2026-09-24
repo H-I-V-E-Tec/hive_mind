@@ -139,7 +139,10 @@ func (a *FileAudit) record(e AuditEvent) error {
 	if e.ChangeID != "" && !validIdentifier(e.ChangeID, 64) {
 		return errors.New("invalid change identifier")
 	}
-	if e.Path != "" && (filepath.IsAbs(e.Path) || strings.Contains(e.Path, "\\") || strings.Contains(e.Path, "..") || containsControl(e.Path)) {
+	// filepath.IsAbs is false on Windows for "/x" and "C:x", so reject rooted
+	// and volume-qualified paths explicitly to keep the check OS-independent.
+	if e.Path != "" && (filepath.IsAbs(e.Path) || strings.HasPrefix(e.Path, "/") || filepath.VolumeName(e.Path) != "" ||
+		strings.Contains(e.Path, "\\") || strings.Contains(e.Path, "..") || containsControl(e.Path)) {
 		e.Path = ""
 	}
 	for _, field := range []*string{&e.Document, &e.Revision, &e.FilterHash} {

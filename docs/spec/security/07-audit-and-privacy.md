@@ -16,7 +16,7 @@ Registrar ações suficientes para investigar acesso e alterações sem criar um
 
 ## Requisitos
 
-Logs são locais, estruturados, protegidos por permissão e rotação. Timestamps usam UTC. Definir retenção e procedimento de exclusão. Logs não contêm conteúdo de documento, embedding, consulta integral, chave, token ou path absoluto.
+Logs são locais, estruturados, protegidos por permissão e rotação. Timestamps usam UTC. Definir retenção e procedimento de exclusão. Logs não contêm conteúdo de documento, embedding, consulta integral, chave, token ou path absoluto. A regra vale igualmente em Linux, macOS e Windows: paths iniciados por `/`, com volume (`C:`) ou com `\` são descartados do evento mesmo quando o sistema operacional não os considera absolutos.
 
 ## Aceite e testes
 
