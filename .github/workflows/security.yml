@@ -118,7 +118,29 @@ jobs:
           cache: true
       - name: Check C compiler for tree-sitter
         run: gcc --version
-      - name: Run tests on the target OS
+      - name: Run tests on macOS
+        if: runner.os == 'macOS'
         env:
           CGO_ENABLED: 1
         run: go test ./...
+      - name: Run tests on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CGO_ENABLED: 1
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          go test ./... *> go-test.log
+          $testExit = $LASTEXITCODE
+          Get-Content go-test.log
+          if ($testExit -ne 0) {
+            $detail = Select-String -Path go-test.log -Pattern 'cannot secure audit directory:|converted output could not be secured' | Select-Object -First 1
+            if (-not $detail) {
+              $detail = Select-String -Path go-test.log -Pattern '^--- FAIL:|^FAIL\s' | Select-Object -First 1
+            }
+            if ($detail) {
+              $message = $detail.Line.Trim().Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=Windows Go test failure::$message"
+            }
+          }
+          exit $testExit
