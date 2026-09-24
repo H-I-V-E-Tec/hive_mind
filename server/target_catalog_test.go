@@ -2,11 +2,28 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/qdrant/go-client/qdrant"
 )
+
+type staleFirstCatalogQdrant struct {
+	*memoryQdrant
+	collectionName string
+	stale          *qdrant.RetrievedPoint
+}
+
+func (q *staleFirstCatalogQdrant) Scroll(ctx context.Context, in *qdrant.ScrollPoints) ([]*qdrant.RetrievedPoint, error) {
+	rows, err := q.memoryQdrant.Scroll(ctx, in)
+	if err != nil || in.CollectionName != q.collectionName || !matchesFilter(q.stale.Payload, in.Filter) {
+		return rows, err
+	}
+	return append([]*qdrant.RetrievedPoint{q.stale}, rows...), nil
+}
 
 func TestHiveListTargetsBalancesApprovedTargetsWithoutCountingChunks(t *testing.T) {
 	rules := `[{"action":"include","asset_type":"host","value":"api.example.com"},` +
@@ -186,5 +203,118 @@ func TestHiveListTargetsDropsOldRevisionsAndRemovedDocuments(t *testing.T) {
 	response, err = worker.HiveListTargets(context.Background(), HiveListTargetsArguments{ProgramID: "acme"})
 	if err != nil || len(response.Targets) != 0 {
 		t.Fatalf("removed document survived in catalog: %+v, %v", response, err)
+	}
+}
+
+func TestHiveListTargetsSkipsStaleRowBeforeActiveRevision(t *testing.T) {
+	worker, q, root, _ := setupContextWorker(t, `[{"action":"include","asset_type":"host","value":"api.example.com"}]`)
+	opts, err := parseConvertArgs([]string{"-", "--format=txt", "--program=acme", "--platform=h1", "--target=API Service",
+		"--observed-target=api.example.com", "--classification=internal", "--document-type=asset", "--source=recon"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := runConvert(context.Background(), opts, strings.NewReader("api.example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "programs", "acme", "api.json")
+	if err := writeConvertedDocument(path, encoded); err != nil {
+		t.Fatal(err)
+	}
+	if report := worker.IngestPathReport(context.Background(), path); !report.OK {
+		t.Fatalf("ingest: %+v", report)
+	}
+	var stale *qdrant.RetrievedPoint
+	for _, point := range q.points[worker.Cfg.CollectionName] {
+		if payloadString(point.Payload, "path", "") != "programs/acme/api.json" || payloadInt(point.Payload, "chunk_ordinal") != 0 {
+			continue
+		}
+		payload := make(map[string]*qdrant.Value, len(point.Payload))
+		for key, value := range point.Payload {
+			payload[key] = value
+		}
+		payload["document_revision"] = qdrant.NewValueString("obsolete-revision")
+		stale = &qdrant.RetrievedPoint{Id: qdrant.NewIDUUID(deterministicUUID("stale", path)), Payload: payload}
+		break
+	}
+	if stale == nil {
+		t.Fatal("active catalog row not found")
+	}
+	worker.QdrantClient = &staleFirstCatalogQdrant{memoryQdrant: q, collectionName: worker.Cfg.CollectionName, stale: stale}
+	response, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{ProgramID: "acme"})
+	if err != nil || len(response.Targets) != 1 || response.Targets[0].TargetName != "API Service" {
+		t.Fatalf("stale row hid active revision: %+v, %v", response, err)
+	}
+}
+
+func TestHiveListTargetsRanksAcrossProgramsWithoutProgramID(t *testing.T) {
+	worker, _, root, _ := setupContextWorker(t, `[{"action":"include","asset_type":"wildcard_domain","value":"*.acme.example.com"}]`)
+	for _, tool := range worker.availableTools() {
+		if tool["name"] == "hive_list_targets" {
+			input := tool["inputSchema"].(map[string]interface{})
+			if required, ok := input["required"]; ok && len(required.([]string)) > 0 {
+				t.Fatalf("MCP still requires a program_id for global discovery: %v", required)
+			}
+		}
+	}
+	betaDir := filepath.Join(root, "programs", "beta")
+	if err := os.MkdirAll(betaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	betaScope := `{"schema_version":1,"program_id":"beta","source":"policy","collected_at":"2026-09-10T00:00:00Z",` +
+		`"rules":[{"action":"include","asset_type":"wildcard_domain","value":"*.beta.example.com"}]}`
+	if err := os.WriteFile(filepath.Join(betaDir, "scope.json"), []byte(betaScope), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.ApproveScope(context.Background(), "beta"); err != nil {
+		t.Fatal(err)
+	}
+	add := func(program string, index int, kind string) {
+		t.Helper()
+		host := fmt.Sprintf("host%d.%s.example.com", index, program)
+		name := fmt.Sprintf("Project %02d", index)
+		opts, err := parseConvertArgs([]string{"-", "--format=txt", "--program=" + program, "--platform=h1", "--target=" + name,
+			"--observed-target=" + host, "--classification=internal", "--document-type=" + kind, "--source=" + name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := runConvert(context.Background(), opts, strings.NewReader(host))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "programs", program, fmt.Sprintf("project-%02d-%s.json", index, kind))
+		if err := writeConvertedDocument(path, encoded); err != nil {
+			t.Fatal(err)
+		}
+		if report := worker.IngestPathReport(context.Background(), path); !report.OK {
+			t.Fatalf("ingest %s: %+v", path, report)
+		}
+	}
+	for _, program := range []string{"acme", "beta"} {
+		for index := range 6 {
+			add(program, index, "asset")
+		}
+	}
+	add("beta", 0, "note")
+
+	response, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{})
+	if err != nil || len(response.Targets) != 10 || !response.Truncated || response.CandidatesEvaluated != 12 {
+		t.Fatalf("global top 10 failed: %+v, %v", response, err)
+	}
+	seen := map[string]bool{}
+	for _, target := range response.Targets {
+		seen[target.ProgramID] = true
+		if target.Scope.AuthorizedAssets != 1 || target.Scope.ScopeRevision == "" || target.Rank < 1 || target.Rank > 10 {
+			t.Fatalf("global target lacks program provenance or scope: %+v", target)
+		}
+	}
+	if !seen["acme"] || !seen["beta"] {
+		t.Fatalf("global top 10 did not combine programs: %+v", response.Targets)
+	}
+	limit := 1
+	documented, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{Limit: &limit, Order: "most_documented"})
+	if err != nil || len(documented.Targets) != 1 || documented.Targets[0].ProgramID != "beta" ||
+		documented.Targets[0].TargetName != "Project 00" || documented.Targets[0].Coverage.NoteDocuments != 1 {
+		t.Fatalf("global ranking did not compare program coverage: %+v, %v", documented, err)
 	}
 }

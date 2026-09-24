@@ -17,7 +17,7 @@ Non-negotiable rules:
 
 | Tool | Use it for |
 | --- | --- |
-| `hive_list_targets` | Discover named projects inside one program, balanced by approved observed assets and distinct recon/notes/evidence documents. A project name is not permission to test an asset. |
+| `hive_list_targets` | Discover the top 10 named projects across approved programs without arguments, or pass `program_id` to filter. Each result identifies its program. A project name is not permission to test an asset. |
 | `hive_get_context` | **First call before touching any asset.** Input: `program_id`, `question`, typed `asset` (`host`, `wildcard_domain`, `ip`, `cidr`, `url_prefix`). Returns the scope verdict, matched rules, and a bounded package of relevant rules/notes/evidence. |
 | `hive_search` | Broad questions inside one program: "what do we know about the OAuth flow?", "which endpoints accept uploads?". Filters: `document_types`, `tags`, `classification`, `effective_scope_status`, `limit` (1–20). |
 | `get_sync_status` | Check whether recently written notes are indexed before you rely on them. |

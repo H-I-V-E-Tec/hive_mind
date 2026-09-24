@@ -213,7 +213,13 @@ Entrada para `hive_get_context`:
 {"program_id":"acme-bugbounty","question":"O que sabemos deste host?","asset":{"type":"host","value":"api.example.com"},"limit":8}
 ```
 
-Entrada para o catálogo de projetos `hive_list_targets`:
+Entrada para os 10 projetos mais relevantes entre os programas aprovados, sem precisar saber o `program_id`:
+
+```json
+{"order":"balanced"}
+```
+
+Para limitar o catálogo `hive_list_targets` a um programa:
 
 ```json
 {"program_id":"acme-bugbounty","order":"balanced","limit":20}
