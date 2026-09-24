@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,50 +61,53 @@ type FileAudit struct {
 func OpenFileAudit(cfg Config) (*FileAudit, error) {
 	fail := errors.New("audit storage is unavailable or insecure")
 	if cfg.AuditDirectory == "" {
-		return nil, fail
+		return nil, fmt.Errorf("%w: directory is not configured", fail)
 	}
 	if err := os.MkdirAll(cfg.AuditDirectory, 0700); err != nil {
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot create audit directory", fail)
 	}
 	real, err := filepath.EvalSymlinks(cfg.AuditDirectory)
 	if err != nil {
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot resolve audit directory", fail)
 	}
 	real, err = filepath.Abs(real)
 	if err != nil {
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot locate audit directory", fail)
 	}
 	info, err := os.Stat(real)
 	if err != nil || !info.IsDir() || !auditModeIsPrivate(info) {
-		return nil, fail
+		return nil, fmt.Errorf("%w: audit directory is not private", fail)
 	}
 	if cfg.DataDirectory != "" {
 		dataReal, err := filepath.EvalSymlinks(cfg.DataDirectory)
 		if err != nil {
-			return nil, fail
+			return nil, fmt.Errorf("%w: cannot resolve data directory", fail)
 		}
 		dataReal, err = filepath.Abs(dataReal)
 		if err != nil {
-			return nil, fail
+			return nil, fmt.Errorf("%w: cannot locate data directory", fail)
 		}
 		rel, err := filepath.Rel(dataReal, real)
-		if err != nil || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
-			return nil, fail
+		if err != nil {
+			return nil, fmt.Errorf("%w: cannot compare audit and data directories", fail)
+		}
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("%w: audit directory is inside data directory", fail)
 		}
 	}
 	root, err := os.OpenRoot(real)
 	if err != nil {
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot open audit directory", fail)
 	}
 	if err := secureAuditDirectory(root, real); err != nil {
 		root.Close()
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot secure audit directory: %v", fail, err)
 	}
 	session := uuid.NewString()
 	a := &FileAudit{root: root, name: "audit-" + session + ".jsonl", session: session, cfg: cfg, maxBytes: 10 << 20, retention: 30 * 24 * time.Hour}
-	if err := a.Record(AuditEvent{Action: "process", Outcome: "started"}); err != nil {
+	if err := a.record(AuditEvent{Action: "process", Outcome: "started"}); err != nil {
 		root.Close()
-		return nil, fail
+		return nil, fmt.Errorf("%w: cannot write initial audit event: %v", fail, err)
 	}
 	return a, nil
 }
