@@ -46,14 +46,18 @@ O workflow `security.yml` é obrigatório para pull requests e pushes em branche
 ### Release de produção
 
 1. Escolha um commit aprovado em `main`, com CI de segurança verde. [Relatórios operacionais](security-release.md) e o [perfil de implantação](deployment-profile.md) são opcionais para publicar o binário; não declare ensaios pendentes como concluídos.
-2. Crie e envie uma tag apontando para esse commit:
+2. Em GitHub Actions, abra **Start release**, clique **Run workflow**, selecione
+   `main` e informe a versão (por exemplo, `v1.0.1`). O workflow cria a tag
+   nesse commit de `main` e inicia `Build and Release` nessa tag. A execução
+   manual exige permissão de escrita no repositório. Também é possível criar e
+   enviar a tag diretamente:
 
    ```bash
    git tag -a v0.2.0 -m 'Hive Mind v0.2.0'
    git push origin v0.2.0
    ```
 
-3. `release.yml` recusa tag inválida, teste falho ou scanner falho; não verifica relatórios operacionais.
+3. `release.yml` recusa tag inválida, teste falho ou scanner falho; não verifica relatórios operacionais. Se a tag for criada mas o disparo automático falhar, execute **Build and Release** manualmente selecionando a tag existente.
 4. Atualize a versão desejada no `hive_instance` somente depois que a release existir.
 5. Verifique o artefato localmente, quando necessário:
 

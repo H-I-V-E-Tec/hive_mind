@@ -99,3 +99,26 @@ jobs:
           test -s "$asset"
           test "$(unzip -Z1 "$asset")" = hive-mind.exe
           unzip -p "$asset" hive-mind.exe | file - | grep -q 'PE32+ executable'
+
+  native_platform_tests:
+    name: Native tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check C compiler for tree-sitter
+        run: gcc --version
+      - name: Run tests on the target OS
+        env:
+          CGO_ENABLED: 1
+        run: go test ./...

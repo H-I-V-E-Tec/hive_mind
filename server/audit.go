@@ -74,7 +74,7 @@ func OpenFileAudit(cfg Config) (*FileAudit, error) {
 		return nil, fail
 	}
 	info, err := os.Stat(real)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
+	if err != nil || !info.IsDir() || !auditModeIsPrivate(info) {
 		return nil, fail
 	}
 	if cfg.DataDirectory != "" {
@@ -93,6 +93,10 @@ func OpenFileAudit(cfg Config) (*FileAudit, error) {
 	}
 	root, err := os.OpenRoot(real)
 	if err != nil {
+		return nil, fail
+	}
+	if err := secureAuditDirectory(root, real); err != nil {
+		root.Close()
 		return nil, fail
 	}
 	session := uuid.NewString()
@@ -145,7 +149,7 @@ func (a *FileAudit) record(e AuditEvent) error {
 	}
 	body = append(body, '\n')
 	if info, err := a.root.Lstat(a.name); err == nil {
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		if !info.Mode().IsRegular() || !auditModeIsPrivate(info) {
 			return errors.New("unsafe audit file")
 		}
 		if info.Size()+int64(len(body)) > a.maxBytes {
@@ -158,6 +162,10 @@ func (a *FileAudit) record(e AuditEvent) error {
 	}
 	f, err := a.root.OpenFile(a.name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
+		return err
+	}
+	if err := secureAuditFile(f, filepath.Join(a.root.Name(), a.name)); err != nil {
+		_ = f.Close()
 		return err
 	}
 	_, err = f.Write(body)
