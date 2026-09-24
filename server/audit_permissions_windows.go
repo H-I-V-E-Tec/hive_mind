@@ -4,6 +4,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 
@@ -18,7 +19,7 @@ func auditModeIsPrivate(os.FileInfo) bool { return true }
 func secureAuditDirectory(root *os.Root, path string) error {
 	dir, err := root.Open(".")
 	if err != nil {
-		return err
+		return fmt.Errorf("open directory handle: %w", err)
 	}
 	defer dir.Close()
 	return setPrivateACL(dir, path, true)
@@ -35,18 +36,18 @@ func secureConvertedFile(file *os.File) error {
 func setPrivateACL(file *os.File, path string, directory bool) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
-		return err
+		return fmt.Errorf("read current user: %w", err)
 	}
 	if user == nil || user.User.Sid == nil {
 		return errors.New("current Windows user has no SID")
 	}
 	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
-		return err
+		return fmt.Errorf("identify local system: %w", err)
 	}
 	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
-		return err
+		return fmt.Errorf("identify administrators: %w", err)
 	}
 	var pinner runtime.Pinner
 	defer pinner.Unpin()
@@ -80,11 +81,11 @@ func setPrivateACL(file *os.File, path string, directory bool) error {
 	}
 	acl, err := windows.ACLFromEntries(entries, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("construct private ACL: %w", err)
 	}
 	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode private path: %w", err)
 	}
 	flags := uint32(windows.FILE_ATTRIBUTE_NORMAL)
 	if directory {
@@ -92,23 +93,26 @@ func setPrivateACL(file *os.File, path string, directory bool) error {
 	}
 	handle, err := windows.CreateFile(name, windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, flags, 0)
 	if err != nil {
-		return err
+		return fmt.Errorf("open ACL write handle: %w", err)
 	}
 	defer windows.CloseHandle(handle)
 	var opened, target windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(windows.Handle(file.Fd()), &opened); err != nil {
-		return err
+		return fmt.Errorf("inspect original handle: %w", err)
 	}
 	if err := windows.GetFileInformationByHandle(handle, &target); err != nil {
-		return err
+		return fmt.Errorf("inspect ACL write handle: %w", err)
 	}
 	if opened.VolumeSerialNumber != target.VolumeSerialNumber || opened.FileIndexHigh != target.FileIndexHigh || opened.FileIndexLow != target.FileIndexLow {
 		return errors.New("private path changed while securing it")
 	}
-	return windows.SetSecurityInfo(
+	if err := windows.SetSecurityInfo(
 		handle,
 		windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil, nil, acl, nil,
-	)
+	); err != nil {
+		return fmt.Errorf("apply private ACL: %w", err)
+	}
+	return nil
 }
