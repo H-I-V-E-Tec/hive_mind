@@ -91,7 +91,14 @@ func setPrivateACL(file *os.File, path string, directory bool) error {
 	if directory {
 		flags = windows.FILE_FLAG_BACKUP_SEMANTICS
 	}
-	handle, err := windows.CreateFile(name, windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, flags, 0)
+	// SetSecurityInfo may need to read the existing security descriptor while
+	// replacing its DACL. Request READ_CONTROL on the handle used for that call.
+	handle, err := windows.CreateFile(
+		name,
+		windows.READ_CONTROL|windows.WRITE_DAC|windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil, windows.OPEN_EXISTING, flags, 0,
+	)
 	if err != nil {
 		return fmt.Errorf("open ACL write handle: %w", err)
 	}
