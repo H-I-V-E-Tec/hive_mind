@@ -55,8 +55,8 @@ nested_ignored.txt
 		{filepath.Join(tmpDir, "important.log"), false, false}, // negated rule
 		{filepath.Join(tmpDir, "node_modules"), true, true},
 		{filepath.Join(tmpDir, "node_modules", "module"), false, true}, // inside directory
-		{filepath.Join(tmpDir, "dist"), true, true},                   // anchored directory match
-		{filepath.Join(tmpDir, "src", "dist"), true, false},           // not at root, /dist is anchored
+		{filepath.Join(tmpDir, "dist"), true, true},                    // anchored directory match
+		{filepath.Join(tmpDir, "src", "dist"), true, false},            // not at root, /dist is anchored
 
 		// Nested matches
 		{filepath.Join(nestedDir, "nested_ignored.txt"), false, true},

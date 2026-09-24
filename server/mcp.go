@@ -250,16 +250,15 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
 		{
 			"name":        "hive_list_targets",
-			"description": "List named projects ranked by approved observed assets and distinct registered recon/notes/evidence documents. A project name is not permission to scan.",
+			"description": "List ranked projects across approved programs (top 10 by default), or filter by program_id. A project name is not permission to scan.",
 			"inputSchema": map[string]interface{}{
 				"type": "object", "additionalProperties": false,
 				"properties": map[string]interface{}{
 					"program_id":          map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
-					"limit":               map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "default": 20},
+					"limit":               map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "description": "Defaults to 10 across programs or 20 within one program."},
 					"order":               map[string]interface{}{"type": "string", "enum": []string{"balanced", "most_documented", "needs_recon"}, "default": "balanced"},
 					"include_unconfirmed": map[string]interface{}{"type": "boolean", "default": false},
 				},
-				"required": []string{"program_id"},
 			},
 			"outputSchema": targetCatalogOutputSchema(),
 		},
@@ -385,13 +384,13 @@ func targetCatalogOutputSchema() map[string]interface{} {
 		}, "required": []string{"recon_documents", "note_documents", "evidence_documents", "distinct_sources"}}
 	entry := map[string]interface{}{"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
-			"platform": map[string]interface{}{"type": "string"}, "target_name": map[string]interface{}{"type": "string"},
+			"program_id": map[string]interface{}{"type": "string"}, "platform": map[string]interface{}{"type": "string"}, "target_name": map[string]interface{}{"type": "string"},
 			"scope": scope, "observed_assets": map[string]interface{}{"type": "array", "items": asset},
 			"rank": map[string]interface{}{"type": "integer"}, "band": map[string]interface{}{"type": "string"},
 			"reasons":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 			"coverage": coverage, "latest_at": map[string]interface{}{"type": "string"},
 			"source_paths": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-		}, "required": []string{"platform", "target_name", "scope", "observed_assets", "reasons", "coverage", "source_paths"}}
+		}, "required": []string{"program_id", "platform", "target_name", "scope", "observed_assets", "reasons", "coverage", "source_paths"}}
 	return map[string]interface{}{"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
 			"program_id": map[string]interface{}{"type": "string"}, "scope_revision": map[string]interface{}{"type": "string"},

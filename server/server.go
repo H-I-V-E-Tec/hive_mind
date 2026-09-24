@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-var Version = "1.0.0"
+var Version = "1.0.1"
 var SourceRevision = "development"
 
 func Start(version string) {

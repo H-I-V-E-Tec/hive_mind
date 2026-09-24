@@ -17,6 +17,7 @@ const (
 	maxCatalogAssetsPerDocument = 100
 	maxCatalogAssetsPerTarget   = 500
 	maxCatalogResponseBytes     = 60 * 1024
+	maxCatalogPrograms          = 100
 )
 
 type HiveListTargetsArguments struct {
@@ -50,6 +51,7 @@ type TargetScopeSummary struct {
 }
 
 type TargetCatalogEntry struct {
+	ProgramID      string             `json:"program_id"`
 	Platform       string             `json:"platform"`
 	TargetName     string             `json:"target_name"`
 	Scope          TargetScopeSummary `json:"scope"`
@@ -85,10 +87,13 @@ type catalogCandidate struct {
 }
 
 func validateHiveListTargets(args HiveListTargetsArguments) (HiveListTargetsArguments, int, error) {
-	if !validIdentifier(args.ProgramID, 64) {
+	if args.ProgramID != "" && !validIdentifier(args.ProgramID, 64) {
 		return args, 0, invalidSearch("program_id is invalid")
 	}
 	limit := 20
+	if args.ProgramID == "" {
+		limit = 10
+	}
 	if args.Limit != nil {
 		limit = *args.Limit
 	}
@@ -121,6 +126,14 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 	if err != nil {
 		return out, err
 	}
+	if args.ProgramID == "" {
+		return iw.listTargetsAcrossPrograms(ctx, args, limit)
+	}
+	return iw.listTargetsInProgram(ctx, args, limit)
+}
+
+// A zero limit keeps all candidates for the final cross-program ranking.
+func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveListTargetsArguments, limit int) (out HiveListTargetsResponse, resultErr error) {
 	revision, manifest, warning, err := iw.contextScopeManifest(ctx, args.ProgramID)
 	if err != nil {
 		return out, errors.New("approved scope could not be verified")
@@ -176,7 +189,6 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 		if docID == "" || seenDocuments[docID] {
 			continue
 		}
-		seenDocuments[docID] = true
 		path := filepath.ToSlash(payloadString(payload, "path", ""))
 		if filepath.IsAbs(path) || strings.Contains(path, "\\") || path != filepath.ToSlash(filepath.Clean(path)) ||
 			!strings.HasPrefix(path, "programs/"+args.ProgramID+"/") {
@@ -197,6 +209,7 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 		if tombstoned {
 			continue
 		}
+		seenDocuments[docID] = true
 		kind := payloadString(payload, "document_type", "unknown")
 		if kind == "scope" || kind == "rules" {
 			continue
@@ -209,7 +222,7 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 		key := platform + "\x00" + strings.ToLower(strings.Join(strings.Fields(targetName), " "))
 		candidate := candidates[key]
 		if candidate == nil {
-			candidate = &catalogCandidate{entry: TargetCatalogEntry{Platform: platform, TargetName: targetName,
+			candidate = &catalogCandidate{entry: TargetCatalogEntry{ProgramID: args.ProgramID, Platform: platform, TargetName: targetName,
 				ObservedAssets: []CatalogAsset{}, Reasons: []string{}, SourcePaths: []string{}},
 				documents: map[string]catalogDocument{}, assets: map[string]normalizedAsset{}}
 			candidates[key] = candidate
@@ -255,6 +268,94 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 		} else if args.IncludeUnconfirmed {
 			unconfirmed = append(unconfirmed, candidate)
 		}
+	}
+	orderCatalogCandidates(authorized, args.Order)
+	if limit > 0 && len(authorized) > limit {
+		out.Truncated = true
+		authorized = authorized[:limit]
+	}
+	for rank, candidate := range authorized {
+		candidate.entry.Rank = rank + 1
+		out.Targets = append(out.Targets, candidate.entry)
+	}
+	if args.IncludeUnconfirmed {
+		sort.Slice(unconfirmed, func(i, j int) bool { return catalogKey(unconfirmed[i]) < catalogKey(unconfirmed[j]) })
+		if limit > 0 && len(unconfirmed) > limit {
+			out.Truncated = true
+			unconfirmed = unconfirmed[:limit]
+		}
+		for _, candidate := range unconfirmed {
+			out.Unconfirmed = append(out.Unconfirmed, candidate.entry)
+		}
+	}
+	if limit == 0 {
+		return out, nil
+	}
+	return fitCatalogResponse(out), nil
+}
+
+func (iw *IngestionWorker) listTargetsAcrossPrograms(ctx context.Context, args HiveListTargetsArguments, limit int) (HiveListTargetsResponse, error) {
+	out := HiveListTargetsResponse{Targets: []TargetCatalogEntry{}, Unconfirmed: []TargetCatalogEntry{}, Warnings: []string{}}
+	filter := &qdrant.Filter{Must: []*qdrant.Condition{
+		qdrant.NewMatchKeyword("record_type", "scope_approval"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+		qdrant.NewMatchKeyword("status", "approved"),
+	}}
+	rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{CollectionName: iw.Cfg.ControlCollection, Filter: filter,
+		Limit: qdrant.PtrOf(uint32(maxCatalogPrograms)), WithPayload: qdrant.NewWithPayloadInclude("hive_id", "record_type", "status", "program_id")})
+	if err != nil {
+		return out, errors.New("approved program index is unavailable")
+	}
+	count, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.ControlCollection, Exact: qdrant.PtrOf(true), Filter: filter})
+	if err != nil {
+		return out, errors.New("approved program count is unavailable")
+	}
+	if len(rows) > maxCatalogPrograms {
+		rows = rows[:maxCatalogPrograms]
+	}
+	if count > uint64(len(rows)) {
+		out.Truncated = true
+		out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
+	}
+	programs := map[string]bool{}
+	for _, row := range rows {
+		payload := row.Payload
+		if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "record_type", "") != "scope_approval" ||
+			payloadString(payload, "status", "") != "approved" {
+			continue
+		}
+		id := payloadString(payload, "program_id", "")
+		if validIdentifier(id, 64) {
+			programs[id] = true
+		}
+	}
+	ids := make([]string, 0, len(programs))
+	for id := range programs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	authorized, unconfirmed := []*catalogCandidate{}, []*catalogCandidate{}
+	for _, id := range ids {
+		programArgs := args
+		programArgs.ProgramID = id
+		program, err := iw.listTargetsInProgram(ctx, programArgs, 0)
+		if err != nil {
+			return out, errors.New("target catalog could not verify all approved programs")
+		}
+		out.CandidatesEvaluated += program.CandidatesEvaluated
+		out.UnregisteredFiles += program.UnregisteredFiles
+		if program.Truncated {
+			out.Truncated = true
+			out.Warnings = appendWarning(out.Warnings, "some programs have partial catalog coverage")
+		}
+		for _, entry := range program.Targets {
+			authorized = append(authorized, &catalogCandidate{entry: entry})
+		}
+		for _, entry := range program.Unconfirmed {
+			unconfirmed = append(unconfirmed, &catalogCandidate{entry: entry})
+		}
+	}
+	if out.UnregisteredFiles > 0 {
+		out.Warnings = appendWarning(out.Warnings, "some visible active documents lack reviewed platform/target registration; coverage is partial")
 	}
 	orderCatalogCandidates(authorized, args.Order)
 	if len(authorized) > limit {
@@ -399,7 +500,7 @@ func catalogReasons(coverage TargetCoverage) []string {
 }
 
 func catalogKey(candidate *catalogCandidate) string {
-	return candidate.entry.Platform + ":" + strings.ToLower(candidate.entry.TargetName)
+	return candidate.entry.ProgramID + ":" + candidate.entry.Platform + ":" + strings.ToLower(candidate.entry.TargetName)
 }
 
 func catalogDocumentTotal(coverage TargetCoverage) int {

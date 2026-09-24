@@ -50,11 +50,14 @@ nenhum arquivo recebe H1, Bugcrowd, alvo ou classificação por heurística.
 
 ## Ferramenta MCP
 
-`hive_list_targets` recebe `program_id` (obrigatório), `limit` (1–50), `order`
-(`balanced`, `most_documented`, `needs_recon`) e `include_unconfirmed` (padrão
-`false`). A resposta separa `targets` de `unconfirmed`, inclui
-`scope_revision`, `candidates_evaluated`, `unregistered_files`, `warnings` e
-`truncated`.
+`hive_list_targets` aceita `program_id` para filtrar um programa. Sem esse campo,
+descobre até 100 programas com escopo aprovado no Hive e retorna os 10 primeiros
+alvos em uma classificação conjunta. `limit` aceita 1–50 (padrão 10 na consulta
+global e 20 por programa); `order` aceita `balanced`, `most_documented` e
+`needs_recon`; `include_unconfirmed` tem padrão `false`. A resposta separa
+`targets` de `unconfirmed`, inclui `scope_revision` (vazio na consulta global),
+`candidates_evaluated`, `unregistered_files`, `warnings` e `truncated`. Cada alvo
+traz seu próprio `program_id` e a revisão de escopo em `scope.scope_revision`.
 
 Cada alvo mostra nome, plataforma, ativos observados e o status de escopo de
 cada ativo; cobertura em **documentos ativos distintos** de recon, notas e
@@ -82,6 +85,8 @@ não probabilidade de vulnerabilidade nem valor financeiro.
   quando atingido, a resposta
   traz `truncated: true` e aviso de cobertura parcial. Um futuro índice por
   documento pode remover essa limitação em corpora grandes.
+- A descoberta global considera até 100 programas com escopo aprovado. Ao atingir
+  esse limite, a resposta informa que o ranking pode estar incompleto.
 - `observed_targets` serve ao catálogo. Um ativo extraído automaticamente não
   passa a ser `asset_refs` de busca contextual sem revisão, sobretudo quando
   um arquivo mistura ativos autorizados e excluídos. Para ligar a nota ao
