@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -43,7 +44,7 @@ func TestConvertOfflineMetadataAuthorityAndAtomicOutput(t *testing.T) {
 		t.Fatal("atomic publication corrupted output")
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatal("converted document is not private")
 	}
 	entries, _ := os.ReadDir(filepath.Dir(path))

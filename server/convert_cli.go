@@ -321,6 +321,9 @@ func writeConvertedDocument(path string, data []byte) error {
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
+	if err := secureConvertedFile(file); err != nil {
+		return errors.New("converted output could not be secured")
+	}
 	if _, err := file.Write(data); err != nil {
 		return errors.New("converted output could not be written")
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestSecurity007AuditRedactionRotationAndRetention(t *testing.T) {
 			t.Fatal("expired audit retained")
 		}
 		info, _ := entry.Info()
-		if info.Mode().Perm() != 0600 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 			t.Fatal("audit permissions too broad")
 		}
 		body, err := os.ReadFile(filepath.Join(cfg.AuditDirectory, entry.Name()))
@@ -98,6 +99,9 @@ func TestSecurity007RejectsAuditInsideDataAndUnsafePermissions(t *testing.T) {
 	dir := filepath.Join(root, "audit")
 	if _, err := OpenFileAudit(Config{AuditDirectory: dir, DataDirectory: root}); err == nil {
 		t.Fatal("indexable audit accepted")
+	}
+	if runtime.GOOS == "windows" {
+		return // Windows audit privacy is enforced by ACLs, not chmod bits.
 	}
 	if err := os.Chmod(dir, 0777); err != nil {
 		t.Fatal(err)
