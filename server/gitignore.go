@@ -58,6 +58,7 @@ func (m *GitIgnoreMatcher) parseGitIgnoreFile(path string) {
 	if err != nil || relDirPath == "." {
 		relDirPath = ""
 	}
+	relDirPath = filepath.ToSlash(relDirPath)
 
 	var patterns []IgnorePattern
 	scanner := bufio.NewScanner(file)

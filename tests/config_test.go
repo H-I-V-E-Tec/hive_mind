@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -132,7 +133,7 @@ func TestHiveConfigPrecedenceFlagsEnvironmentFileDefaults(t *testing.T) {
 		`HIVE_ROLE = "writer"`,
 		`HIVE_WRITER_APPROVAL_ID = "change-1042"`,
 		`HIVE_COLLECTION = "file_collection"`,
-		`HIVE_DATA_DIR = "` + dataDir + `"`,
+		"HIVE_DATA_DIR = " + strconv.Quote(dataDir),
 		`QDRANT_URL = "http://127.0.0.1:6334"`,
 		`QDRANT_API_KEY = "file-secret"`,
 		`OLLAMA_URL = "http://127.0.0.1:11434"`,
@@ -344,7 +345,7 @@ func completeTOML(dataDir, apiKey string) string {
 		`HIVE_ROLE = "writer"`,
 		`HIVE_WRITER_APPROVAL_ID = "change-1042"`,
 		`HIVE_COLLECTION = "hive_mind_v01"`,
-		`HIVE_DATA_DIR = "` + dataDir + `"`,
+		"HIVE_DATA_DIR = " + strconv.Quote(dataDir),
 		`QDRANT_URL = "http://127.0.0.1:6334"`,
 		`QDRANT_API_KEY = "` + apiKey + `"`,
 		`OLLAMA_URL = "http://127.0.0.1:11434"`,
