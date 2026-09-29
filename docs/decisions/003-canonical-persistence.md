@@ -20,7 +20,7 @@ Uma consulta ao Qdrant seguida de inserção não garante unicidade entre writer
 
 ## Consequências
 
-- Operação passa a incluir um serviço adicional com autenticação, backup, restauração e retenção próprias; o [perfil de implantação](../operations/deployment-profile.md) precisa ser estendido antes do MVP do conversor, e as specs 06–08 permanecem pendentes até evidência em infraestrutura real.
+- Operação passa a incluir um serviço adicional com autenticação, backup, restauração e retenção próprias; o [perfil de implantação](../../../guias/operacao/deployment-profile.md) precisa ser estendido antes do MVP do conversor, e as specs 06–08 permanecem pendentes até evidência em infraestrutura real.
 - Banco e Qdrant não formam uma transação única; a fila transacional e a reconciliação tornam essa lacuna explícita e testável (falha antes/depois da ativação, job antigo após tombstone).
 - Testes de concorrência entre writers exigem integração real com o banco; mocks em memória validam apenas o contrato da camada.
 - Migração do acervo atual segue o plano: backup verificável, conversão em modo de análise, collection de destino versionada e janela de rollback com reaplicação de escritas.

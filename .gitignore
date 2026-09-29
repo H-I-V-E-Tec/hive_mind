@@ -1,9 +1,57 @@
-.antigravitycli
-.qdrant-mcp-server.log
-.qdrant-mcp-server/
-.env.hive
-.env.hive.local
-hive.local.toml
+# Configuração e credenciais de uma máquina/implantação.
+/.env*
+!/.env.hive.example
+/*.local.toml
+/.mcp.json
+/config/
+/secrets/
+/credentials/
+*.jwt
+*.token
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Dados operacionais pertencem ao hive_instance ou ao servidor.
+/hive-data/
+/data/
+/raw/
+/reports/
+/audit/
+/hive-audit/
+/backups/
+/snapshots/
+/qdrant_storage/
+/ollama_storage/
+/.local/
+/.qdrant-mcp-server/
+/.qdrant-mcp-server.log
+/docs/operations/release-evidence.json
+# Evidência sanitizada e revisada continua versionável em docs/operations/evidence/.
+
+# Configurações locais de agentes e editores; templates do produto ficam em server/skills/.
+/.agents/
+/.codex/
+/.claude/
+/.aws/
+/.antigravitycli
+/.idea/
+/.vscode/
+
+# Saídas de desenvolvimento e execução.
+/bin/
+/dist/
+/hive-mind
+/hive-mind.exe
+/qdrant-mcp-server
+/coverage/
+/coverage.out
+*.test
+*.log
+*.tmp
+/tmp/
+/temp/
 __pycache__/
 *.pyc
 *.snapshot
@@ -11,5 +59,3 @@ audit-*.jsonl
 backup-*-prepared.json
 backup-*-completed.json
 .DS_Store
-bin/
-dist/

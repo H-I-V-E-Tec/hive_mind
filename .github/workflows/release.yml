@@ -175,8 +175,7 @@ jobs:
             deploy/qdrant_admin.py \
             deploy/deploy_server.sh \
             deploy/hive-predeploy-backup.example \
-            scripts/hive_backup.py \
-            docs/operations/delivery-and-deployment.md
+            scripts/hive_backup.py
           rm REVISION
           printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
           (cd dist && sha256sum ./* > SHA256SUMS)

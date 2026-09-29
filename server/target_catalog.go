@@ -23,6 +23,7 @@ const (
 type HiveListTargetsArguments struct {
 	ProgramID          string `json:"program_id"`
 	Limit              *int   `json:"limit,omitempty"`
+	Offset             int    `json:"offset,omitempty"`
 	Order              string `json:"order,omitempty"`
 	IncludeUnconfirmed bool   `json:"include_unconfirmed,omitempty"`
 }
@@ -67,6 +68,8 @@ type TargetCatalogEntry struct {
 type HiveListTargetsResponse struct {
 	ProgramID           string               `json:"program_id"`
 	ScopeRevision       string               `json:"scope_revision"`
+	Offset              int                  `json:"offset"`
+	NextOffset          *int                 `json:"next_offset,omitempty"`
 	Targets             []TargetCatalogEntry `json:"targets"`
 	Unconfirmed         []TargetCatalogEntry `json:"unconfirmed"`
 	CandidatesEvaluated int                  `json:"candidates_evaluated"`
@@ -77,7 +80,6 @@ type HiveListTargetsResponse struct {
 
 type catalogDocument struct {
 	kind, path, source, latest string
-	assets                     []normalizedAsset
 }
 
 type catalogCandidate struct {
@@ -99,6 +101,9 @@ func validateHiveListTargets(args HiveListTargetsArguments) (HiveListTargetsArgu
 	}
 	if limit < 1 || limit > 50 {
 		return args, 0, invalidSearch("limit must be between 1 and 50")
+	}
+	if args.Offset < 0 {
+		return args, 0, invalidSearch("offset must be nonnegative")
 	}
 	if args.Order == "" {
 		args.Order = "balanced"
@@ -136,16 +141,19 @@ func (iw *IngestionWorker) HiveListTargets(ctx context.Context, args HiveListTar
 func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveListTargetsArguments, limit int) (out HiveListTargetsResponse, resultErr error) {
 	revision, manifest, warning, err := iw.contextScopeManifest(ctx, args.ProgramID)
 	if err != nil {
-		return out, errors.New("approved scope could not be verified")
+		// Scope approval can fail after documents have already been published.
+		// Catalog discovery remains available, but no asset gains authorization.
+		revision, manifest = "unapproved", nil
+		warning = "approved scope could not be verified; authorization remains unconfirmed"
 	}
-	out = HiveListTargetsResponse{ProgramID: args.ProgramID, ScopeRevision: revision,
+	out = HiveListTargetsResponse{ProgramID: args.ProgramID, ScopeRevision: revision, Offset: args.Offset,
 		Targets: []TargetCatalogEntry{}, Unconfirmed: []TargetCatalogEntry{}, Warnings: []string{}}
 	if warning != "" {
 		out.Warnings = append(out.Warnings, warning)
 	}
 	filter := &qdrant.Filter{Must: []*qdrant.Condition{
 		qdrant.NewMatchKeyword("record_type", "chunk"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
-		qdrant.NewMatchKeyword("program_id", args.ProgramID), qdrant.NewMatchKeyword("scope_revision", revision),
+		qdrant.NewMatchKeyword("program_id", args.ProgramID),
 		qdrant.NewMatchInt("chunk_ordinal", 0),
 	}}
 	if iw.Cfg.MaxClassification == "restricted" {
@@ -177,7 +185,7 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 	for _, row := range rows {
 		payload := row.Payload
 		if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "program_id", "") != args.ProgramID ||
-			payloadString(payload, "record_type", "") != "chunk" || payloadString(payload, "scope_revision", "") != revision ||
+			payloadString(payload, "record_type", "") != "chunk" ||
 			payloadInt(payload, "chunk_ordinal") != 0 {
 			continue
 		}
@@ -199,7 +207,8 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 			return out, errors.New("target catalog head validation failed")
 		}
 		if head == nil || head.State != "active" || head.ProgramID != args.ProgramID || head.Path != path ||
-			head.DocumentRevision != payloadString(payload, "document_revision", "") || head.ScopeRevision != revision {
+			head.DocumentRevision != payloadString(payload, "document_revision", "") ||
+			head.ScopeRevision != payloadString(payload, "scope_revision", "") {
 			continue
 		}
 		tombstoned, err := iw.isTombstoned(ctx, docID)
@@ -234,7 +243,6 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 			out.Truncated = true
 			out.Warnings = appendWarning(out.Warnings, "observed asset limit reached; coverage is partial")
 		}
-		boundedAssets := make([]normalizedAsset, 0, len(assets))
 		for _, asset := range assets {
 			key := asset.Type + "\x00" + asset.Value
 			if len(candidate.assets) >= maxCatalogAssetsPerTarget && candidate.assets[key] == (normalizedAsset{}) {
@@ -243,48 +251,38 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 				continue
 			}
 			candidate.assets[key] = asset
-			boundedAssets = append(boundedAssets, asset)
 		}
 		latest := payloadString(payload, "collected_at", "")
 		if latest == "" {
 			latest = payloadString(payload, "indexed_at", "")
 		}
 		candidate.documents[docID] = catalogDocument{kind: kind, path: path,
-			source: payloadString(payload, "source", ""), latest: latest, assets: boundedAssets}
+			source: payloadString(payload, "source", ""), latest: latest}
 	}
 	if out.UnregisteredFiles > 0 {
 		out.Warnings = appendWarning(out.Warnings, "some visible active documents lack reviewed platform/target registration; coverage is partial")
 	}
 	out.CandidatesEvaluated = len(candidates)
-	authorized, unconfirmed := []*catalogCandidate{}, []*catalogCandidate{}
+	all := make([]*catalogCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		completeCatalogCandidate(candidate, manifest, revision)
 		if len(candidate.assets) > 20 {
 			out.Truncated = true
 			out.Warnings = appendWarning(out.Warnings, "only the first 20 observed assets per target are shown")
 		}
-		if candidate.entry.Scope.AuthorizedAssets > 0 {
-			authorized = append(authorized, candidate)
-		} else if args.IncludeUnconfirmed {
-			unconfirmed = append(unconfirmed, candidate)
-		}
+		all = append(all, candidate)
 	}
-	orderCatalogCandidates(authorized, args.Order)
-	if limit > 0 && len(authorized) > limit {
+	orderCatalogCandidates(all, args.Order)
+	start, end := catalogPageBounds(len(all), args.Offset, limit)
+	if limit > 0 && end < len(all) {
 		out.Truncated = true
-		authorized = authorized[:limit]
+		out.NextOffset = &end
 	}
-	for rank, candidate := range authorized {
-		candidate.entry.Rank = rank + 1
+	for index, candidate := range all[start:end] {
+		candidate.entry.Rank = start + index + 1
 		out.Targets = append(out.Targets, candidate.entry)
-	}
-	if args.IncludeUnconfirmed {
-		sort.Slice(unconfirmed, func(i, j int) bool { return catalogKey(unconfirmed[i]) < catalogKey(unconfirmed[j]) })
-		if limit > 0 && len(unconfirmed) > limit {
-			out.Truncated = true
-			unconfirmed = unconfirmed[:limit]
-		}
-		for _, candidate := range unconfirmed {
+		if args.IncludeUnconfirmed && candidate.entry.Scope.AuthorizedAssets == 0 {
+			// Legacy convenience subset; targets is now the complete ranked list.
 			out.Unconfirmed = append(out.Unconfirmed, candidate.entry)
 		}
 	}
@@ -295,32 +293,32 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 }
 
 func (iw *IngestionWorker) listTargetsAcrossPrograms(ctx context.Context, args HiveListTargetsArguments, limit int) (HiveListTargetsResponse, error) {
-	out := HiveListTargetsResponse{Targets: []TargetCatalogEntry{}, Unconfirmed: []TargetCatalogEntry{}, Warnings: []string{}}
+	out := HiveListTargetsResponse{Offset: args.Offset, Targets: []TargetCatalogEntry{}, Unconfirmed: []TargetCatalogEntry{}, Warnings: []string{}}
 	filter := &qdrant.Filter{Must: []*qdrant.Condition{
-		qdrant.NewMatchKeyword("record_type", "scope_approval"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
-		qdrant.NewMatchKeyword("status", "approved"),
+		qdrant.NewMatchKeyword("record_type", "document_head"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+		qdrant.NewMatchKeyword("state", "active"),
 	}}
 	rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{CollectionName: iw.Cfg.ControlCollection, Filter: filter,
-		Limit: qdrant.PtrOf(uint32(maxCatalogPrograms)), WithPayload: qdrant.NewWithPayloadInclude("hive_id", "record_type", "status", "program_id")})
+		Limit: qdrant.PtrOf(uint32(maxCatalogScanDocuments)), WithPayload: qdrant.NewWithPayloadInclude("hive_id", "record_type", "state", "program_id")})
 	if err != nil {
-		return out, errors.New("approved program index is unavailable")
+		return out, errors.New("program document index is unavailable")
 	}
 	count, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.ControlCollection, Exact: qdrant.PtrOf(true), Filter: filter})
 	if err != nil {
-		return out, errors.New("approved program count is unavailable")
+		return out, errors.New("program document count is unavailable")
 	}
-	if len(rows) > maxCatalogPrograms {
-		rows = rows[:maxCatalogPrograms]
+	if len(rows) > maxCatalogScanDocuments {
+		rows = rows[:maxCatalogScanDocuments]
 	}
 	if count > uint64(len(rows)) {
 		out.Truncated = true
-		out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
+		out.Warnings = appendWarning(out.Warnings, "program document discovery limit reached; ranking is partial")
 	}
 	programs := map[string]bool{}
 	for _, row := range rows {
 		payload := row.Payload
-		if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "record_type", "") != "scope_approval" ||
-			payloadString(payload, "status", "") != "approved" {
+		if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "record_type", "") != "document_head" ||
+			payloadString(payload, "state", "") != "active" {
 			continue
 		}
 		id := payloadString(payload, "program_id", "")
@@ -333,13 +331,20 @@ func (iw *IngestionWorker) listTargetsAcrossPrograms(ctx context.Context, args H
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	authorized, unconfirmed := []*catalogCandidate{}, []*catalogCandidate{}
+	if len(ids) > maxCatalogPrograms {
+		out.Truncated = true
+		out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
+		ids = ids[:maxCatalogPrograms]
+	}
+	all := []*catalogCandidate{}
 	for _, id := range ids {
 		programArgs := args
 		programArgs.ProgramID = id
+		programArgs.IncludeUnconfirmed = false
+		programArgs.Offset = 0
 		program, err := iw.listTargetsInProgram(ctx, programArgs, 0)
 		if err != nil {
-			return out, errors.New("target catalog could not verify all approved programs")
+			return out, errors.New("target catalog could not verify all discovered programs")
 		}
 		out.CandidatesEvaluated += program.CandidatesEvaluated
 		out.UnregisteredFiles += program.UnregisteredFiles
@@ -348,35 +353,40 @@ func (iw *IngestionWorker) listTargetsAcrossPrograms(ctx context.Context, args H
 			out.Warnings = appendWarning(out.Warnings, "some programs have partial catalog coverage")
 		}
 		for _, entry := range program.Targets {
-			authorized = append(authorized, &catalogCandidate{entry: entry})
-		}
-		for _, entry := range program.Unconfirmed {
-			unconfirmed = append(unconfirmed, &catalogCandidate{entry: entry})
+			all = append(all, &catalogCandidate{entry: entry})
 		}
 	}
 	if out.UnregisteredFiles > 0 {
 		out.Warnings = appendWarning(out.Warnings, "some visible active documents lack reviewed platform/target registration; coverage is partial")
 	}
-	orderCatalogCandidates(authorized, args.Order)
-	if len(authorized) > limit {
+	orderCatalogCandidates(all, args.Order)
+	start, end := catalogPageBounds(len(all), args.Offset, limit)
+	if end < len(all) {
 		out.Truncated = true
-		authorized = authorized[:limit]
+		out.NextOffset = &end
 	}
-	for rank, candidate := range authorized {
-		candidate.entry.Rank = rank + 1
+	for index, candidate := range all[start:end] {
+		candidate.entry.Rank = start + index + 1
 		out.Targets = append(out.Targets, candidate.entry)
-	}
-	if args.IncludeUnconfirmed {
-		sort.Slice(unconfirmed, func(i, j int) bool { return catalogKey(unconfirmed[i]) < catalogKey(unconfirmed[j]) })
-		if len(unconfirmed) > limit {
-			out.Truncated = true
-			unconfirmed = unconfirmed[:limit]
-		}
-		for _, candidate := range unconfirmed {
+		if args.IncludeUnconfirmed && candidate.entry.Scope.AuthorizedAssets == 0 {
 			out.Unconfirmed = append(out.Unconfirmed, candidate.entry)
 		}
 	}
 	return fitCatalogResponse(out), nil
+}
+
+func catalogPageBounds(total, offset, limit int) (int, int) {
+	if limit == 0 {
+		return 0, total // internal cross-program collection
+	}
+	if offset >= total {
+		return total, total
+	}
+	end := total
+	if limit < total-offset {
+		end = offset + limit
+	}
+	return offset, end
 }
 
 func catalogAssetsFromPayload(payload map[string]*qdrant.Value) ([]normalizedAsset, bool) {
@@ -437,20 +447,10 @@ func completeCatalogCandidate(candidate *catalogCandidate, manifest *scopeManife
 	default:
 		entry.Scope.Status = "unknown"
 	}
-	// Coverage counts active distinct documents tied to at least one approved
-	// observed asset. A mixed source cannot gain rank from excluded-only data.
+	// Coverage describes active distinct documents, independent of scope approval.
+	// Authorization is reported separately and never follows from catalog rank.
 	sources, paths := map[string]bool{}, map[string]bool{}
 	for _, doc := range candidate.documents {
-		approved := false
-		for _, asset := range doc.assets {
-			if effectiveScopeStatus(manifest, []normalizedAsset{asset}) == "authorized" {
-				approved = true
-				break
-			}
-		}
-		if !approved {
-			continue
-		}
 		switch doc.kind {
 		case "note":
 			entry.Coverage.NoteDocuments++
@@ -491,7 +491,7 @@ func catalogBand(coverage TargetCoverage) string {
 
 func catalogReasons(coverage TargetCoverage) []string {
 	if coverage.ReconDocuments == 0 {
-		return []string{"no linked recon documents for approved assets"}
+		return []string{"no linked recon documents"}
 	}
 	if coverage.NoteDocuments+coverage.EvidenceDocuments == 0 {
 		return []string{"recon exists without notes or evidence"}
@@ -573,6 +573,8 @@ func fitCatalogResponse(response HiveListTargetsResponse) HiveListTargetsRespons
 		}
 		if len(response.Targets) > 0 {
 			response.Targets = response.Targets[:len(response.Targets)-1]
+			next := response.Offset + len(response.Targets)
+			response.NextOffset = &next
 			continue
 		}
 		return response

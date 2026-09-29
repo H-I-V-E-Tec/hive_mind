@@ -51,13 +51,17 @@ nenhum arquivo recebe H1, Bugcrowd, alvo ou classificação por heurística.
 ## Ferramenta MCP
 
 `hive_list_targets` aceita `program_id` para filtrar um programa. Sem esse campo,
-descobre até 100 programas com escopo aprovado no Hive e retorna os 10 primeiros
-alvos em uma classificação conjunta. `limit` aceita 1–50 (padrão 10 na consulta
-global e 20 por programa); `order` aceita `balanced`, `most_documented` e
-`needs_recon`; `include_unconfirmed` tem padrão `false`. A resposta separa
-`targets` de `unconfirmed`, inclui `scope_revision` (vazio na consulta global),
-`candidates_evaluated`, `unregistered_files`, `warnings` e `truncated`. Cada alvo
-traz seu próprio `program_id` e a revisão de escopo em `scope.scope_revision`.
+descobre até 100 programas com documentos ativos no Hive, aprovados ou não, e
+retorna a primeira página da classificação conjunta. `limit` aceita 1–50
+(padrão 10 na consulta global e 20 por programa); `offset` começa em zero e
+permite percorrer as páginas usando `next_offset`. `order` aceita `balanced`,
+`most_documented` e `needs_recon`. Todos os alvos entram em `targets` com rank,
+independentemente da aprovação. Para compatibilidade, `include_unconfirmed`
+também repete em `unconfirmed` os alvos sem ativo autorizado que estejam na
+página; não é necessário para descobri-los. A resposta inclui `scope_revision`
+(vazio na consulta global), `candidates_evaluated`, `unregistered_files`,
+`warnings` e `truncated`. Cada alvo traz seu `program_id` e a revisão de escopo
+atual em `scope.scope_revision`.
 
 Cada alvo mostra nome, plataforma, ativos observados e o status de escopo de
 cada ativo; cobertura em **documentos ativos distintos** de recon, notas e
@@ -65,28 +69,32 @@ evidências; diversidade de fontes; recência; e até três caminhos de origem.
 Um arquivo com mil chunks conta uma vez. O nome do projeto nunca tem
 `action_allowed: true`: apenas um ativo concreto confirmado pelo `scope.json`
 aprovado pode receber essa indicação. Exclusões prevalecem sobre inclusões.
-Um alvo com pelo menos um ativo autorizado entra no ranking; alvos sem nenhum
-ativo autorizado aparecem apenas em `unconfirmed` quando solicitados. Fontes
-ligadas somente a ativos excluídos/desconhecidos não aumentam a cobertura
-rankeada. Antes de agir, use `hive_get_context` no ativo específico.
+O ranking mede a cobertura de todos os documentos ativos, inclusive quando o
+escopo está pendente, fora de escopo ou uma nova aprovação falhou. A aprovação
+continua sendo exigida separadamente para `action_allowed` em um ativo concreto.
+Uma falha de aprovação não apaga o alvo do inventário. Antes de agir, use
+`hive_get_context` no ativo específico e verifique a autorização vigente.
 
 `balanced` intercala três faixas: `emerging` (recon sem notas/evidência),
-`ready` (recon com contexto) e `unmapped` (ativo aprovado ligado ao alvo, mas
-sem recon). `most_documented` favorece diversidade de fontes e documentos;
+`ready` (recon com contexto) e `unmapped` (notas/evidências sem recon).
+`most_documented` favorece diversidade de fontes e documentos;
 `needs_recon` favorece alvos com menos recon. Empates usam recência e nome do
 alvo para produzir uma ordem estável. O ranking mede cobertura de informação,
 não probabilidade de vulnerabilidade nem valor financeiro.
 
 ## Limites e próximos passos
 
-- Toda leitura respeita `HIVE_ID`, `program_id`, revisão de escopo, estado ativo
-  da revisão e `HIVE_MAX_CLASSIFICATION`. O catálogo não retorna texto bruto.
+- Toda leitura respeita `HIVE_ID`, `program_id`, revisão ativa de cada documento,
+  tombstones e `HIVE_MAX_CLASSIFICATION`. A revisão de escopo atual determina
+  autorização, mas não filtra o inventário. O catálogo não retorna texto bruto.
 - A varredura do índice tem limite de 5.000 documentos (chunk ordinal zero);
   quando atingido, a resposta
   traz `truncated: true` e aviso de cobertura parcial. Um futuro índice por
   documento pode remover essa limitação em corpora grandes.
-- A descoberta global considera até 100 programas com escopo aprovado. Ao atingir
-  esse limite, a resposta informa que o ranking pode estar incompleto.
+- A descoberta global varre até 5.000 registros ativos de documentos e considera
+  até 100 programas encontrados. Ao atingir um limite, a resposta informa que
+  o ranking pode estar incompleto. `next_offset` percorre os alvos avaliados,
+  mas não recupera documentos omitidos pelo limite da varredura.
 - `observed_targets` serve ao catálogo. Um ativo extraído automaticamente não
   passa a ser `asset_refs` de busca contextual sem revisão, sobretudo quando
   um arquivo mistura ativos autorizados e excluídos. Para ligar a nota ao

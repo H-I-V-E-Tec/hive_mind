@@ -107,17 +107,12 @@ func TestSpec006ReferenceDeploymentIsPrivateAndUnprivileged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runbookBytes, err := os.ReadFile("../docs/operations/qdrant-access.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	compose := string(composeBytes)
 	dockerfile := string(dockerfileBytes)
-	runbook := string(runbookBytes)
 	for _, required := range []string{
 		"qdrant/qdrant:v1.18.3", "127.0.0.1:6334:6334",
 		"qdrant_storage:/qdrant/storage", "HIVE_QDRANT_ADMIN_KEY", "HIVE_QDRANT_WRITER_TOKEN",
-		"read_only: true", "cap_drop:", "no-new-privileges:true", "${HIVE_DATA_DIR:-./hive-data}:/workspace:ro",
+		"read_only: true", "cap_drop:", "no-new-privileges:true", "${HIVE_DATA_DIR:?", ":/workspace:ro",
 	} {
 		if !strings.Contains(compose, required) {
 			t.Errorf("reference deployment is missing %q", required)
@@ -129,10 +124,8 @@ func TestSpec006ReferenceDeploymentIsPrivateAndUnprivileged(t *testing.T) {
 	if !strings.Contains(dockerfile, "USER hive") {
 		t.Fatal("runtime image does not select the unprivileged Hive user")
 	}
-	for _, section := range []string{"## Admissão de dispositivo", "## Rotação e revogação", "## Revogação de dispositivo"} {
-		if !strings.Contains(runbook, section) {
-			t.Errorf("Qdrant access runbook is missing %q", section)
-		}
+	if strings.Contains(compose, "${HIVE_DATA_DIR:-./hive-data}") {
+		t.Fatal("reference deployment must not create a data directory in the source checkout")
 	}
 }
 

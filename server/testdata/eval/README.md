@@ -6,4 +6,4 @@ Nenhum dado foi extraído do acervo privado. Hosts usam o domínio reservado `ex
 
 `queries.json` contém 11 consultas do programa `demo` com os paths relevantes. `q05` e `q11` têm dois documentos relevantes; `q08` aponta para um TXT sem front matter e, por isso, nunca é encontrada — o corpus preserva o caso de propósito. `programs/other/base.md` compartilha vocabulário com `q02` para verificar isolamento por programa.
 
-Resultados e leitura: [docs/operations/retrieval-baseline.md](../../../docs/operations/retrieval-baseline.md). Contrato do relatório: [docs/spec/contracts/eval-report.md](../../../docs/spec/contracts/eval-report.md).
+Resultados e leitura: [docs/operations/retrieval-baseline.md](../../../../guias/operacao/retrieval-baseline.md). Contrato do relatório: [docs/spec/contracts/eval-report.md](../../../docs/spec/contracts/eval-report.md).

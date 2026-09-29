@@ -78,7 +78,7 @@ Uma observação mais recente não invalida uma anterior automaticamente; a rela
 | Vetores | Removidos junto com a unidade; recriáveis a partir de `normalized_content` enquanto a unidade existir. |
 | Logs de decisão | `decision`, `reason_codes`, identificadores e `policy_version`; nunca `normalized_content` nem conteúdo sensível. |
 
-Prazos numéricos (carência, expiração da fila, retenção de blobs) pertencem ao [perfil de implantação](../../operations/deployment-profile.md), não a este contrato; hoje estão `UNSET`.
+Prazos numéricos (carência, expiração da fila, retenção de blobs) pertencem ao [perfil de implantação](../../../../guias/operacao/deployment-profile.md), não a este contrato; hoje estão `UNSET`.
 
 ## Contrato dos adaptadores
 

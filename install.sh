@@ -255,5 +255,5 @@ echo "  There is NO auto-discovery. Set the required environment/TOML keys yours
 echo "  (HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION, QDRANT_URL, QDRANT_API_KEY,"
 echo "  OLLAMA_URL, EMBEDDING_MODEL; writers also HIVE_DATA_DIR and HIVE_WRITER_APPROVAL_ID),"
 echo "  or pass an explicit flat TOML with '--config <path>' (0600, outside HIVE_DATA_DIR)."
-echo "  Legacy keys are rejected. See '${BINARY_NAME} help' and docs/operations/."
+echo "  Legacy keys are rejected. See '${BINARY_NAME} help'; use hive_instance for client setup."
 echo ""

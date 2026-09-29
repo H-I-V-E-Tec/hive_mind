@@ -6,7 +6,7 @@ Uma nota criada em uma máquina autorizada é recuperada nas outras com escopo, 
 
 ## Cenário
 
-Preparar ao menos duas máquinas writer e uma reader com a mesma versão e fingerprint de embeddings, credenciais de menor privilégio distintas por dispositivo, um Qdrant exclusivo acessível por VPN ou rede privada controlada, TLS/autenticação ativos e uma pasta Hive por writer (sincronizada privadamente ou independente). Criar e aprovar `scope.json`, além de nota e evidência de um programa explicitamente autorizado. O [ensaio de quatro pessoas](../operations/four-person-trial.md) é a execução de referência deste cenário e produz a evidência da [spec 09](09-usage-metrics.md).
+Preparar ao menos duas máquinas writer e uma reader com a mesma versão e fingerprint de embeddings, credenciais de menor privilégio distintas por dispositivo, um Qdrant exclusivo acessível por VPN ou rede privada controlada, TLS/autenticação ativos e uma pasta Hive por writer (sincronizada privadamente ou independente). Criar e aprovar `scope.json`, além de nota e evidência de um programa explicitamente autorizado. O [ensaio de quatro pessoas](../../../guias/operacao/four-person-trial.md) é a execução de referência deste cenário e produz a evidência da [spec 09](09-usage-metrics.md).
 
 1. Executar `validate` em todas as máquinas e confirmar papéis, registro de cada writer, permissões e fingerprint completo.
 2. Indexar a nota no Computador A.

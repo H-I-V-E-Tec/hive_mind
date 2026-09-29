@@ -250,14 +250,15 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
 		{
 			"name":        "hive_list_targets",
-			"description": "List ranked projects across approved programs (top 10 by default), or filter by program_id. A project name is not permission to scan.",
+			"description": "List ranked projects across all programs with active documents (top 10 by default), including unapproved scope. Use offset to page. A project name is not permission to scan.",
 			"inputSchema": map[string]interface{}{
 				"type": "object", "additionalProperties": false,
 				"properties": map[string]interface{}{
 					"program_id":          map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
 					"limit":               map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 50, "description": "Defaults to 10 across programs or 20 within one program."},
+					"offset":              map[string]interface{}{"type": "integer", "minimum": 0, "default": 0, "description": "Zero-based offset in the complete ranked catalog."},
 					"order":               map[string]interface{}{"type": "string", "enum": []string{"balanced", "most_documented", "needs_recon"}, "default": "balanced"},
-					"include_unconfirmed": map[string]interface{}{"type": "boolean", "default": false},
+					"include_unconfirmed": map[string]interface{}{"type": "boolean", "default": false, "description": "Also return the unconfirmed entries on this page in the legacy unconfirmed subset; all entries are already in targets."},
 				},
 			},
 			"outputSchema": targetCatalogOutputSchema(),
@@ -394,12 +395,13 @@ func targetCatalogOutputSchema() map[string]interface{} {
 	return map[string]interface{}{"type": "object", "additionalProperties": false,
 		"properties": map[string]interface{}{
 			"program_id": map[string]interface{}{"type": "string"}, "scope_revision": map[string]interface{}{"type": "string"},
+			"offset": map[string]interface{}{"type": "integer"}, "next_offset": map[string]interface{}{"type": "integer"},
 			"targets":              map[string]interface{}{"type": "array", "items": entry},
 			"unconfirmed":          map[string]interface{}{"type": "array", "items": entry},
 			"candidates_evaluated": map[string]interface{}{"type": "integer"}, "unregistered_files": map[string]interface{}{"type": "integer"},
 			"warnings":  map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
 			"truncated": map[string]interface{}{"type": "boolean"},
-		}, "required": []string{"program_id", "scope_revision", "targets", "unconfirmed", "candidates_evaluated", "unregistered_files", "warnings", "truncated"}}
+		}, "required": []string{"program_id", "scope_revision", "offset", "targets", "unconfirmed", "candidates_evaluated", "unregistered_files", "warnings", "truncated"}}
 }
 
 func hiveContextOutputSchema() map[string]interface{} {

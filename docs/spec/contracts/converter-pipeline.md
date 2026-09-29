@@ -1,6 +1,6 @@
 # Contrato proposto para o conversor
 
-Estado em 2026-09-17: extração e projeção inicial implementadas por `server/converter.go`, com MD/TXT/JSON/JSONL/NDJSON/CSV/TSV e stdin via CLI `convert`. O [envelope implementado](ingestion-document.schema.json) e o [procedimento de ingestão](../../operations/semantic-ingestion.md) cobrem blocos, localizadores, limites, fingerprints e publicação no Qdrant. As etapas de admissão semântica e persistência canônica abaixo continuam propostas; não há unicidade global nem banco PostgreSQL ativo. Base: plano de melhoria, etapas 0 e 2.
+Estado em 2026-09-17: extração e projeção inicial implementadas por `server/converter.go`, com MD/TXT/JSON/JSONL/NDJSON/CSV/TSV e stdin via CLI `convert`. O [envelope implementado](ingestion-document.schema.json) e o [procedimento de ingestão](../../../../guias/operacao/semantic-ingestion.md) cobrem blocos, localizadores, limites, fingerprints e publicação no Qdrant. As etapas de admissão semântica e persistência canônica abaixo continuam propostas; não há unicidade global nem banco PostgreSQL ativo. Base: plano de melhoria, etapas 0 e 2.
 
 ## Fronteiras de responsabilidade
 

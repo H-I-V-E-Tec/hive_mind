@@ -55,4 +55,4 @@ Arquivo JSON com uma lista de consultas. Cada consulta nomeia o programa e os pa
 
 - Dois relatórios da mesma entrada devem ser idênticos fora dos campos `*duration_ms`; `TestRetrievalBaselineIsDeterministic` verifica isso.
 - O relatório nunca inclui texto dos chunks, hashes ou caminhos absolutos; apenas paths relativos ao workspace avaliado.
-- O harness não sabe qual modelo respondeu `/api/embeddings`. Um relatório só descreve qualidade de modelo quando quem o publica declara o modelo usado; a [linha de base atual](../../operations/retrieval-baseline.md) usa um embedder sintético e mede somente efeitos estruturais do pipeline.
+- O harness não sabe qual modelo respondeu `/api/embeddings`. Um relatório só descreve qualidade de modelo quando quem o publica declara o modelo usado; a [linha de base atual](../../../../guias/operacao/retrieval-baseline.md) usa um embedder sintético e mede somente efeitos estruturais do pipeline.

@@ -12,13 +12,12 @@ INSTALL_ROOT="$TEST_ROOT/install"
 PRIVATE_ROOT="$TEST_ROOT/private"
 FAKE_BIN="$TEST_ROOT/fake-bin"
 LOG="$TEST_ROOT/commands.log"
-mkdir -p "$BUNDLE/deploy" "$BUNDLE/scripts" "$BUNDLE/docs/operations" "$PRIVATE_ROOT" "$FAKE_BIN"
+mkdir -p "$BUNDLE/deploy" "$BUNDLE/scripts" "$PRIVATE_ROOT" "$FAKE_BIN"
 cp "$PROJECT_ROOT/deploy/qdrant-server.compose.yml" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/qdrant_admin.py" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/deploy_server.sh" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/hive-predeploy-backup.example" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/scripts/hive_backup.py" "$BUNDLE/scripts/"
-cp "$PROJECT_ROOT/docs/operations/delivery-and-deployment.md" "$BUNDLE/docs/operations/"
 printf '%040d\n' 1 > "$BUNDLE/REVISION"
 : > "$PRIVATE_ROOT/qdrant.env"
 : > "$PRIVATE_ROOT/admin.key"
@@ -51,6 +50,7 @@ export HIVE_DEPLOY_TEST_MODE=1
 
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.3 --initial
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.3"
+test ! -e "$INSTALL_ROOT/releases/v1.2.3/docs"
 
 printf '%040d\n' 2 > "$BUNDLE/REVISION"
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.4

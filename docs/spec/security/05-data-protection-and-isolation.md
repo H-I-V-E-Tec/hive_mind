@@ -7,7 +7,7 @@ Evitar mistura, exposição excessiva e retenção indefinida de dados de recon.
 ## Requisitos
 
 - Cada ponto recebe `hive_id`, `program_id`, `classification`, `claimed_scope_status`, `effective_scope_status`, `document_id` e `document_revision`; valores ausentes não ganham autorização implícita.
-- Toda consulta inclui filtro de `hive_id` definido pelo servidor. Busca e contexto exigem `program_id`; a descoberta global de alvos enumera apenas programas com escopo aprovado e verifica cada revisão ativa antes de reunir resultados.
+- Toda consulta inclui filtro de `hive_id` definido pelo servidor. Busca e contexto exigem `program_id`; a descoberta global do catálogo enumera programas com documentos ativos, inclusive sem aprovação, e verifica revisão ativa, tombstone e classificação antes de reunir resultados. O catálogo nunca concede autorização de ação por presença ou rank do alvo.
 - Collection exclusiva por Hive na v0.1. Reutilização por outro Hive é proibida.
 - Dados locais, volume Qdrant e backups usam criptografia em repouso fornecida pelo sistema/infraestrutura.
 - O perfil de implantação define retenção numérica por programa e como a expiração alcança arquivo, vetores derivados, tombstones, logs e backups.
