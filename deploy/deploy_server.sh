@@ -53,15 +53,13 @@ if [ -e "$TARGET" ]; then
   [ -f "$TARGET/REVISION" ] || die "release existente incompleta: $TARGET"
   [ "$(tr -d '\r\n' < "$TARGET/REVISION")" = "$REVISION" ] || die "versão já existe com outra revisão"
 else
-  install -d -m 0755 "$TARGET/deploy" "$TARGET/scripts" "$TARGET/docs/operations"
+  install -d -m 0755 "$TARGET/deploy" "$TARGET/scripts"
   install -m 0644 "$SOURCE_ROOT/REVISION" "$TARGET/REVISION"
   install -m 0644 "$SOURCE_ROOT/deploy/qdrant-server.compose.yml" "$TARGET/deploy/qdrant-server.compose.yml"
   install -m 0755 "$SOURCE_ROOT/deploy/qdrant_admin.py" "$TARGET/deploy/qdrant_admin.py"
   install -m 0755 "$SOURCE_ROOT/deploy/deploy_server.sh" "$TARGET/deploy/deploy_server.sh"
   install -m 0755 "$SOURCE_ROOT/deploy/hive-predeploy-backup.example" "$TARGET/deploy/hive-predeploy-backup.example"
   install -m 0755 "$SOURCE_ROOT/scripts/hive_backup.py" "$TARGET/scripts/hive_backup.py"
-  install -m 0644 "$SOURCE_ROOT/docs/operations/delivery-and-deployment.md" \
-    "$TARGET/docs/operations/delivery-and-deployment.md"
 fi
 
 COMPOSE_FILE="$TARGET/deploy/qdrant-server.compose.yml"

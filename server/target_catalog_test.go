@@ -25,7 +25,7 @@ func (q *staleFirstCatalogQdrant) Scroll(ctx context.Context, in *qdrant.ScrollP
 	return append([]*qdrant.RetrievedPoint{q.stale}, rows...), nil
 }
 
-func TestHiveListTargetsBalancesApprovedTargetsWithoutCountingChunks(t *testing.T) {
+func TestHiveListTargetsRanksAllScopesWithoutCountingChunks(t *testing.T) {
 	rules := `[{"action":"include","asset_type":"host","value":"api.example.com"},` +
 		`{"action":"include","asset_type":"host","value":"alt.example.com"},` +
 		`{"action":"include","asset_type":"host","value":"auth.example.com"},` +
@@ -63,29 +63,43 @@ func TestHiveListTargetsBalancesApprovedTargetsWithoutCountingChunks(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Targets) != 3 || response.Targets[0].TargetName != "API Service" || response.Targets[0].Band != "emerging" ||
-		response.Targets[1].TargetName != "Auth Portal" || response.Targets[1].Band != "ready" ||
-		response.Targets[2].TargetName != "Empty Area" || response.Targets[2].Band != "unmapped" {
+	if len(response.Targets) != 4 || response.Targets[0].Band != "emerging" || response.Targets[1].Band != "ready" ||
+		response.Targets[2].Band != "unmapped" || response.Targets[3].Band != "emerging" {
 		t.Fatalf("balanced catalog is wrong: %+v", response.Targets)
 	}
-	if response.Targets[0].Coverage.ReconDocuments != 1 || response.Targets[0].Coverage.EvidenceDocuments != 0 ||
-		response.Targets[1].Coverage.ReconDocuments != 1 || response.Targets[1].Coverage.NoteDocuments != 1 {
+	byName := map[string]TargetCatalogEntry{}
+	for index, entry := range response.Targets {
+		if entry.Rank != index+1 {
+			t.Fatalf("catalog rank is not sequential: %+v", response.Targets)
+		}
+		byName[entry.TargetName] = entry
+	}
+	if byName["API Service"].Coverage.ReconDocuments != 1 || byName["API Service"].Coverage.EvidenceDocuments != 0 ||
+		byName["Auth Portal"].Coverage.ReconDocuments != 1 || byName["Auth Portal"].Coverage.NoteDocuments != 1 {
 		t.Fatalf("catalog counted chunks or crossed classification boundary: %+v", response.Targets)
 	}
-	if response.Targets[0].Scope.AuthorizedAssets != 2 || len(response.Targets[0].ObservedAssets) != 2 || response.Targets[0].Scope.ActionAllowed {
-		t.Fatalf("observed host was not attached to project or project was marked actionable: %+v", response.Targets[0])
+	if byName["API Service"].Scope.AuthorizedAssets != 2 || len(byName["API Service"].ObservedAssets) != 2 ||
+		byName["API Service"].Scope.ActionAllowed {
+		t.Fatalf("observed host was not attached to project or project was marked actionable: %+v", byName["API Service"])
 	}
-	if len(response.Unconfirmed) != 1 || response.Unconfirmed[0].TargetName != "Billing" ||
-		response.Unconfirmed[0].Scope.Status != "out_of_scope" || response.Unconfirmed[0].Scope.ActionAllowed {
-		t.Fatalf("excluded target leaked into ranking: %+v", response.Unconfirmed)
+	if byName["Billing"].Scope.Status != "out_of_scope" || byName["Billing"].Coverage.ReconDocuments != 1 ||
+		byName["Billing"].Scope.ActionAllowed || len(response.Unconfirmed) != 1 ||
+		response.Unconfirmed[0].TargetName != "Billing" || response.Unconfirmed[0].Rank != byName["Billing"].Rank {
+		t.Fatalf("legacy unconfirmed subset diverged from ranking: %+v", response.Unconfirmed)
 	}
 	if response.CandidatesEvaluated != 4 || response.Truncated {
 		t.Fatalf("candidate accounting is wrong: %+v", response)
 	}
 	limit := 1
 	limited, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{ProgramID: "acme", Limit: &limit, Order: "needs_recon"})
-	if err != nil || len(limited.Targets) != 1 || limited.Targets[0].TargetName != "Empty Area" || !limited.Truncated {
+	if err != nil || len(limited.Targets) != 1 || limited.Targets[0].TargetName != "Empty Area" ||
+		!limited.Truncated || limited.NextOffset == nil || *limited.NextOffset != 1 {
 		t.Fatalf("needs_recon/limit failed: %+v, %v", limited, err)
+	}
+	second, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{ProgramID: "acme", Limit: &limit, Offset: 1, Order: "needs_recon"})
+	if err != nil || len(second.Targets) != 1 || second.Targets[0].Rank != 2 ||
+		second.Targets[0].TargetName == limited.Targets[0].TargetName || second.Offset != 1 {
+		t.Fatalf("catalog pagination lost the complete ranking: %+v, %v", second, err)
 	}
 }
 
@@ -146,7 +160,8 @@ func TestHiveListTargetsHandlesMixedScopeLegacyGapAndReader(t *testing.T) {
 
 func TestHiveListTargetsRejectsInvalidArguments(t *testing.T) {
 	bad := 51
-	for _, args := range []HiveListTargetsArguments{{ProgramID: "../other"}, {ProgramID: "acme", Limit: &bad}, {ProgramID: "acme", Order: "random"}} {
+	for _, args := range []HiveListTargetsArguments{{ProgramID: "../other"}, {ProgramID: "acme", Limit: &bad},
+		{ProgramID: "acme", Order: "random"}, {ProgramID: "acme", Offset: -1}} {
 		if _, _, err := validateHiveListTargets(args); err == nil {
 			t.Fatalf("accepted invalid catalog request: %+v", args)
 		}
@@ -316,5 +331,129 @@ func TestHiveListTargetsRanksAcrossProgramsWithoutProgramID(t *testing.T) {
 	if err != nil || len(documented.Targets) != 1 || documented.Targets[0].ProgramID != "beta" ||
 		documented.Targets[0].TargetName != "Project 00" || documented.Targets[0].Coverage.NoteDocuments != 1 {
 		t.Fatalf("global ranking did not compare program coverage: %+v, %v", documented, err)
+	}
+	if documented.NextOffset == nil || *documented.NextOffset != 1 {
+		t.Fatalf("global ranking does not expose the next page: %+v", documented)
+	}
+	second, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{Limit: &limit, Offset: 1, Order: "most_documented"})
+	if err != nil || len(second.Targets) != 1 || second.Targets[0].Rank != 2 ||
+		second.Targets[0].TargetName == documented.Targets[0].TargetName && second.Targets[0].ProgramID == documented.Targets[0].ProgramID {
+		t.Fatalf("global pagination repeated the first target: %+v, %v", second, err)
+	}
+}
+
+func TestHiveListTargetsIncludesUnapprovedAndFailedReapproval(t *testing.T) {
+	worker, _, root, _ := setupContextWorker(t, `[{"action":"include","asset_type":"host","value":"api.acme.example.com"}]`)
+	add := func(program, name, host string) {
+		t.Helper()
+		opts, err := parseConvertArgs([]string{"-", "--format=txt", "--program=" + program, "--platform=h1",
+			"--target=" + name, "--observed-target=" + host, "--classification=internal", "--document-type=asset", "--source=recon"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := runConvert(context.Background(), opts, strings.NewReader(host))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "programs", program, "target.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeConvertedDocument(path, encoded); err != nil {
+			t.Fatal(err)
+		}
+		if report := worker.IngestPathReport(context.Background(), path); !report.OK {
+			t.Fatalf("ingest %s: %+v", program, report)
+		}
+	}
+	add("acme", "Approved Project", "api.acme.example.com")
+	add("beta", "Pending Project", "api.beta.example.com")
+	global, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{})
+	if err != nil || len(global.Targets) != 2 || global.CandidatesEvaluated != 2 {
+		t.Fatalf("global catalog missed an unapproved program: %+v, %v", global, err)
+	}
+	byProgram := map[string]TargetCatalogEntry{}
+	for _, target := range global.Targets {
+		byProgram[target.ProgramID] = target
+	}
+	if byProgram["beta"].TargetName != "Pending Project" || byProgram["beta"].Rank == 0 ||
+		byProgram["beta"].Scope.Status != "unknown" || byProgram["beta"].Scope.ScopeRevision != "unapproved" ||
+		byProgram["beta"].Coverage.ReconDocuments != 1 || byProgram["beta"].ObservedAssets[0].ActionAllowed {
+		t.Fatalf("unapproved target was hidden or authorized: %+v", byProgram["beta"])
+	}
+	if byProgram["acme"].Scope.Status != "authorized" {
+		t.Fatalf("approved target lost its scope: %+v", byProgram["acme"])
+	}
+	scopePath := filepath.Join(root, "programs", "acme", "scope.json")
+	if err := os.WriteFile(scopePath, []byte("invalid scope manifest"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.ApproveScope(context.Background(), "acme"); err == nil {
+		t.Fatal("expected reapproval error for invalid scope manifest")
+	}
+	global, err = worker.HiveListTargets(context.Background(), HiveListTargetsArguments{})
+	if err != nil || len(global.Targets) != 2 {
+		t.Fatalf("failed reapproval hid active targets: %+v, %v", global, err)
+	}
+	for _, target := range global.Targets {
+		if target.Scope.Status != "unknown" || target.Scope.ActionAllowed || target.Coverage.ReconDocuments != 1 {
+			t.Fatalf("catalog confused visibility with authorization after reapproval failure: %+v", target)
+		}
+	}
+}
+
+func TestHiveListTargetsKeepsActiveHeadAfterPartialApprovalCommit(t *testing.T) {
+	worker, q, root, approvedRevision := setupContextWorker(t,
+		`[{"action":"include","asset_type":"host","value":"api.example.com"}]`)
+	opts, err := parseConvertArgs([]string{"-", "--format=txt", "--program=acme", "--platform=h1",
+		"--target=API Project", "--observed-target=api.example.com", "--classification=internal",
+		"--document-type=asset", "--source=recon"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := runConvert(context.Background(), opts, strings.NewReader("api.example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "programs", "acme", "api.json")
+	if err := writeConvertedDocument(path, encoded); err != nil {
+		t.Fatal(err)
+	}
+	if report := worker.IngestPathReport(context.Background(), path); !report.OK {
+		t.Fatalf("ingest: %+v", report)
+	}
+	var oldPoint *qdrant.PointStruct
+	for _, point := range q.points[worker.Cfg.CollectionName] {
+		if payloadString(point.Payload, "path", "") == "programs/acme/api.json" && payloadInt(point.Payload, "chunk_ordinal") == 0 {
+			oldPoint = point
+			break
+		}
+	}
+	if oldPoint == nil {
+		t.Fatal("active catalog point not found")
+	}
+	newRevision := strings.Repeat("f", 64)
+	newPayload := clonePayload(oldPoint.Payload)
+	newPayload["scope_revision"] = qdrant.NewValueString(newRevision)
+	staged := &qdrant.PointStruct{Id: qdrant.NewIDUUID(deterministicUUID("staged", path)),
+		Vectors: oldPoint.Vectors, Payload: newPayload}
+	if _, err := q.Upsert(context.Background(), &qdrant.UpsertPoints{CollectionName: worker.Cfg.CollectionName,
+		Wait: qdrant.PtrOf(true), Points: []*qdrant.PointStruct{staged}}); err != nil {
+		t.Fatal(err)
+	}
+	docID := payloadString(oldPoint.Payload, "document_id", "")
+	head, err := worker.readDocumentHead(context.Background(), docID)
+	if err != nil || head == nil {
+		t.Fatalf("document head missing: %v", err)
+	}
+	if err := worker.upsertControl(context.Background(), "document_head", docID,
+		scopeHeadPayload(head, newRevision, "2026-09-29T00:00:00Z")); err != nil {
+		t.Fatal(err)
+	}
+	// The approval record still references the old revision after the failed commit.
+	response, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{ProgramID: "acme"})
+	if err != nil || len(response.Targets) != 1 || response.Targets[0].TargetName != "API Project" ||
+		response.Targets[0].Coverage.ReconDocuments != 1 || response.ScopeRevision != approvedRevision {
+		t.Fatalf("catalog dropped the active document after a partial approval commit: %+v, %v", response, err)
 	}
 }

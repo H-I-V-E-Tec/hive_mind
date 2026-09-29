@@ -126,8 +126,8 @@
     {
       "id": "08",
       "file": "08-v01-acceptance.md",
-      "version": "1.1.0",
-      "sha256": "ee056bc71805d4fcc805e6dbc7a9ec2a4882f00cf3ffc2b00c6eccdeb0becebd",
+      "version": "1.1.1",
+      "sha256": "87c871e87f7dd3c6d9357f4675edd6d4946fac9d429b5f254d24158e43ace95b",
       "status": "pending",
       "executed_at": null,
       "commit": null,

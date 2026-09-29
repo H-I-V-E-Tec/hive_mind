@@ -81,7 +81,8 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
     volumes:
-      - ${HIVE_DATA_DIR:-./hive-data}:/workspace:ro
+      # Apenas laboratório isolado: dados externos ao repositório de desenvolvimento.
+      - ${HIVE_DATA_DIR:?set HIVE_DATA_DIR to an isolated directory outside this repository}:/workspace:ro
       - hive_audit:/var/lib/hive/audit
     depends_on:
       qdrant:

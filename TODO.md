@@ -1,6 +1,6 @@
 # 📋 Hive Mind — Roadmap & TODO
 
-Itens abertos e relatos de uso real do Hive Mind. O andamento estruturado está no [plano de melhoria](plano%20de%20melhoria.md) e em [docs/operations/implementation-status.md](docs/operations/implementation-status.md).
+Itens abertos e relatos de uso real do Hive Mind. A direção atual está no [plano de melhoria e limpeza](PLANO_MELHORIA_E_LIMPEZA.md); o [plano anterior](../guias/planejamento/plano-de-melhoria-anterior.md) e o [estado da implementação](../guias/operacao/implementation-status.md) preservam o histórico.
 
 ---
 
@@ -103,7 +103,7 @@ Estado da ingestão: coinspot, demo, etoro (28 docs) e yahoo ingeridos; 5674 pon
   - Falta apenas `programs/coinspot/recon/recon__urls.txt` (~8.4 MB).
   - Excede `HIVE_MAX_FILE_BYTES` padrão (5 MiB); no lab foi elevado para 20 MiB (env do MCP).
   - Rodar `hive-mind ingest` novamente com os serviços no ar para completar.
-  - Nota 2026-09-16: `.txt` sem front matter recebe `classification: unknown` e nunca é devolvido pela busca; ingerir esse arquivo custa embeddings sem torná-lo pesquisável. Ver [linha de base de recuperação](docs/operations/retrieval-baseline.md).
+  - Nota 2026-09-16: `.txt` sem front matter recebe `classification: unknown` e nunca é devolvido pela busca; ingerir esse arquivo custa embeddings sem torná-lo pesquisável. Ver [linha de base de recuperação](../guias/operacao/retrieval-baseline.md).
 - [ ] **Revisar classificação/sanitização de erros operacionais** (`server/operations.go`)
   - Erro de arquivo grande ("document exceeds N bytes") cai no bucket default e é
     mostrado como "required service is unavailable" — mensagem enganosa.
