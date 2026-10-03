@@ -183,7 +183,7 @@ jobs:
             scripts/hive_backup.py
           rm REVISION hive
           printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
-          (cd dist && sha256sum ./* > SHA256SUMS)
+          (cd dist && sha256sum * > SHA256SUMS)
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
