@@ -35,9 +35,7 @@ func TestDoctorRemoteAllGood(t *testing.T) {
 	srv := testMindServer(t)
 
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	// Store a valid (non-expired) fake token
 	payload := "eyJzdWIiOiJtLTEiLCJuYW1lIjoiQW5hIiwiYXVkIjoibWluZCIsImV4cCI6OTk5OTk5OTk5OSwiaWF0IjoxfQ"
@@ -66,9 +64,7 @@ func TestDoctorRemoteAllGood(t *testing.T) {
 func TestDoctorRemoteNoToken(t *testing.T) {
 	srv := testMindServer(t)
 
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", t.TempDir())
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, t.TempDir())
 
 	os.Setenv("HIVE_MIND_URL", srv.URL)
 	t.Cleanup(func() { os.Unsetenv("HIVE_MIND_URL") })
@@ -92,9 +88,7 @@ func TestDoctorRemoteNoToken(t *testing.T) {
 
 func TestDoctorRemoteServerDown(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	dir := filepath.Join(tmpHome, ".hive")
 	os.MkdirAll(dir, 0o700)

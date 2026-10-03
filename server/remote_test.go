@@ -91,10 +91,8 @@ func testRemoteServer(t *testing.T) *httptest.Server {
 
 func setupTestToken(t *testing.T) {
 	t.Helper()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	dir := filepath.Join(tmpHome, ".hive")
 	os.MkdirAll(dir, 0o700)
@@ -119,9 +117,7 @@ func TestRemoteSearchSuccess(t *testing.T) {
 
 func TestRemoteSearchNoToken(t *testing.T) {
 	srv := testRemoteServer(t)
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", t.TempDir())
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, t.TempDir())
 
 	rc := NewRemoteClient(srv.URL)
 	_, err := rc.HiveSearch(context.Background(), HiveSearchArguments{
