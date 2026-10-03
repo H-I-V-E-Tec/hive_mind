@@ -346,6 +346,8 @@ func splitCLIArgs(raw []string) ([]string, error) {
 		if len(args) < 3 || len(args) > 4 {
 			return nil, errors.New("invalid install arguments")
 		}
+	case "login", "setup", "doctor", "serve":
+		// Validated by their own handlers in Start().
 	default:
 		return nil, errors.New("unknown command")
 	}
