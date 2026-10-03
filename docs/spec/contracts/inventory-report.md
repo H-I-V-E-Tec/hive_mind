@@ -5,9 +5,9 @@ Estado: implementado. Comando de diagnóstico local, sem conexão a Qdrant/Ollam
 ## Uso
 
 ```bash
-hive-mind inventory /caminho/da/copia-do-hive-data
-hive-mind inventory /caminho/da/copia-do-hive-data --program=demo --details
-hive-mind inventory /caminho/da/copia-do-hive-data --hash-max-bytes=104857600
+hive inventory /caminho/da/copia-do-hive-data
+hive inventory /caminho/da/copia-do-hive-data --program=demo --details
+hive inventory /caminho/da/copia-do-hive-data --hash-max-bytes=104857600
 ```
 
 O diretório é obrigatório. O filtro seleciona `programs/<id>/` dentro dele; para analisar um programa, passe a raiz do acervo, não a pasta do programa. Sem filtro, arquivos fora dessa convenção também entram nas contagens, mas não são agrupados como duplicatas.

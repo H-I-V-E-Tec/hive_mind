@@ -82,7 +82,7 @@ func RunSetup(agent string, stderr io.Writer) error {
 }
 
 func listSetupTargets(stderr io.Writer) error {
-	fmt.Fprintln(stderr, "Uso: hive-mind setup <agente>")
+	fmt.Fprintln(stderr, "Uso: hive setup <agente>")
 	fmt.Fprintln(stderr)
 	fmt.Fprintln(stderr, "Agentes disponíveis:")
 	for _, t := range setupTargets {

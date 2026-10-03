@@ -20,8 +20,8 @@ rm -rf dist/package
 mkdir -p dist/package
 extension=''
 [ "$GOOS" != windows ] || extension='.exe'
-binary="hive-mind${extension}"
-asset="hive-mind-${RELEASE_VERSION}-${GOOS}-${GOARCH}"
+binary="hive${extension}"
+asset="hive-${RELEASE_VERSION}-${GOOS}-${GOARCH}"
 
 CGO_ENABLED=1 go build -trimpath -buildvcs=true \
   -ldflags="-X main.Version=${RELEASE_VERSION} -X main.SourceRevision=${GITHUB_SHA} -s -w" \

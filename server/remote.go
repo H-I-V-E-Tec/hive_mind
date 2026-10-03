@@ -96,7 +96,7 @@ func (rc *RemoteClient) getJSON(ctx context.Context, path string, result any) er
 func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	token, err := LoadStoredToken()
 	if err != nil {
-		return fmt.Errorf("authentication required: run 'hive-mind login' first (%w)", err)
+		return fmt.Errorf("authentication required: run 'hive login' first (%w)", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -112,7 +112,7 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("token rejected by server; run 'hive-mind login' to reauthenticate")
+		return fmt.Errorf("token rejected by server; run 'hive login' to reauthenticate")
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("forbidden: insufficient permissions")

@@ -125,6 +125,9 @@ func Start(version string) {
 			}
 		}
 		if centerURL == "" {
+			centerURL = LoadStoredCenterURL()
+		}
+		if centerURL == "" {
 			fmt.Fprintln(os.Stderr, "HIVE_CENTER_URL or --center-url is required for login")
 			os.Exit(ExitConfiguration)
 		}
@@ -403,7 +406,7 @@ func Start(version string) {
 		}
 	}
 
-	// Remote mode: connect to a remote hive-mind serve instance via HTTP+JWT
+	// Remote mode: connect to a remote hive serve instance via HTTP+JWT
 	// instead of requiring local Qdrant/Ollama access.
 	if cfg.HiveMindURL != "" {
 		mindURL, err := ValidateHiveCenterURL(cfg.HiveMindURL)
@@ -529,7 +532,7 @@ func createWorker(cfg Config) (*qdrant.Client, *IngestionWorker, error) {
 		if err != nil {
 			return nil, nil, &operationalError{ExitConfiguration, "HIVE_AUDIT_DIR is required"}
 		}
-		cfg.AuditDirectory = filepath.Join(cache, "hive-mind", "audit")
+		cfg.AuditDirectory = filepath.Join(cache, "hive", "audit")
 	}
 	audit, err := OpenFileAudit(cfg)
 	if err != nil {
@@ -680,8 +683,8 @@ func printCLIHelp() {
 	fmt.Println("  login --check                  Verify the stored token is valid and not expired.")
 	fmt.Println()
 	fmt.Println("  When HIVE_MIND_URL (or --mind-url) is set, the MCP server runs in remote")
-	fmt.Println("  mode: tool calls are forwarded via HTTP+JWT to a hive-mind serve instance")
-	fmt.Println("  instead of connecting directly to Qdrant. Run 'hive-mind login' first.")
+	fmt.Println("  mode: tool calls are forwarded via HTTP+JWT to a hive serve instance")
+	fmt.Println("  instead of connecting directly to Qdrant. Run 'hive login' first.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
 	fmt.Println("                                 Options: claude, codex (maintained); cursor, windsurf,")
@@ -715,7 +718,7 @@ func printCLIHelp() {
 	fmt.Println("  --http-addr <addr>             HTTP listen address (default :8443; serve only).")
 	fmt.Println("  --http-tls-cert <path>         TLS certificate for HTTPS (serve only).")
 	fmt.Println("  --http-tls-key <path>          TLS private key for HTTPS (serve only).")
-	fmt.Println("  --mind-url <url>               Remote hive-mind serve URL (enables remote MCP mode).")
+	fmt.Println("  --mind-url <url>               Remote hive serve URL (enables remote MCP mode).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")

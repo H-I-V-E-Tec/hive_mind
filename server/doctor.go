@@ -62,13 +62,13 @@ func runRemoteDoctor(report *DoctorReport, mindURL string, stderr io.Writer) {
 	token, err := LoadStoredToken()
 	if err != nil {
 		report.addFail("token", fmt.Sprintf("sem token: %v", err))
-		fmt.Fprintf(stderr, "  ✗ Token: não encontrado — rode 'hive-mind login'\n")
+		fmt.Fprintf(stderr, "  ✗ Token: não encontrado — rode 'hive login'\n")
 	} else {
 		name := tokenDisplayName(token)
 		expiry, expired := tokenExpiry(token)
 		if expired {
 			report.addFail("token", fmt.Sprintf("expirado em %s (usuário: %s)", expiry.Format(time.RFC3339), name))
-			fmt.Fprintf(stderr, "  ✗ Token: expirado em %s — rode 'hive-mind login'\n", expiry.Format(time.RFC3339))
+			fmt.Fprintf(stderr, "  ✗ Token: expirado em %s — rode 'hive login'\n", expiry.Format(time.RFC3339))
 		} else {
 			remaining := time.Until(expiry).Truncate(time.Second)
 			report.addPass("token", fmt.Sprintf("válido para %s (expira em %s)", name, remaining))

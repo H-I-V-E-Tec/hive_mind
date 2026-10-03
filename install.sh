@@ -3,7 +3,7 @@ set -e
 
 # Repository settings
 GITHUB_REPO="${HIVE_GITHUB_REPOSITORY:-H-I-V-E-Tec/hive_mind}"
-BINARY_NAME="hive-mind"
+BINARY_NAME="hive"
 
 # Color support detection
 if [ -t 1 ]; then

@@ -93,7 +93,7 @@ func (iw *IngestionWorker) EnsureInfrastructure(ctx context.Context) error {
 		return err
 	}
 
-	dimensionVector, err := iw.FetchRemoteEmbedding(ctx, "hive-mind dimension probe")
+	dimensionVector, err := iw.FetchRemoteEmbedding(ctx, "hive dimension probe")
 	if err != nil {
 		return fmt.Errorf("resolve embedding dimension: %w", err)
 	}
@@ -214,7 +214,7 @@ func (iw *IngestionWorker) ValidateInfrastructure(ctx context.Context) error {
 	if iw.infrastructureReady {
 		return nil
 	}
-	dimensionVector, err := iw.FetchRemoteEmbedding(ctx, "hive-mind dimension probe")
+	dimensionVector, err := iw.FetchRemoteEmbedding(ctx, "hive dimension probe")
 	if err != nil {
 		return fmt.Errorf("resolve embedding dimension: %w", err)
 	}

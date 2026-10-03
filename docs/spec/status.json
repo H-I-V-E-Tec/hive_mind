@@ -50,8 +50,8 @@
     {
       "id": "02",
       "file": "02-document-ingestion.md",
-      "version": "1.2.0",
-      "sha256": "279343f77dacefcb05c712457acd48403760d786af623c89d0c81c2772d2f069",
+      "version": "1.2.1",
+      "sha256": "34c081e4c2da7a04a73117ae111b2f6699843509bdcdc752de41acabd949effe",
       "status": "completed",
       "executed_at": "2026-09-18T10:00:00-03:00",
       "commit": "b80dc1d",
@@ -67,8 +67,8 @@
     {
       "id": "03",
       "file": "03-recon-metadata.md",
-      "version": "1.0.0",
-      "sha256": "bf194e88f0760c654f29ab0aace7d4323ebcc41a27e152fc65c2c9febfd4d8b3",
+      "version": "1.0.1",
+      "sha256": "fc6042aa4d29204a2a3be8a2d0c91f3db011c78c039d7fafe53a5ff827a8337d",
       "status": "completed",
       "executed_at": "2026-09-10T16:32:50-03:00",
       "commit": "3baa272",
@@ -136,8 +136,8 @@
     {
       "id": "09",
       "file": "09-usage-metrics.md",
-      "version": "1.0.0",
-      "sha256": "18479c46c619a7b3462e2240afdb4a831684f81889fd750d3913a8f85d67791b",
+      "version": "1.0.1",
+      "sha256": "19199b1aca7c93ee9d2f065c8b685acfd387c0eb8679fe52766751074b13a089",
       "status": "completed",
       "executed_at": "2026-09-12T10:27:57-03:00",
       "commit": "61250c6",
@@ -149,8 +149,8 @@
     {
       "id": "10",
       "file": "10-agent-integration.md",
-      "version": "1.0.0",
-      "sha256": "0b42448f1a422b783bed50134744867e1395c2c07dacd3d0db8b99368ae45980",
+      "version": "1.0.1",
+      "sha256": "98e79b742b5a583fe2166e107a8611debc2c7c574c64607f6318a83e18deb9e8",
       "status": "completed",
       "executed_at": "2026-09-12T10:28:57-03:00",
       "commit": "61250c6",

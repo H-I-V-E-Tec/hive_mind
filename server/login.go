@@ -35,6 +35,38 @@ func TokenPath() string {
 	return filepath.Join(dir, "token")
 }
 
+func CenterURLPath() string {
+	dir := TokenDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, "center-url")
+}
+
+func LoadStoredCenterURL() string {
+	path := CenterURLPath()
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func storeCenterURL(centerURL string) error {
+	dir := TokenDir()
+	if dir == "" {
+		return errors.New("cannot determine home directory")
+	}
+	if err := os.MkdirAll(dir, tokenDirPerm); err != nil {
+		return fmt.Errorf("cannot create %s: %w", dir, err)
+	}
+	path := filepath.Join(dir, "center-url")
+	return os.WriteFile(path, []byte(centerURL+"\n"), tokenFilePerm)
+}
+
 func LoadStoredToken() (string, error) {
 	path := TokenPath()
 	if path == "" {
@@ -136,6 +168,7 @@ func RunLogin(centerURL string, stdin io.Reader, stderr io.Writer) error {
 	if err := storeToken(tokenResp.AccessToken); err != nil {
 		return err
 	}
+	_ = storeCenterURL(centerURL)
 
 	name := tokenDisplayName(tokenResp.AccessToken)
 	if name == "" {

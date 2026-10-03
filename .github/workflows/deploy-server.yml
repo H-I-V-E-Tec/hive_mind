@@ -1,4 +1,4 @@
-name: Deploy Qdrant server
+name: Deploy Hive server
 
 on:
   workflow_dispatch:

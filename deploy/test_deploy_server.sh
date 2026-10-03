@@ -17,8 +17,13 @@ cp "$PROJECT_ROOT/deploy/qdrant-server.compose.yml" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/qdrant_admin.py" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/deploy_server.sh" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/deploy/hive-predeploy-backup.example" "$BUNDLE/deploy/"
+cp "$PROJECT_ROOT/deploy/hive.service" "$BUNDLE/deploy/"
+cp "$PROJECT_ROOT/deploy/hive.env.example" "$BUNDLE/deploy/"
 cp "$PROJECT_ROOT/scripts/hive_backup.py" "$BUNDLE/scripts/"
 printf '%040d\n' 1 > "$BUNDLE/REVISION"
+# Fake hive binary for testing
+printf '#!/bin/sh\necho ok\n' > "$BUNDLE/hive"
+chmod 0755 "$BUNDLE/hive"
 : > "$PRIVATE_ROOT/qdrant.env"
 : > "$PRIVATE_ROOT/admin.key"
 : > "$PRIVATE_ROOT/ca.crt"
@@ -48,15 +53,20 @@ export HIVE_DEPLOY_HEALTH_DELAY=0
 export HIVE_DEPLOY_HISTORY_DIR="$TEST_ROOT/history"
 export HIVE_DEPLOY_TEST_MODE=1
 
+# --- Test 1: Initial deploy with hive binary ---
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.3 --initial
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.3"
 test ! -e "$INSTALL_ROOT/releases/v1.2.3/docs"
+test -x "$INSTALL_ROOT/releases/v1.2.3/hive"
+test -f "$INSTALL_ROOT/releases/v1.2.3/deploy/hive.service"
 
+# --- Test 2: Upgrade runs backup ---
 printf '%040d\n' 2 > "$BUNDLE/REVISION"
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.4
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.4"
 grep -qx backup "$LOG"
 
+# --- Test 3: Failed health check triggers rollback ---
 printf '%040d\n' 3 > "$BUNDLE/REVISION"
 if HIVE_TEST_HEALTH=fail bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.5; then
   printf 'deploy aceitou health check com falha\n' >&2
@@ -64,4 +74,18 @@ if HIVE_TEST_HEALTH=fail bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.5
 fi
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.4"
 grep -Fq "$INSTALL_ROOT/releases/v1.2.4/deploy/qdrant-server.compose.yml up -d" "$LOG"
+
+# --- Test 4: Deploy without hive binary (backward compat) ---
+BUNDLE_NO_MIND="$TEST_ROOT/bundle-no-mind"
+mkdir -p "$BUNDLE_NO_MIND/deploy" "$BUNDLE_NO_MIND/scripts"
+cp "$PROJECT_ROOT/deploy/qdrant-server.compose.yml" "$BUNDLE_NO_MIND/deploy/"
+cp "$PROJECT_ROOT/deploy/qdrant_admin.py" "$BUNDLE_NO_MIND/deploy/"
+cp "$PROJECT_ROOT/deploy/deploy_server.sh" "$BUNDLE_NO_MIND/deploy/"
+cp "$PROJECT_ROOT/deploy/hive-predeploy-backup.example" "$BUNDLE_NO_MIND/deploy/"
+cp "$PROJECT_ROOT/scripts/hive_backup.py" "$BUNDLE_NO_MIND/scripts/"
+printf '%040d\n' 4 > "$BUNDLE_NO_MIND/REVISION"
+bash "$BUNDLE_NO_MIND/deploy/deploy_server.sh" --version v1.2.6
+test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.6"
+test ! -e "$INSTALL_ROOT/releases/v1.2.6/hive"
+
 printf 'deploy tests: ok\n'
