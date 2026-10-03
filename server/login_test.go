@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -85,20 +86,22 @@ func TestRunLoginSuccess(t *testing.T) {
 		t.Errorf("token looks invalid: %q", token)
 	}
 
-	info, err := os.Stat(tokenPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("token file permissions = %o, want 600", perm)
-	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(tokenPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("token file permissions = %o, want 600", perm)
+		}
 
-	dirInfo, err := os.Stat(filepath.Join(tmpHome, ".hive"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
-		t.Errorf(".hive dir permissions = %o, want 700", perm)
+		dirInfo, err := os.Stat(filepath.Join(tmpHome, ".hive"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+			t.Errorf(".hive dir permissions = %o, want 700", perm)
+		}
 	}
 
 	output := stderr.String()
