@@ -6,7 +6,7 @@ import (
 )
 
 func TestVersionMetadataIsMachineReadable(t *testing.T) {
-	if _, err := splitCLIArgs([]string{"hive-mind", "version"}); err != nil {
+	if _, err := splitCLIArgs([]string{"hive", "version"}); err != nil {
 		t.Fatalf("version command rejected: %v", err)
 	}
 	payload, err := json.Marshal(map[string]any{"version": Version, "source_revision": SourceRevision})

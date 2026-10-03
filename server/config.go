@@ -95,6 +95,12 @@ type Config struct {
 	JSONMaxDepth        int
 	JSONMaxElements     int
 	DeleteGrace         time.Duration
+
+	HiveCenterURL  string
+	HTTPAddr       string
+	HTTPTLSCert    string
+	HTTPTLSKey     string
+	HiveMindURL    string
 }
 
 func (c Config) IsWriter() bool { return c.Role == RoleWriter }
@@ -182,6 +188,9 @@ var allowedConfigKeys = map[string]struct{}{
 	"HIVE_CHUNK_MAX_CHARS": {}, "HIVE_CHUNK_OVERLAP_CHARS": {},
 	"HIVE_JSON_MAX_DEPTH": {}, "HIVE_JSON_MAX_ELEMENTS": {},
 	"HIVE_MAX_EMBEDDING_WORKERS": {}, "HIVE_DELETE_GRACE_HOURS": {},
+	"HIVE_CENTER_URL": {}, "HIVE_HTTP_ADDR": {},
+	"HIVE_HTTP_TLS_CERT": {}, "HIVE_HTTP_TLS_KEY": {},
+	"HIVE_MIND_URL": {},
 }
 
 var configFlagKeys = map[string]string{
@@ -206,6 +215,11 @@ var configFlagKeys = map[string]string{
 	"--json-max-elements":      "HIVE_JSON_MAX_ELEMENTS",
 	"--max-embedding-workers":  "HIVE_MAX_EMBEDDING_WORKERS",
 	"--delete-grace-hours":     "HIVE_DELETE_GRACE_HOURS",
+	"--center-url":             "HIVE_CENTER_URL",
+	"--http-addr":              "HIVE_HTTP_ADDR",
+	"--http-tls-cert":          "HIVE_HTTP_TLS_CERT",
+	"--http-tls-key":           "HIVE_HTTP_TLS_KEY",
+	"--mind-url":               "HIVE_MIND_URL",
 }
 
 func parseConfigFlags(args []string) (map[string]string, string, error) {
@@ -520,7 +534,40 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 		ChunkMaxChars: chunkMax, ChunkOverlapChars: overlap,
 		JSONMaxDepth: jsonDepth, JSONMaxElements: jsonElements,
 		DeleteGrace: time.Duration(graceHours) * time.Hour,
+
+		HiveCenterURL: strings.TrimSpace(values["HIVE_CENTER_URL"]),
+		HTTPAddr:      hiveCenterHTTPAddr(values),
+		HTTPTLSCert:   strings.TrimSpace(values["HIVE_HTTP_TLS_CERT"]),
+		HTTPTLSKey:    strings.TrimSpace(values["HIVE_HTTP_TLS_KEY"]),
+		HiveMindURL:   strings.TrimSpace(values["HIVE_MIND_URL"]),
 	}, nil
+}
+
+func hiveCenterHTTPAddr(values map[string]string) string {
+	if addr := strings.TrimSpace(values["HIVE_HTTP_ADDR"]); addr != "" {
+		return addr
+	}
+	return ":8443"
+}
+
+// ValidateHiveCenterURL checks that the configured HIVE Center URL is a valid
+// HTTPS (or loopback HTTP) absolute URL. Commands that need it (serve, login)
+// call this after LoadConfig.
+func ValidateHiveCenterURL(raw string) (string, error) {
+	if raw == "" {
+		return "", errors.New("HIVE_CENTER_URL is required")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return "", errors.New("HIVE_CENTER_URL must be an absolute URL with scheme")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("HIVE_CENTER_URL must use http or https")
+	}
+	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
+		return "", errors.New("HIVE_CENTER_URL outside loopback must use https")
+	}
+	return strings.TrimSuffix(parsed.String(), "/"), nil
 }
 
 func boundedInt(values map[string]string, key string, defaultValue, minValue, maxValue int) (int, error) {

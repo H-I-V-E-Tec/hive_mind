@@ -10,11 +10,11 @@ O contrato MCP garante o que o servidor devolve, não o que o agente faz com iss
 
 ## Comportamento
 
-`hive-mind list-skills` enumera os templates e `hive-mind install-skill <agente> [destino]` grava um deles. Os templates **mantidos** são:
+`hive list-skills` enumera os templates e `hive install-skill <agente> [destino]` grava um deles. Os templates **mantidos** são:
 
 | Chave | Arquivo gerado | Cliente |
 | --- | --- | --- |
-| `claude` | `.claude/skills/hive-mind/SKILL.md` | Claude Code (skill carregada por descrição, sem sobrescrever `CLAUDE.md`). |
+| `claude` | `.claude/skills/hive/SKILL.md` | Claude Code (skill carregada por descrição, sem sobrescrever `CLAUDE.md`). |
 | `codex` | `.codex/mcp-instructions.md` | Codex (referenciado a partir de `AGENTS.md`). |
 
 `cursor`, `windsurf`, `cline`, `copilot` e `generic` permanecem como legado do servidor RAG original e não descrevem o Hive; a ajuda os marca como legacy.

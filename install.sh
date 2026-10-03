@@ -3,7 +3,7 @@ set -e
 
 # Repository settings
 GITHUB_REPO="${HIVE_GITHUB_REPOSITORY:-H-I-V-E-Tec/hive_mind}"
-BINARY_NAME="hive-mind"
+BINARY_NAME="hive"
 
 # Color support detection
 if [ -t 1 ]; then
@@ -180,6 +180,64 @@ if [ ! -f "${TMP_DIR}/${ASSET_NAME}" ]; then
     exit 1
 fi
 
+# 6b. Verify checksum (if checksums file exists in the release)
+CHECKSUM_NAME="${BINARY_NAME}-${VERSION}-checksums.txt"
+CHECKSUM_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${CHECKSUM_NAME}"
+log_info "Verifying checksum..."
+CHECKSUM_OK=false
+if command -v curl >/dev/null 2>&1; then
+    curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || true
+else
+    wget -qO "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || true
+fi
+if [ -f "${TMP_DIR}/${CHECKSUM_NAME}" ]; then
+    EXPECTED=$(grep "${ASSET_NAME}" "${TMP_DIR}/${CHECKSUM_NAME}" | awk '{print $1}')
+    if [ -n "$EXPECTED" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            ACTUAL=$(sha256sum "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
+        elif command -v shasum >/dev/null 2>&1; then
+            ACTUAL=$(shasum -a 256 "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
+        fi
+        if [ -n "$ACTUAL" ] && [ "$EXPECTED" = "$ACTUAL" ]; then
+            log_success "Checksum verified (SHA-256)."
+            CHECKSUM_OK=true
+        else
+            log_error "Checksum mismatch! Expected ${EXPECTED}, got ${ACTUAL}."
+            log_error "The downloaded file may be corrupted or tampered with."
+            exit 1
+        fi
+    else
+        log_warning "Asset not found in checksums file; skipping verification."
+    fi
+else
+    log_warning "No checksums file in this release; skipping verification."
+fi
+
+# 6c. Verify cosign signature (optional, if cosign is available)
+if command -v cosign >/dev/null 2>&1 && [ "$CHECKSUM_OK" = true ]; then
+    SIG_URL="${CHECKSUM_URL}.sig"
+    CERT_URL="${CHECKSUM_URL}.cert"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}.sig" "$SIG_URL" 2>/dev/null || true
+        curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}.cert" "$CERT_URL" 2>/dev/null || true
+    else
+        wget -qO "${TMP_DIR}/${CHECKSUM_NAME}.sig" "$SIG_URL" 2>/dev/null || true
+        wget -qO "${TMP_DIR}/${CHECKSUM_NAME}.cert" "$CERT_URL" 2>/dev/null || true
+    fi
+    if [ -f "${TMP_DIR}/${CHECKSUM_NAME}.sig" ] && [ -f "${TMP_DIR}/${CHECKSUM_NAME}.cert" ]; then
+        if cosign verify-blob \
+            --signature "${TMP_DIR}/${CHECKSUM_NAME}.sig" \
+            --certificate "${TMP_DIR}/${CHECKSUM_NAME}.cert" \
+            --certificate-identity-regexp ".*" \
+            --certificate-oidc-issuer-regexp ".*" \
+            "${TMP_DIR}/${CHECKSUM_NAME}" >/dev/null 2>&1; then
+            log_success "Cosign signature verified."
+        else
+            log_warning "Cosign signature verification failed; continuing with checksum-only verification."
+        fi
+    fi
+fi
+
 # 7. Extract Archive
 log_info "Extracting archive..."
 cd "$TMP_DIR"
@@ -245,15 +303,25 @@ fi
 
 log_success "${BINARY_NAME} ${VERSION} installed successfully at ${INSTALL_DIR}/${BINARY_FILE}!"
 echo ""
-echo "🚀 CLI capabilities:"
-echo "  - Ingest your Hive data manually:    ${BINARY_NAME} ingest"
-echo "  - List configured agent skills:      ${BINARY_NAME} list-skills"
-echo "  - Show all commands and flags:       ${BINARY_NAME} help"
+echo "🚀 Quick start (remote mode — recommended for members):"
 echo ""
-echo "💡 Configuration:"
-echo "  There is NO auto-discovery. Set the required environment/TOML keys yourself"
-echo "  (HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION, QDRANT_URL, QDRANT_API_KEY,"
-echo "  OLLAMA_URL, EMBEDDING_MODEL; writers also HIVE_DATA_DIR and HIVE_WRITER_APPROVAL_ID),"
-echo "  or pass an explicit flat TOML with '--config <path>' (0600, outside HIVE_DATA_DIR)."
-echo "  Legacy keys are rejected. See '${BINARY_NAME} help'; use hive_instance for client setup."
+echo "  1. Login:"
+echo "     ${BINARY_NAME} login --center-url=https://center.hive.example"
+echo ""
+echo "  2. Configure your AI agent:"
+echo "     HIVE_MIND_URL=https://mind.hive.example:8443 ${BINARY_NAME} setup claude-code"
+echo ""
+echo "  3. Verify everything works:"
+echo "     HIVE_MIND_URL=https://mind.hive.example:8443 ${BINARY_NAME} doctor"
+echo ""
+echo "  No SSH tunnel, Qdrant, Ollama or certificates required."
+echo ""
+echo "📋 All commands:"
+echo "  login [--center-url <url>]    Authenticate with HIVE Center"
+echo "  login --check                 Verify stored token"
+echo "  doctor                        Diagnose token, connectivity and config"
+echo "  setup <agent|all>             Register MCP (claude-code, claude-desktop, codex)"
+echo "  serve                         Start HTTP API server (operators only)"
+echo "  ingest [--prune]              Ingest HIVE_DATA_DIR (local mode)"
+echo "  help                          Show all commands and flags"
 echo ""

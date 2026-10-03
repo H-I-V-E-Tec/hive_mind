@@ -21,8 +21,8 @@ type Skill struct {
 var AvailableSkills = []Skill{
 	{
 		Key:         "claude",
-		Filename:    ".claude/skills/hive-mind/SKILL.md",
-		Description: "Claude Code skill (.claude/skills/hive-mind/SKILL.md)",
+		Filename:    ".claude/skills/hive/SKILL.md",
+		Description: "Claude Code skill (.claude/skills/hive/SKILL.md)",
 		EmbedPath:   "skills/claude.md",
 	},
 	{
@@ -79,9 +79,9 @@ func ListSkills() {
 
 	fmt.Println()
 	fmt.Println("\x1b[1;33mUsage examples:\x1b[0m")
-	fmt.Println("  hive-mind install-skill claude")
-	fmt.Println("  hive-mind install-skill codex /absolute/path/to/project")
-	fmt.Println("  hive-mind install-skill all")
+	fmt.Println("  hive install-skill claude")
+	fmt.Println("  hive install-skill codex /absolute/path/to/project")
+	fmt.Println("  hive install-skill all")
 	fmt.Println("==================================================================")
 }
 

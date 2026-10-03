@@ -49,6 +49,7 @@ cosign verify-blob \
 install -d -m 0700 "$TEMPORARY/extracted"
 tar -xzf "$TEMPORARY/$ASSET" -C "$TEMPORARY/extracted"
 [ -x "$TEMPORARY/extracted/deploy/deploy_server.sh" ] || die "bundle de servidor inválido"
+[ -x "$TEMPORARY/extracted/hive" ] || die "bundle não contém binário hive"
 
 if [ "$INITIAL_FLAG" = "--initial" ]; then
   "$TEMPORARY/extracted/deploy/deploy_server.sh" --version "$VERSION" --initial

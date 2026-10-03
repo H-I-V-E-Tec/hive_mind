@@ -6,7 +6,7 @@ Itens abertos e relatos de uso real do Hive Mind. A direção atual está no [pl
 
 ## 🗄️ Histórico: servidor RAG genérico (pré-Hive)
 
-> As seções abaixo até a linha de separação descrevem o servidor RAG original e **não** refletem o código atual. Diferenças conhecidas: a variável é `HIVE_MAX_EMBEDDING_WORKERS` (não `MAX_EMBEDDING_WORKERS`); o hash de conteúdo é SHA-256, não SHA1; as flags `--batch-size`, `--batch-timeout` e `--log-to-file` não existem — as flags aceitas estão em `hive-mind help`. A busca híbrida está implementada em `queryVariant`, mas a configuração é fixa em `dense` (ver item aberto mais abaixo).
+> As seções abaixo até a linha de separação descrevem o servidor RAG original e **não** refletem o código atual. Diferenças conhecidas: a variável é `HIVE_MAX_EMBEDDING_WORKERS` (não `MAX_EMBEDDING_WORKERS`); o hash de conteúdo é SHA-256, não SHA1; as flags `--batch-size`, `--batch-timeout` e `--log-to-file` não existem — as flags aceitas estão em `hive help`. A busca híbrida está implementada em `queryVariant`, mas a configuração é fixa em `dense` (ver item aberto mais abaixo).
 
 
 ## ⚡ Performance & Ingestion Concurrency
@@ -96,13 +96,13 @@ Contrato e implementação inicial: [catálogo de alvos](docs/vision/target-cata
 
 Ambiente de lab montado sem Docker: Ollama + Qdrant como binários standalone em
 `/Users/tiagobalbinoferreira/Documents/HIVE/hive-lab` (script `start-services.sh`),
-MCP `hive-mind` registrado no Claude Code (escopo local, ✔ Connected).
+MCP `hive` registrado no Claude Code (escopo local, ✔ Connected).
 Estado da ingestão: coinspot, demo, etoro (28 docs) e yahoo ingeridos; 5674 pontos.
 
 - [ ] **Ingerir o restante do hive-data**
   - Falta apenas `programs/coinspot/recon/recon__urls.txt` (~8.4 MB).
   - Excede `HIVE_MAX_FILE_BYTES` padrão (5 MiB); no lab foi elevado para 20 MiB (env do MCP).
-  - Rodar `hive-mind ingest` novamente com os serviços no ar para completar.
+  - Rodar `hive ingest` novamente com os serviços no ar para completar.
   - Nota 2026-09-16: `.txt` sem front matter recebe `classification: unknown` e nunca é devolvido pela busca; ingerir esse arquivo custa embeddings sem torná-lo pesquisável. Ver [linha de base de recuperação](../guias/operacao/retrieval-baseline.md).
 - [ ] **Revisar classificação/sanitização de erros operacionais** (`server/operations.go`)
   - Erro de arquivo grande ("document exceeds N bytes") cai no bucket default e é
@@ -117,7 +117,7 @@ Estado da ingestão: coinspot, demo, etoro (28 docs) e yahoo ingeridos; 5674 pon
   - Hoje o start é manual (`hive-lab/start-services.sh`). Avaliar `launchd`/`brew services`
     para subir Qdrant/Ollama no boot, se desejado.
 - [ ] **Confirmar tools MCP em sessão nova do Claude Code**
-  - `mcp__hive-mind__hive_search`, `hive_get_context`, `get_sync_status`, `ingest_workspace`.
+  - `mcp__hive__hive_search`, `hive_get_context`, `get_sync_status`, `ingest_workspace`.
 
 ---
 
@@ -144,7 +144,7 @@ Contexto: benchmark de retrieval (Hive vs grep) + dedup do corpus etoro. Ordem p
     preservando o relatório. Testes: `server/ingestion_report_test.go`.
 - [ ] **Watcher não purga vetores ao remover/mover arquivo (macOS)** 🟠
   - Mover 9 docs pra fora do `hive-data` **não** disparou o purge; os vetores órfãos
-    continuaram aparecendo na busca. Só saíram via `hive-mind remove <path>` manual.
+    continuaram aparecendo na busca. Só saíram via `hive remove <path>` manual.
   - Ação: verificar fsnotify de `Remove`/`Rename` no macOS; ou reconciliar órfãos no `ingest`.
   - Inspeção 2026-09-16: `server/watcher.go` trata Write/Create/Remove, não Rename. O `ingest`
     já marca ausentes como `missing` (pending_delete) e `--prune` remove após a carência;

@@ -228,8 +228,7 @@ func TestSpec005RejectsInvalidAssetAndTooSmallHeaderBudget(t *testing.T) {
 }
 
 func TestSpec005AdvertisesStructuredContextTool(t *testing.T) {
-	worker := &IngestionWorker{Cfg: Config{Role: RoleReader}}
-	tools := worker.availableTools()
+	tools := mcpAvailableTools(false)
 	if !containsTool(tools, "hive_get_context") {
 		t.Fatal("hive_get_context is not advertised")
 	}

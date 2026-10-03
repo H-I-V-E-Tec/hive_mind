@@ -119,10 +119,10 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: |
-          asset="dist/hive-mind-${RELEASE_VERSION}-windows-amd64.zip"
+          asset="dist/hive-${RELEASE_VERSION}-windows-amd64.zip"
           test -s "$asset"
-          test "$(unzip -Z1 "$asset")" = hive-mind.exe
-          unzip -p "$asset" hive-mind.exe | file - | grep -q 'PE32+ executable'
+          test "$(unzip -Z1 "$asset")" = hive.exe
+          unzip -p "$asset" hive.exe | file - | grep -q 'PE32+ executable'
 
       - name: Upload matrix artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -167,16 +167,21 @@ jobs:
           GOBIN="$RUNNER_TEMP/release-tools" \
             go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0
           "$RUNNER_TEMP/release-tools/cyclonedx-gomod" mod -licenses -json \
-            -output "dist/hive-mind-${VERSION}.cdx.json" .
+            -output "dist/hive-${VERSION}.cdx.json" .
           printf '%s\n' "$GITHUB_SHA" > REVISION
+          # Extract linux-amd64 binary for the server bundle
+          tar -xzf "dist/hive-${VERSION}-linux-amd64.tar.gz" hive
           tar -czf "dist/hive-server-${VERSION}.tar.gz" \
+            hive \
             REVISION \
             deploy/qdrant-server.compose.yml \
             deploy/qdrant_admin.py \
             deploy/deploy_server.sh \
             deploy/hive-predeploy-backup.example \
+            deploy/hive.service \
+            deploy/hive.env.example \
             scripts/hive_backup.py
-          rm REVISION
+          rm REVISION hive
           printf 'version=%s\ncommit=%s\n' "$VERSION" "$GITHUB_SHA" > dist/SOURCE.txt
           (cd dist && sha256sum ./* > SHA256SUMS)
 

@@ -1,10 +1,10 @@
 # Hive Mind — shared recon memory (Codex)
 
-This workspace is connected to the `hive-mind` MCP server. Reference this file from `AGENTS.md` (for example: "Read `.codex/mcp-instructions.md` before recon tasks") so it is loaded in every session.
+This workspace is connected to the `hive` MCP server. Reference this file from `AGENTS.md` (for example: "Read `.codex/mcp-instructions.md` before recon tasks") so it is loaded in every session.
 
 ## What Hive Mind is
 
-Hive Mind is a **shared memory for authorized security research** (bug bounty and red-team work inside an approved scope). Team members write notes and evidence as Markdown files; the Hive indexes them into a private vector database and exposes them to you through the `hive-mind` MCP server. Use it to avoid repeating work another person or agent already did, and to hand investigations over between people.
+Hive Mind is a **shared memory for authorized security research** (bug bounty and red-team work inside an approved scope). Team members write notes and evidence as Markdown files; the Hive indexes them into a private vector database and exposes them to you through the `hive` MCP server. Use it to avoid repeating work another person or agent already did, and to hand investigations over between people.
 
 Non-negotiable rules:
 

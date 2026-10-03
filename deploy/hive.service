@@ -1,0 +1,26 @@
+[Unit]
+Description=Hive Mind HTTP API Server
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/hive-test/current/hive serve
+EnvironmentFile=/srv/hive-private/hive.env
+Restart=on-failure
+RestartSec=5
+User=hive
+Group=hive
+WorkingDirectory=/var/lib/hive
+StateDirectory=hive
+LogsDirectory=hive
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hive
+ReadOnlyPaths=/srv/hive-private
+
+[Install]
+WantedBy=multi-user.target

@@ -1,15 +1,15 @@
 ---
-name: hive-mind
-description: Use the hive-mind MCP server (hive_get_context, hive_search) before touching any asset or starting recon work, and write notes in the Hive front-matter format so teammates and later sessions can reuse them.
+name: hive
+description: Use the hive MCP server (hive_get_context, hive_search) before touching any asset or starting recon work, and write notes in the Hive front-matter format so teammates and later sessions can reuse them.
 ---
 
 # Hive Mind — shared recon memory (Claude Code)
 
-This project is connected to the `hive-mind` MCP server. Load this skill whenever the task involves a bug bounty program, a target asset, recon data, or notes under `programs/`.
+This project is connected to the `hive` MCP server. Load this skill whenever the task involves a bug bounty program, a target asset, recon data, or notes under `programs/`.
 
 ## What Hive Mind is
 
-Hive Mind is a **shared memory for authorized security research** (bug bounty and red-team work inside an approved scope). Team members write notes and evidence as Markdown files; the Hive indexes them into a private vector database and exposes them to you through the `hive-mind` MCP server. Use it to avoid repeating work another person or agent already did, and to hand investigations over between people.
+Hive Mind is a **shared memory for authorized security research** (bug bounty and red-team work inside an approved scope). Team members write notes and evidence as Markdown files; the Hive indexes them into a private vector database and exposes them to you through the `hive` MCP server. Use it to avoid repeating work another person or agent already did, and to hand investigations over between people.
 
 Non-negotiable rules:
 

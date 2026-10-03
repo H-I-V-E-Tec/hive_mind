@@ -25,7 +25,7 @@ Para envelopes/novos formatos, a revisão inclui também o fingerprint do conver
 
 Arquivos inalterados não geram upsert. Falha antes do commit mantém a revisão anterior ativa. Falha depois do commit nunca reativa silenciosamente a revisão antiga.
 
-Ausência observada pelo watcher apenas marca o documento como `pending_delete`, e somente quando o writer observador é o dono. Exclusão efetiva exige `hive-mind remove <path>` ou `ingest --prune` depois do período de carência configurado, grava primeiro um tombstone na collection de controle e só então remove os chunks; ambos agem apenas sobre documentos do próprio writer. Isso evita interpretar atraso de sincronização, ou a ausência do arquivo na pasta de outro writer, como exclusão intencional.
+Ausência observada pelo watcher apenas marca o documento como `pending_delete`, e somente quando o writer observador é o dono. Exclusão efetiva exige `hive remove <path>` ou `ingest --prune` depois do período de carência configurado, grava primeiro um tombstone na collection de controle e só então remove os chunks; ambos agem apenas sobre documentos do próprio writer. Isso evita interpretar atraso de sincronização, ou a ausência do arquivo na pasta de outro writer, como exclusão intencional.
 
 ## Segurança
 

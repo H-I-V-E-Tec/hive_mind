@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/qdrant/go-client/qdrant"
@@ -84,6 +86,67 @@ func Start(version string) {
 		printJSON(report)
 		if !report.OK {
 			os.Exit(report.ExitCode)
+		}
+		return
+	}
+
+	if len(args) > 1 && args[1] == "doctor" {
+		report := RunDoctor(os.Stderr)
+		printJSON(report)
+		if !report.OK {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(args) > 1 && args[1] == "setup" {
+		agent := ""
+		if len(args) > 2 {
+			agent = args[2]
+		}
+		if err := RunSetup(agent, os.Stderr); err != nil {
+			if agent == "" {
+				os.Exit(ExitUsage)
+			}
+			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(args) > 1 && args[1] == "login" {
+		centerURL := flagValueFromArgs(args[2:], "--center-url")
+		if centerURL == "" {
+			for _, item := range os.Environ() {
+				parts := strings.SplitN(item, "=", 2)
+				if len(parts) == 2 && parts[0] == "HIVE_CENTER_URL" {
+					centerURL = parts[1]
+				}
+			}
+		}
+		if centerURL == "" {
+			centerURL = LoadStoredCenterURL()
+		}
+		if centerURL == "" {
+			fmt.Fprintln(os.Stderr, "HIVE_CENTER_URL or --center-url is required for login")
+			os.Exit(ExitConfiguration)
+		}
+		checkOnly := false
+		for _, a := range args[2:] {
+			if a == "--check" {
+				checkOnly = true
+			}
+		}
+		if checkOnly {
+			if err := RunLoginCheck(os.Stderr); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if err := RunLogin(centerURL, os.Stdin, os.Stderr); err != nil {
+			fmt.Fprintf(os.Stderr, "login: %v\n", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -286,10 +349,79 @@ func Start(version string) {
 			}
 			fmt.Println(string(encoded))
 			return
+		case "serve":
+			centerURL, err := ValidateHiveCenterURL(cfg.HiveCenterURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+				os.Exit(ExitConfiguration)
+			}
+			client, worker := mustCreateWorker(cfg)
+			defer client.Close()
+			defer worker.Close()
+
+			jwks := NewJWKSClient(centerURL)
+			httpSrv := NewHTTPServer(worker, jwks, cfg.HTTPAddr)
+
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			if cfg.IsWriter() {
+				watcher, err := fsnotify.NewWatcher()
+				if err != nil {
+					log.Fatalf("Failed to spin up filesystem notification systems: %v", err)
+				}
+				defer watcher.Close()
+				eventChan := make(chan string, 100)
+				go worker.WatchLoop(ctx, watcher, eventChan)
+				go worker.IngestionConsumer(ctx, eventChan)
+				if err := worker.addWatchRecursive(watcher, cfg.WatchDirectory); err != nil {
+					log.Printf("Warning: Directory traversal hit path restrictions: %v", err)
+				}
+			}
+
+			go func() {
+				<-ctx.Done()
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer shutdownCancel()
+				if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+					log.Printf("HTTP shutdown error: %v", err)
+				}
+			}()
+
+			log.Printf("Starting Hive Mind HTTP server on %s (center: %s)", cfg.HTTPAddr, centerURL)
+			var serveErr error
+			if cfg.HTTPTLSCert != "" && cfg.HTTPTLSKey != "" {
+				serveErr = httpSrv.ListenAndServeTLS(cfg.HTTPTLSCert, cfg.HTTPTLSKey)
+			} else {
+				serveErr = httpSrv.ListenAndServe()
+			}
+			if serveErr != nil && serveErr != http.ErrServerClosed {
+				log.Fatalf("HTTP server error: %v", serveErr)
+			}
+			log.Println("Hive Mind HTTP server stopped.")
+			return
 		case "help", "-h", "--help":
 			printCLIHelp()
 			return
 		}
+	}
+
+	// Remote mode: connect to a remote hive serve instance via HTTP+JWT
+	// instead of requiring local Qdrant/Ollama access.
+	if cfg.HiveMindURL != "" {
+		mindURL, err := ValidateHiveCenterURL(cfg.HiveMindURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "HIVE_MIND_URL: %v\n", err)
+			os.Exit(ExitConfiguration)
+		}
+		log.Printf("Starting Hive Mind MCP client (remote: %s)", mindURL)
+		remote := NewRemoteClient(mindURL)
+		handler := &MCPHandler{backend: remote}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		waitMCPClient(ctx, handler.ListenToMCPClient)
+		log.Println("Hive Mind MCP client stopped.")
+		return
 	}
 
 	log.Println("Starting Go Qdrant-RAG MCP Server...")
@@ -304,10 +436,12 @@ func Start(version string) {
 	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		log.Fatalf("Hive startup validation failed: %v", err)
 	}
+	backend := &workerBackend{worker: worker}
+	handler := &MCPHandler{backend: backend}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if cfg.IsReader() {
-		waitMCPClient(ctx, worker.ListenToMCPClient)
+		waitMCPClient(ctx, handler.ListenToMCPClient)
 		return
 	}
 
@@ -331,7 +465,7 @@ func Start(version string) {
 
 	// A disconnected stdio client owns this process's lifetime, just like a
 	// termination signal. Otherwise writers keep watching after their client exits.
-	waitMCPClient(ctx, worker.ListenToMCPClient)
+	waitMCPClient(ctx, handler.ListenToMCPClient)
 	cancel()
 	log.Println("Shutting down Go MCP Server cleanly.")
 }
@@ -398,7 +532,7 @@ func createWorker(cfg Config) (*qdrant.Client, *IngestionWorker, error) {
 		if err != nil {
 			return nil, nil, &operationalError{ExitConfiguration, "HIVE_AUDIT_DIR is required"}
 		}
-		cfg.AuditDirectory = filepath.Join(cache, "hive-mind", "audit")
+		cfg.AuditDirectory = filepath.Join(cache, "hive", "audit")
 	}
 	audit, err := OpenFileAudit(cfg)
 	if err != nil {
@@ -539,6 +673,18 @@ func printCLIHelp() {
 	fmt.Println("               [--program=<id>]  from local audit logs; numbers only, no content.")
 	fmt.Println("  scope approve <program_id>     Preview the manifest hash; add --yes to approve it.")
 	fmt.Println("  search <program_id> <query>    Search; filters use --tag=value and related flags.")
+	fmt.Println("  serve                          Start the HTTP API server with JWT authentication.")
+	fmt.Println("                                 Requires HIVE_CENTER_URL for JWKS validation.")
+	fmt.Println("                                 Optional: HIVE_HTTP_ADDR (default :8443),")
+	fmt.Println("                                 HIVE_HTTP_TLS_CERT and HIVE_HTTP_TLS_KEY.")
+	fmt.Println("  doctor                         Diagnose token, connectivity and configuration.")
+	fmt.Println("  setup <agent|all>              Register MCP in an AI agent (claude-code, claude-desktop, codex).")
+	fmt.Println("  login [--center-url <url>]     Authenticate with HIVE Center and save JWT locally.")
+	fmt.Println("  login --check                  Verify the stored token is valid and not expired.")
+	fmt.Println()
+	fmt.Println("  When HIVE_MIND_URL (or --mind-url) is set, the MCP server runs in remote")
+	fmt.Println("  mode: tool calls are forwarded via HTTP+JWT to a hive serve instance")
+	fmt.Println("  instead of connecting directly to Qdrant. Run 'hive login' first.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
 	fmt.Println("                                 Options: claude, codex (maintained); cursor, windsurf,")
@@ -568,6 +714,11 @@ func printCLIHelp() {
 	fmt.Println("  --json-max-depth <n>           Maximum JSON nesting accepted (default 64; ceiling 64).")
 	fmt.Println("  --json-max-elements <n>        Maximum JSON elements accepted (default 100000; ceiling 100000).")
 	fmt.Println("  --delete-grace-hours <n>       Hours before a pending delete may be pruned (default 24; ceiling 24).")
+	fmt.Println("  --center-url <url>             HIVE Center URL for JWT/JWKS (serve/login).")
+	fmt.Println("  --http-addr <addr>             HTTP listen address (default :8443; serve only).")
+	fmt.Println("  --http-tls-cert <path>         TLS certificate for HTTPS (serve only).")
+	fmt.Println("  --http-tls-key <path>          TLS private key for HTTPS (serve only).")
+	fmt.Println("  --mind-url <url>               Remote hive serve URL (enables remote MCP mode).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")
@@ -577,4 +728,16 @@ func printCLIHelp() {
 	fmt.Println("QDRANT_API_KEY is never accepted as a process argument. Configuration files")
 	fmt.Println("containing it must be permission-restricted and outside HIVE_DATA_DIR.")
 	fmt.Println("No configuration file is auto-discovered and legacy keys are rejected.")
+}
+
+func flagValueFromArgs(args []string, name string) string {
+	for i, arg := range args {
+		if n, v, ok := strings.Cut(arg, "="); ok && n == name {
+			return v
+		}
+		if arg == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
 }

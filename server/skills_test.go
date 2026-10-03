@@ -34,7 +34,7 @@ func TestSpec010InstallsMaintainedSkillTemplates(t *testing.T) {
 		"scope.json",                       // 6.
 		"handoff",                          // 7. handoff session
 	}
-	cases := map[string]string{"claude": ".claude/skills/hive-mind/SKILL.md", "codex": ".codex/mcp-instructions.md"}
+	cases := map[string]string{"claude": ".claude/skills/hive/SKILL.md", "codex": ".codex/mcp-instructions.md"}
 	for key, rel := range cases {
 		dest := t.TempDir()
 		if err := InstallSkill(key, dest); err != nil {
@@ -54,7 +54,7 @@ func TestSpec010InstallsMaintainedSkillTemplates(t *testing.T) {
 			t.Errorf("%s template still describes the legacy code RAG server", key)
 		}
 	}
-	if strings.Contains(string(mustSkill(t, "claude")), "AGENTS.md") || !strings.HasPrefix(string(mustSkill(t, "claude")), "---\nname: hive-mind\n") {
+	if strings.Contains(string(mustSkill(t, "claude")), "AGENTS.md") || !strings.HasPrefix(string(mustSkill(t, "claude")), "---\nname: hive\n") {
 		t.Fatal("claude template must be a Claude Code skill with front matter")
 	}
 	if err := InstallSkill("unknown-agent", t.TempDir()); err == nil {

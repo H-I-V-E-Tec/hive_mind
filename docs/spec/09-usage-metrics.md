@@ -24,7 +24,7 @@ O head de cada documento passa a conter `document_bytes` (tamanho do arquivo lid
 
 ## Comando `audit report`
 
-`hive-mind audit report [--since=AAAA-MM-DD] [--program=<program_id>]` lê todos os `audit-*.jsonl` de `HIVE_AUDIT_DIR` do dispositivo e imprime JSON com:
+`hive audit report [--since=AAAA-MM-DD] [--program=<program_id>]` lê todos os `audit-*.jsonl` de `HIVE_AUDIT_DIR` do dispositivo e imprime JSON com:
 
 - `rows`: uma linha por dia UTC × `device_id` × `program_id` × ferramenta, com `queries`, `failed`, `truncated`, `results`, `response_chars`, `source_bytes`, `duration_ms` e `source_to_response_ratio` (`source_bytes / response_chars`);
 - `totals`: os mesmos contadores consolidados;
