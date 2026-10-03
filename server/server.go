@@ -115,7 +115,7 @@ func Start(version string) {
 	}
 
 	if len(args) > 1 && args[1] == "login" {
-		centerURL := flagValueFromArgs(args[2:], "--center-url")
+		centerURL := flagValueFromArgs(os.Args[2:], "--center-url")
 		if centerURL == "" {
 			for _, item := range os.Environ() {
 				parts := strings.SplitN(item, "=", 2)
