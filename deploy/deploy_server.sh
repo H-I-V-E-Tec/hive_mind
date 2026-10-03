@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-INSTALL_ROOT="${HIVE_SERVER_INSTALL_ROOT:-/opt/hive-test}"
+INSTALL_ROOT="${HIVE_SERVER_INSTALL_ROOT:-/opt/hive-mind}"
 PRIVATE_ROOT="${HIVE_SERVER_PRIVATE_ROOT:-/srv/hive-private}"
 BACKUP_HOOK="${HIVE_DEPLOY_BACKUP_HOOK:-/usr/local/sbin/hive-predeploy-backup}"
 HEALTH_ATTEMPTS="${HIVE_DEPLOY_HEALTH_ATTEMPTS:-12}"
