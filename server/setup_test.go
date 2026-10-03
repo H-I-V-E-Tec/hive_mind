@@ -91,9 +91,7 @@ func TestSetupPreservesExistingServers(t *testing.T) {
 
 func TestSetupCodex(t *testing.T) {
 	tmpHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	os.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
 	t.Cleanup(func() { os.Unsetenv("HIVE_MIND_URL") })

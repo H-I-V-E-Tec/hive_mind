@@ -55,14 +55,17 @@ func testCenterServer(t *testing.T, wantUser, wantPass string) *httptest.Server 
 	return srv
 }
 
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
 func TestRunLoginSuccess(t *testing.T) {
 	srv := testCenterServer(t, "admin", "secret")
 
-	// Override token dir to temp dir.
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	stdin := strings.NewReader("admin\nsecret\n")
 	var stderr strings.Builder
@@ -107,9 +110,7 @@ func TestRunLoginSuccess(t *testing.T) {
 func TestRunLoginBadCredentials(t *testing.T) {
 	srv := testCenterServer(t, "admin", "secret")
 
-	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", t.TempDir())
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, t.TempDir())
 
 	stdin := strings.NewReader("admin\nwrong\n")
 	var stderr strings.Builder
@@ -124,10 +125,8 @@ func TestRunLoginBadCredentials(t *testing.T) {
 }
 
 func TestRunLoginCheckExpired(t *testing.T) {
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	// Store a token with exp in the past.
 	// {"sub":"m-1","name":"Ana","aud":"mind","exp":1,"iat":0}
@@ -149,10 +148,8 @@ func TestRunLoginCheckExpired(t *testing.T) {
 }
 
 func TestRunLoginCheckValid(t *testing.T) {
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	t.Cleanup(func() { os.Setenv("HOME", origHome) })
+	setTestHome(t, tmpHome)
 
 	// {"sub":"m-1","name":"Ana","aud":"mind","exp":9999999999,"iat":1}
 	payload := "eyJzdWIiOiJtLTEiLCJuYW1lIjoiQW5hIiwiYXVkIjoibWluZCIsImV4cCI6OTk5OTk5OTk5OSwiaWF0IjoxfQ"
