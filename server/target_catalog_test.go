@@ -145,10 +145,10 @@ func TestHiveListTargetsHandlesMixedScopeLegacyGapAndReader(t *testing.T) {
 		response.Targets[0].Coverage.ReconDocuments != 1 || response.UnregisteredFiles != 1 {
 		t.Fatalf("reader catalog did not enforce mixed scope or report legacy gap: %+v", response)
 	}
-	if !containsTool(worker.availableTools(), "hive_list_targets") {
+	if !containsTool(mcpAvailableTools(false), "hive_list_targets") {
 		t.Fatal("target catalog MCP tool is not advertised to readers")
 	}
-	for _, tool := range worker.availableTools() {
+	for _, tool := range mcpAvailableTools(false) {
 		if tool["name"] == "hive_list_targets" {
 			if tool["inputSchema"].(map[string]interface{})["additionalProperties"] != false ||
 				tool["outputSchema"].(map[string]interface{})["additionalProperties"] != false {
@@ -264,7 +264,7 @@ func TestHiveListTargetsSkipsStaleRowBeforeActiveRevision(t *testing.T) {
 
 func TestHiveListTargetsRanksAcrossProgramsWithoutProgramID(t *testing.T) {
 	worker, _, root, _ := setupContextWorker(t, `[{"action":"include","asset_type":"wildcard_domain","value":"*.acme.example.com"}]`)
-	for _, tool := range worker.availableTools() {
+	for _, tool := range mcpAvailableTools(false) {
 		if tool["name"] == "hive_list_targets" {
 			input := tool["inputSchema"].(map[string]interface{})
 			if required, ok := input["required"]; ok && len(required.([]string)) > 0 {

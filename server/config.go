@@ -100,6 +100,7 @@ type Config struct {
 	HTTPAddr       string
 	HTTPTLSCert    string
 	HTTPTLSKey     string
+	HiveMindURL    string
 }
 
 func (c Config) IsWriter() bool { return c.Role == RoleWriter }
@@ -189,6 +190,7 @@ var allowedConfigKeys = map[string]struct{}{
 	"HIVE_MAX_EMBEDDING_WORKERS": {}, "HIVE_DELETE_GRACE_HOURS": {},
 	"HIVE_CENTER_URL": {}, "HIVE_HTTP_ADDR": {},
 	"HIVE_HTTP_TLS_CERT": {}, "HIVE_HTTP_TLS_KEY": {},
+	"HIVE_MIND_URL": {},
 }
 
 var configFlagKeys = map[string]string{
@@ -217,6 +219,7 @@ var configFlagKeys = map[string]string{
 	"--http-addr":              "HIVE_HTTP_ADDR",
 	"--http-tls-cert":          "HIVE_HTTP_TLS_CERT",
 	"--http-tls-key":           "HIVE_HTTP_TLS_KEY",
+	"--mind-url":               "HIVE_MIND_URL",
 }
 
 func parseConfigFlags(args []string) (map[string]string, string, error) {
@@ -536,6 +539,7 @@ func buildConfig(values map[string]string, configPath string) (Config, error) {
 		HTTPAddr:      hiveCenterHTTPAddr(values),
 		HTTPTLSCert:   strings.TrimSpace(values["HIVE_HTTP_TLS_CERT"]),
 		HTTPTLSKey:    strings.TrimSpace(values["HIVE_HTTP_TLS_KEY"]),
+		HiveMindURL:   strings.TrimSpace(values["HIVE_MIND_URL"]),
 	}, nil
 }
 

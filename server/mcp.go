@@ -24,7 +24,11 @@ type CallToolParams struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-func (iw *IngestionWorker) ListenToMCPClient(ctx context.Context) {
+type MCPHandler struct {
+	backend HiveBackend
+}
+
+func (h *MCPHandler) ListenToMCPClient(ctx context.Context) {
 	dec := json.NewDecoder(os.Stdin)
 	for {
 		select {
@@ -39,12 +43,12 @@ func (iw *IngestionWorker) ListenToMCPClient(ctx context.Context) {
 				continue
 			}
 			// Route base protocol signals (e.g. initialize, tools/list)
-			iw.handleMCPMethod(req)
+			h.handleMCPMethod(req)
 		}
 	}
 }
 
-func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
+func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 	// 1. Connection Handshake Protocol Block
 	if req.Method == "initialize" {
 		response := map[string]interface{}{
@@ -68,7 +72,7 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 
 	// 2. Capabilities Protocol Declaration Block
 	if req.Method == "tools/list" {
-		tools := iw.availableTools()
+		tools := mcpAvailableTools(h.backend.IsWriter())
 		response := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -85,30 +89,26 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 	if req.Method == "tools/call" {
 		var params CallToolParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			iw.sendMCPError(req.ID, -32602, "Invalid tool call parameters")
+			sendMCPError(req.ID, -32602, "Invalid tool call parameters")
 			return
 		}
 
 		if params.Name == "hive_search" {
 			var args HiveSearchArguments
 			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
-				iw.sendMCPError(req.ID, -32602, "Invalid search arguments format")
-				return
-			}
-			if _, _, err := iw.validateHiveSearch(args); err != nil {
-				iw.sendMCPError(req.ID, -32602, err.Error())
+				sendMCPError(req.ID, -32602, "Invalid search arguments format")
 				return
 			}
 
 			go func() {
-				searchResponse, err := iw.HiveSearch(context.Background(), args)
+				searchResponse, err := h.backend.HiveSearch(context.Background(), args)
 				if err != nil {
 					if isSearchValidationError(err) {
-						iw.sendMCPError(req.ID, -32602, err.Error())
+						sendMCPError(req.ID, -32602, err.Error())
 						return
 					}
 					log.Printf("Hive search failed: %v", err)
-					iw.sendMCPError(req.ID, -32603, "Search execution failed")
+					sendMCPError(req.ID, -32603, "Search execution failed")
 					return
 				}
 				summary, _ := json.Marshal(map[string]interface{}{"results_count": len(searchResponse.Results), "truncated": searchResponse.Truncated})
@@ -131,22 +131,18 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 		} else if params.Name == "hive_get_context" {
 			var args HiveContextArguments
 			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
-				iw.sendMCPError(req.ID, -32602, "Invalid context arguments format")
-				return
-			}
-			if _, _, _, err := iw.validateHiveContext(args); err != nil {
-				iw.sendMCPError(req.ID, -32602, err.Error())
+				sendMCPError(req.ID, -32602, "Invalid context arguments format")
 				return
 			}
 			go func() {
-				contextResponse, err := iw.HiveGetContext(context.Background(), args)
+				contextResponse, err := h.backend.HiveGetContext(context.Background(), args)
 				if err != nil {
 					if isSearchValidationError(err) {
-						iw.sendMCPError(req.ID, -32602, err.Error())
+						sendMCPError(req.ID, -32602, err.Error())
 						return
 					}
 					log.Printf("Hive context failed: %v", err)
-					iw.sendMCPError(req.ID, -32603, "Context assembly failed")
+					sendMCPError(req.ID, -32603, "Context assembly failed")
 					return
 				}
 				summary, _ := json.Marshal(map[string]interface{}{"scope": contextResponse.Scope.Status, "items_count": len(contextResponse.Items), "truncated": contextResponse.Truncated})
@@ -163,18 +159,18 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 		} else if params.Name == "hive_list_targets" {
 			var args HiveListTargetsArguments
 			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
-				iw.sendMCPError(req.ID, -32602, "Invalid target catalog arguments format")
-				return
-			}
-			if _, _, err := validateHiveListTargets(args); err != nil {
-				iw.sendMCPError(req.ID, -32602, err.Error())
+				sendMCPError(req.ID, -32602, "Invalid target catalog arguments format")
 				return
 			}
 			go func() {
-				catalog, err := iw.HiveListTargets(context.Background(), args)
+				catalog, err := h.backend.HiveListTargets(context.Background(), args)
 				if err != nil {
+					if isSearchValidationError(err) {
+						sendMCPError(req.ID, -32602, err.Error())
+						return
+					}
 					log.Printf("Hive target catalog failed: %v", err)
-					iw.sendMCPError(req.ID, -32603, "Target catalog failed")
+					sendMCPError(req.ID, -32603, "Target catalog failed")
 					return
 				}
 				summary, _ := json.Marshal(map[string]interface{}{"targets_count": len(catalog.Targets), "unconfirmed_count": len(catalog.Unconfirmed), "truncated": catalog.Truncated})
@@ -184,36 +180,14 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 				fmt.Println(string(out))
 			}()
 		} else if params.Name == "get_sync_status" {
-			iw.Mu.Lock()
-			status := "idle"
-			if len(iw.PendingFiles) > 0 || iw.ActiveSyncs > 0 {
-				status = "syncing"
-			}
+			snap := h.backend.SyncStatus()
 
-			pendingList := []string{}
-			for p := range iw.PendingFiles {
-				pendingList = append(pendingList, p)
-			}
-
-			pendingCount := len(iw.PendingFiles)
-			activeCount := iw.ActiveSyncs
-			totalCount := iw.TotalSynced
-			iw.Mu.Unlock()
-
-			// Format output nicely in Markdown
 			var sb strings.Builder
 			sb.WriteString("### 🔄 Code Ingestion Sync Status\n\n")
-			sb.WriteString(fmt.Sprintf("- **Status:** `%s`\n", status))
-			sb.WriteString(fmt.Sprintf("- **Queue Size (Debouncing):** `%d`\n", pendingCount))
-			sb.WriteString(fmt.Sprintf("- **Active Indexing Threads:** `%d`\n", activeCount))
-			sb.WriteString(fmt.Sprintf("- **Lifetime Synced Files:** `%d`\n", totalCount))
-
-			if len(pendingList) > 0 {
-				sb.WriteString("\n#### ⏳ Files Currently in Debounce Queue:\n")
-				for _, p := range pendingList {
-					sb.WriteString(fmt.Sprintf("- `%s`\n", p))
-				}
-			}
+			sb.WriteString(fmt.Sprintf("- **Status:** `%s`\n", snap.Status))
+			sb.WriteString(fmt.Sprintf("- **Queue Size (Debouncing):** `%d`\n", snap.PendingFiles))
+			sb.WriteString(fmt.Sprintf("- **Active Indexing Threads:** `%d`\n", snap.ActiveSyncs))
+			sb.WriteString(fmt.Sprintf("- **Lifetime Synced Files:** `%d`\n", snap.TotalSynced))
 
 			response := map[string]interface{}{
 				"jsonrpc": "2.0",
@@ -230,23 +204,23 @@ func (iw *IngestionWorker) handleMCPMethod(req MCPRequest) {
 			out, _ := json.Marshal(response)
 			fmt.Println(string(out))
 		} else if params.Name == "ingest_workspace" {
-			if !iw.Cfg.IsWriter() {
-				iw.sendMCPError(req.ID, -32601, "Requested tool execution target not found")
+			if !h.backend.IsWriter() {
+				sendMCPError(req.ID, -32601, "Requested tool execution target not found")
 				return
 			}
 			go func() {
-				report := iw.IngestWorkspaceReport(context.Background(), false)
+				report := h.backend.IngestWorkspaceReport(context.Background(), false)
 				out, _ := json.Marshal(ingestionMCPResponse(req.ID, report))
 				fmt.Println(string(out))
 			}()
 		} else {
-			iw.sendMCPError(req.ID, -32601, "Requested tool execution target not found")
+			sendMCPError(req.ID, -32601, "Requested tool execution target not found")
 		}
 		return
 	}
 }
 
-func (iw *IngestionWorker) availableTools() []map[string]interface{} {
+func mcpAvailableTools(writer bool) []map[string]interface{} {
 	tools := []map[string]interface{}{
 		{
 			"name":        "hive_list_targets",
@@ -356,7 +330,7 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		},
 	}
-	if iw.Cfg.IsWriter() {
+	if writer {
 		tools = append(tools, map[string]interface{}{
 			"name":        "ingest_workspace",
 			"description": "Ingest the configured Hive data directory and return a JSON report with created, updated, unchanged, skipped and failed files. Partial failures retain all file results and set isError.",
@@ -364,6 +338,19 @@ func (iw *IngestionWorker) availableTools() []map[string]interface{} {
 		})
 	}
 	return tools
+}
+
+func decodeStrictJSON(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("trailing JSON value")
+	}
+	return nil
 }
 
 func targetCatalogOutputSchema() map[string]interface{} {
@@ -458,21 +445,7 @@ func hiveContextOutputSchema() map[string]interface{} {
 	}
 }
 
-func decodeStrictJSON(raw json.RawMessage, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return fmt.Errorf("trailing JSON value")
-	}
-	return nil
-}
-
-// Helper tool to safely write standardized JSON-RPC protocol error contexts
-func (iw *IngestionWorker) sendMCPError(id json.RawMessage, code int, message string) {
+func sendMCPError(id json.RawMessage, code int, message string) {
 	response := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,

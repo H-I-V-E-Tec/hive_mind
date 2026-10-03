@@ -90,6 +90,30 @@ func Start(version string) {
 		return
 	}
 
+	if len(args) > 1 && args[1] == "doctor" {
+		report := RunDoctor(os.Stderr)
+		printJSON(report)
+		if !report.OK {
+			os.Exit(1)
+		}
+		return
+	}
+
+	if len(args) > 1 && args[1] == "setup" {
+		agent := ""
+		if len(args) > 2 {
+			agent = args[2]
+		}
+		if err := RunSetup(agent, os.Stderr); err != nil {
+			if agent == "" {
+				os.Exit(ExitUsage)
+			}
+			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if len(args) > 1 && args[1] == "login" {
 		centerURL := flagValueFromArgs(args[2:], "--center-url")
 		if centerURL == "" {
@@ -379,6 +403,24 @@ func Start(version string) {
 		}
 	}
 
+	// Remote mode: connect to a remote hive-mind serve instance via HTTP+JWT
+	// instead of requiring local Qdrant/Ollama access.
+	if cfg.HiveMindURL != "" {
+		mindURL, err := ValidateHiveCenterURL(cfg.HiveMindURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "HIVE_MIND_URL: %v\n", err)
+			os.Exit(ExitConfiguration)
+		}
+		log.Printf("Starting Hive Mind MCP client (remote: %s)", mindURL)
+		remote := NewRemoteClient(mindURL)
+		handler := &MCPHandler{backend: remote}
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer cancel()
+		waitMCPClient(ctx, handler.ListenToMCPClient)
+		log.Println("Hive Mind MCP client stopped.")
+		return
+	}
+
 	log.Println("Starting Go Qdrant-RAG MCP Server...")
 
 	client, worker, err := createWorker(cfg)
@@ -391,10 +433,12 @@ func Start(version string) {
 	if err := validateWorkerStartup(context.Background(), worker); err != nil {
 		log.Fatalf("Hive startup validation failed: %v", err)
 	}
+	backend := &workerBackend{worker: worker}
+	handler := &MCPHandler{backend: backend}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if cfg.IsReader() {
-		waitMCPClient(ctx, worker.ListenToMCPClient)
+		waitMCPClient(ctx, handler.ListenToMCPClient)
 		return
 	}
 
@@ -418,7 +462,7 @@ func Start(version string) {
 
 	// A disconnected stdio client owns this process's lifetime, just like a
 	// termination signal. Otherwise writers keep watching after their client exits.
-	waitMCPClient(ctx, worker.ListenToMCPClient)
+	waitMCPClient(ctx, handler.ListenToMCPClient)
 	cancel()
 	log.Println("Shutting down Go MCP Server cleanly.")
 }
@@ -630,8 +674,14 @@ func printCLIHelp() {
 	fmt.Println("                                 Requires HIVE_CENTER_URL for JWKS validation.")
 	fmt.Println("                                 Optional: HIVE_HTTP_ADDR (default :8443),")
 	fmt.Println("                                 HIVE_HTTP_TLS_CERT and HIVE_HTTP_TLS_KEY.")
+	fmt.Println("  doctor                         Diagnose token, connectivity and configuration.")
+	fmt.Println("  setup <agent|all>              Register MCP in an AI agent (claude-code, claude-desktop, codex).")
 	fmt.Println("  login [--center-url <url>]     Authenticate with HIVE Center and save JWT locally.")
 	fmt.Println("  login --check                  Verify the stored token is valid and not expired.")
+	fmt.Println()
+	fmt.Println("  When HIVE_MIND_URL (or --mind-url) is set, the MCP server runs in remote")
+	fmt.Println("  mode: tool calls are forwarded via HTTP+JWT to a hive-mind serve instance")
+	fmt.Println("  instead of connecting directly to Qdrant. Run 'hive-mind login' first.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
 	fmt.Println("                                 Options: claude, codex (maintained); cursor, windsurf,")
@@ -665,6 +715,7 @@ func printCLIHelp() {
 	fmt.Println("  --http-addr <addr>             HTTP listen address (default :8443; serve only).")
 	fmt.Println("  --http-tls-cert <path>         TLS certificate for HTTPS (serve only).")
 	fmt.Println("  --http-tls-key <path>          TLS private key for HTTPS (serve only).")
+	fmt.Println("  --mind-url <url>               Remote hive-mind serve URL (enables remote MCP mode).")
 	fmt.Println()
 	fmt.Println("Required environment/TOML keys:")
 	fmt.Println("  HIVE_ID, HIVE_DEVICE_ID, HIVE_ROLE, HIVE_COLLECTION")

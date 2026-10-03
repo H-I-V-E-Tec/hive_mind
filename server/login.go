@@ -198,12 +198,16 @@ func storeToken(token string) error {
 	return nil
 }
 
+func decodeJWTPayload(b64 string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(b64)
+}
+
 func tokenDisplayName(token string) string {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return ""
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	payload, err := decodeJWTPayload(parts[1])
 	if err != nil {
 		return ""
 	}
