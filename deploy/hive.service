@@ -6,7 +6,7 @@ Requires=docker.service
 
 [Service]
 Type=simple
-ExecStart=/opt/hive-test/current/hive serve
+ExecStart=/opt/hive-mind/current/hive serve
 EnvironmentFile=/srv/hive-private/hive.env
 Restart=on-failure
 RestartSec=5
@@ -19,8 +19,8 @@ LogsDirectory=hive
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/hive
-ReadOnlyPaths=/srv/hive-private
+ReadWritePaths=/var/lib/hive /srv/hive-data
+ReadOnlyPaths=/srv/hive-private /opt/hive-mind
 
 [Install]
 WantedBy=multi-user.target
