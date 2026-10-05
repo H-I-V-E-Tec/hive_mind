@@ -13,7 +13,7 @@
 *.p12
 *.pfx
 
-# Dados operacionais pertencem ao hive_instance ou ao servidor.
+# Dados operacionais pertencem à instalação do cliente ou ao servidor.
 /hive-data/
 /data/
 /raw/

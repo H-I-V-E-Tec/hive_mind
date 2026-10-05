@@ -4,7 +4,7 @@ Data: 2026-09-29. Escopo: organização do checkout, inspeção do código/confi
 
 ## 1. Direção do produto e responsabilidade de cada projeto
 
-O `hive_mind` é o repositório de engenharia do cliente/núcleo atual: código, contratos, testes, build e release. Hoje agentes operacionais usam o cliente instalado no `hive_instance`; na distribuição comercial, o comprador receberá um pacote instalável. A API proposta terá projeto e deploy separados. Conhecimento real de programas e configurações de pessoas não pertencem ao checkout de desenvolvimento.
+O `hive_mind` é o repositório de engenharia do cliente/núcleo atual: código, contratos, testes, build e release. Hoje agentes operacionais usam o binário `hive` instalado a partir das releases (`hive login`, `hive setup`, `hive doctor`); na distribuição comercial, o comprador receberá um pacote instalável. A API proposta terá projeto e deploy separados. Conhecimento real de programas e configurações de pessoas não pertencem ao checkout de desenvolvimento.
 
 ### Decisão prioritária para a próxima evolução
 
@@ -21,7 +21,7 @@ O recorte vendável não precisa começar com deduplicação semântica, Dojo ou
 | Local | Responsabilidade | O que não deve ficar nele |
 | --- | --- | --- |
 | `hive_mind` | Implementar e testar cliente/núcleo, manter contratos e publicar releases verificáveis. | Acervo real, tokens, laboratório operacional ativo, logs ou backup de clientes. |
-| `hive_instance` | Instalar o cliente, integrar o agente, manter configuração privada, documentos de entrada e auditoria local. | Código-fonte obrigatório para operar, chave administrativa do banco ou fonte canônica da empresa. |
+| Cliente legado (clone) | Instalar o cliente, integrar o agente, manter configuração privada, documentos de entrada e auditoria local. | Código-fonte obrigatório para operar, chave administrativa do banco ou fonte canônica da empresa. |
 | `../hive_center` | Implementar identidade, assinatura, admissão, curadoria, autorização e busca do serviço hospedado, com deploy próprio. | Instalador local, configuração de agente ou credenciais entregues ao caçador. |
 | Servidor atual | Qdrant privado, collections, TLS, credenciais administrativas e provisionamento. | Checkout completo, compiladores e MCP por usuário executado como se fosse serviço central. |
 | Servidor proposto | API autenticada, políticas, fonte canônica, indexação, embeddings, busca e auditoria central. | Dependência de um notebook para manter o conhecimento compartilhado disponível. |
@@ -41,20 +41,19 @@ Testar o código localmente continua necessário: usar fixtures sintéticas e pa
 | [deploy/qdrant_admin.py](deploy/qdrant_admin.py) | Existe emissão/revogação de JWT por dispositivo com `jti` e `value_exists` na collection administrativa. Guias antigos com tokens apenas por expiração não são prova de que esse mecanismo foi instalado ou usado em produção. |
 | [docs/decisions/003-canonical-persistence.md](docs/decisions/003-canonical-persistence.md) e [go.mod](go.mod) | PostgreSQL compartilhado e fila transacional são decisão aceita, ainda sem implementação de persistência relacional no produto. |
 | [server/config.go](server/config.go), [server/operations.go](server/operations.go) e [server/target_catalog.go](server/target_catalog.go) | Busca configurada como `dense`; existem limites de varredura/retorno, incluindo status com até 5.000 heads. Precisamos de paginação e avaliações antes de alegar operação em grandes acervos. |
-| [install.sh](install.sh) versus instalador do `hive_instance` | Há dois caminhos de instalação. O `install.sh` baixa e extrai diretamente, sem etapa de verificação Cosign/checksum; o fluxo verificado do `hive_instance` serve de base transitória para construir o pacote comercial. |
+| [install.sh](install.sh) versus instalador do cliente legado | Há dois caminhos de instalação. O `install.sh` baixa e extrai diretamente, sem etapa de verificação Cosign/checksum; o fluxo verificado do cliente legado serve de base transitória para construir o pacote comercial. |
 | [docs/spec/status.json](docs/spec/status.json) | Specs 06, 07 e 08 continuam pendentes de aceite operacional. Testes de código não demonstram restauração, revogação, disponibilidade ou isolamento em infraestrutura real. |
 
 ### Configuração encontrada nesta máquina
 
 - `.env.hive` descrevia um laboratório `local-hive`, writer local, Qdrant em loopback `6334` e Ollama local `11434`. Seus caminhos de dados/auditoria apontavam para a localização antiga do projeto.
-- O TOML do `hive_instance` descreve `hive-teste-4p`, Qdrant em `https://127.0.0.1:16334`, verificação TLS com CA e nome de servidor, e Ollama local. A porta de loopback é entrada de túnel para o servidor, não evidência de um banco local.
-- O script de túnel do `hive_instance` encaminha `16334` ao gRPC `6334` do servidor via SSH. Ele contém host, usuário, chave e porta fixos de uma implantação pessoal; isso deve virar configuração privada por instalação.
-- Os caminhos de `HIVE_DATA_DIR`, auditoria, CA e launcher dos conectores consultados ainda usavam `projetos/pessoal/hive_instance`, que não existe após a mudança para `projetos/pessoal/HIVE/hive_instance`. A existência dos arquivos no novo diretório foi confirmada; o launcher antigo não resolve.
+- O TOML do cliente legado descreve a instância de ensaio, Qdrant em `https://127.0.0.1:16334`, verificação TLS com CA e nome de servidor, e Ollama local. A porta de loopback é entrada de túnel para o servidor, não evidência de um banco local.
+- O script de túnel do cliente legado encaminha `16334` ao gRPC `6334` do servidor via SSH. Ele contém host, usuário, chave e porta fixos de uma implantação pessoal; isso deve virar configuração privada por instalação.
 - Essa revisão organiza o `hive_mind`; não altera o cliente, configurações globais dos agentes ou o servidor. Corrigir esses caminhos é a primeira tarefa operacional do roadmap. Disponibilidade do túnel e estado efetivo do servidor não foram verificados nesta auditoria.
 
 ### Jornada real do usuário hoje e atritos para venda
 
-Conforme o fluxo informado pelo operador, a pessoa envia uma chave pública SSH; o operador autoriza essa chave no servidor, emite um JWT e entrega também a CA do servidor. A pessoa clona `hive_instance`, faz `git pull`, roda `./hive install`, coloca `config/writer.jwt` e `config/ca.crt`, abre o túnel e usa Ollama local. O script atual gera a configuração com host, porta, coleção, modelo e identificador de aprovação fixos do ensaio. O instalador tolera credenciais ausentes na primeira execução e a documentação prevê rodá-lo novamente depois de copiá-las. O comando `doctor` verifica Python, curl, OpenSSL, SSH, tar, Cosign e os arquivos privados. Um cliente novo também depende da release assinada e de um modelo Ollama instalado. Portanto, “instalou e funcionou” envolve passos e suporte além do primeiro comando. [Código do mini-CLI](../hive_instance/scripts/hive.py), [inicializador](../hive_instance/scripts/inicializar.sh) e [README do cliente](../hive_instance/README.md).
+Conforme o fluxo informado pelo operador, a pessoa envia uma chave pública SSH; o operador autoriza essa chave no servidor, emite um JWT e entrega também a CA do servidor. A pessoa clona o cliente legado, faz `git pull`, roda `./hive install`, coloca `config/writer.jwt` e `config/ca.crt`, abre o túnel e usa Ollama local. O script atual gera a configuração com host, porta, coleção, modelo e identificador de aprovação fixos do ensaio. O instalador tolera credenciais ausentes na primeira execução e a documentação prevê rodá-lo novamente depois de copiá-las. O comando `doctor` verifica Python, curl, OpenSSL, SSH, tar, Cosign e os arquivos privados. Um cliente novo também depende da release assinada e de um modelo Ollama instalado. Portanto, “instalou e funcionou” envolve passos e suporte além do primeiro comando.
 
 `config/ca.crt` é a **CA pública usada para verificar o certificado TLS do servidor**; não é um certificado de identidade único emitido para aquela pessoa. Hoje a identidade prática vem da chave SSH, do dispositivo e do JWT. Essa distinção importa ao substituir o fluxo: um certificado TLS público no endpoint HTTPS elimina a distribuição manual da CA, mas a autenticação da pessoa e a autorização dos programas ainda precisam ser implementadas na API.
 
@@ -110,13 +109,13 @@ O `.gitignore` passa a excluir dados operacionais, configurações privadas, cre
 | Backup | Ferramenta de snapshots pareados e restic; originais exigem cuidado separado. | Política coordenada para PostgreSQL/originais, Qdrant e controle de acesso, com restauração ensaiada; incluir objetos quando usados. |
 | Compilação, teste, scans e publicação | Desenvolvimento/CI do `hive_mind`. | Desenvolvimento/CI; cliente instala artefato verificado e servidor recebe bundle/imagem. |
 
-No modelo atual, a parte local é inevitável: o protocolo é `stdio` e a validação impõe Ollama local. O primeiro passo é manter esse cliente funcionando no `hive_instance`, sem usar o checkout de engenharia como instalação. Retirar Ollama/Qdrant direto dos clientes pertence à evolução do serviço.
+No modelo atual, a parte local é inevitável: o protocolo é `stdio` e a validação impõe Ollama local. O primeiro passo é manter esse cliente funcionando pelo binário `hive` instalado, sem usar o checkout de engenharia como instalação. Retirar Ollama/Qdrant direto dos clientes pertence à evolução do serviço.
 
 ## 5. Arquitetura proposta para operação em escala
 
 ```mermaid
 flowchart LR
-    Agent[Agente da pessoa] --> Client[Cliente hive_instance]
+    Agent[Agente da pessoa] --> Client[Cliente hive]
     Client -->|HTTPS e identidade| API[API e políticas do Hive Mind]
     Remote[MCP remoto opcional] --> API
     API --> DB[(PostgreSQL canônico e outbox)]
@@ -167,16 +166,16 @@ O cliente comercial deve ter um pacote simples de instalar, validar versão/assi
 
 #### Como o caçador instala o cliente
 
-**Separar distribuição de acesso:** a pessoa cria/ativa sua conta no portal da HIVE e baixa o cliente para seu sistema operacional. O pacote pode ser baixado sem conta GitHub e não contém JWT, chave SSH, segredo de API nem credencial Qdrant; login e assinatura ativa liberam as funções após a instalação. O código-fonte pode continuar privado. No fluxo atual, o `hive_instance` instala a partir de release GitHub e admite token GitHub para repositório privado; isso não deve virar requisito do comprador.
+**Separar distribuição de acesso:** a pessoa cria/ativa sua conta no portal da HIVE e baixa o cliente para seu sistema operacional. O pacote pode ser baixado sem conta GitHub e não contém JWT, chave SSH, segredo de API nem credencial Qdrant; login e assinatura ativa liberam as funções após a instalação. O código-fonte pode continuar privado. No fluxo legado, o cliente instalava a partir de release GitHub e admite token GitHub para repositório privado; isso não deve virar requisito do comprador.
 
-O pacote instala um único comando `hive` que reúne mini-CLI, ponte MCP `stdio`, configuração e atualizador. O papel hoje cumprido pelo clone de `hive_instance` passa a ser cumprido por um **workspace de dados criado localmente pelo setup**, sem Git. O repositório `hive_instance` pode continuar como template e ambiente de teste da equipe, mas deixa de ser entrega obrigatória ao comprador. Instalar no perfil da pessoa sem privilégio de administrador quando possível; dados e sessão ficam nos diretórios próprios do sistema, fora da pasta do executável. O usuário escolhe se e onde manter uma pasta de notas locais; leitura do acervo não exige uma pasta de writer.
+O pacote instala um único comando `hive` que reúne mini-CLI, ponte MCP `stdio`, configuração e atualizador. O papel antes cumprido pelo clone do cliente legado passa a ser cumprido por um **workspace de dados criado localmente pelo setup**, sem Git. Instalar no perfil da pessoa sem privilégio de administrador quando possível; dados e sessão ficam nos diretórios próprios do sistema, fora da pasta do executável. O usuário escolhe se e onde manter uma pasta de notas locais; leitura do acervo não exige uma pasta de writer.
 
 1. **Primeiro piloto:** página `hive.<domínio>/download` com pacote por SO/arquitetura **efetivamente testado**, versão e instrução curta; no Linux/macOS, binário/arquivo verificado e instalado no perfil do usuário; no Windows, pacote assinado com instalador que adiciona `hive` ao PATH. A versão aprovada fica em um manifesto assinado. A verificação de assinatura e hash ocorre antes da troca do executável; falha deixa a versão anterior funcionando. Oferecer `hive update` e rollback da última versão conhecida. Não anunciar todas as plataformas apenas porque a CI consegue compilá-las.
 2. **Primeira execução:** `hive setup` abre o navegador para login, consulta situação da assinatura e programas permitidos, cria a configuração mínima e detecta agentes compatíveis. A pessoa escolhe em quais agentes instalar a integração MCP. O cliente aponta para a API pública da HIVE; não pergunta por URL do Qdrant, collection, Ollama, CA, JWT, chave SSH ou nome técnico de dispositivo.
 3. **Primeiro sucesso:** `hive doctor` mostra versão, sessão, alcance da API e integração do agente; `hive search` faz uma consulta demonstrativa no acervo geral. Quem tem papel de writer escolhe uma pasta e recebe explicação dos estados “rascunho”, “enviado”, “admitido no programa” e “publicado no acervo geral”. Reinstalar ou atualizar não deve apagar essa pasta nem a sessão.
 4. **Distribuição madura:** empacotar e assinar instaladores nativos conforme a plataforma, quando o piloto mostrar onde há demanda. No macOS, distribuição externa pede assinatura Developer ID e notarização para boa experiência com Gatekeeper ([Apple](https://developer.apple.com/developer-id/)). No Windows, assinatura de código reduz atrito, embora novas versões ainda possam receber alerta SmartScreen até ganhar reputação ([Microsoft](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)). Testar a instalação real em máquinas limpas de cada SO suportado.
 
-Manter `./hive install` do `hive_instance` somente como caminho transitório para testers existentes. O `install.sh` da raiz hoje baixa um binário sem validar a assinatura da release e orienta configuração manual; não deve ser anunciado como instalador comercial. A entrega vendável é `baixar → instalar → entrar → conectar agente → buscar`, com o restante resolvido pelo cliente e pela API separada.
+Manter o instalador do cliente legado somente como caminho transitório para testers existentes. O `install.sh` da raiz hoje baixa um binário sem validar a assinatura da release e orienta configuração manual; não deve ser anunciado como instalador comercial. A entrega vendável é `baixar → instalar → entrar → conectar agente → buscar`, com o restante resolvido pelo cliente e pela API separada.
 
 ### Nova jornada do usuário
 
@@ -215,10 +214,10 @@ O ganho do Dojo deve ser medido com exemplos positivos, negativos e incompletos 
 | Etapa | Entrega | Critério de aceite |
 | --- | --- | --- |
 | P0 — esta revisão | Guias externos, checkout sem acervo real/configuração operacional, ignore, instruções para agentes e build independente dos guias. | Arquivos arquivados conferidos por hash, exclusões visíveis, links ajustados, testes de build/contratos/deploy passando. |
-| P1 — reparar a base e medir atrito | Corrigir caminhos antigos no `hive_instance`, manter o túnel só para clientes legados, consolidar instalador verificado, publicar guias e registrar cada etapa de onboarding/erro. | Agente existente consulta pelo launcher da instância em duas máquinas, sem este checkout; tempo e pontos de suporte do fluxo atual medidos. |
+| P1 — reparar a base e medir atrito | Corrigir caminhos antigos do cliente legado, manter o túnel só para clientes legados, consolidar instalador verificado, publicar guias e registrar cada etapa de onboarding/erro. | Agente existente consulta pelo launcher da instância em duas máquinas, sem este checkout; tempo e pontos de suporte do fluxo atual medidos. |
 | P1.5 — identidade e login | Projeto separado da API, provedor OIDC, tela de entrada, sessão web, `/api/v1/me`, membros pendentes/ativos/suspensos e comando administrativo auditado. | Em navegador limpo: primeiro login cria pendente, operador ativa, `/me` libera acesso, suspensão o revoga sem expirar a sessão; login repetido não duplica membro. Sem Qdrant nem cobrança. |
 | P2 — fatia vertical no servidor | API HTTPS autenticada, identidade de membro, política de visibilidade, PostgreSQL mínimo com originais/revisões/outbox, embeddings internos, worker e Qdrant privado. Dois membros e dois programas sintéticos para teste cruzado. | Ambos acessam conhecimento geral aprovado; cada um só vê seu programa; membro desligado perde acesso e contribuição admitida permanece conforme termos; revisão ativa só após indexação; restauração conjunta ensaiada. |
-| P3 — cliente instalável e login | Backend HTTP para o mesmo MCP `stdio`, download da HIVE, pacote assinado por SO suportado, `hive setup`/`login`/`doctor`/`update`, cofre de sessão, primeiro uso guiado. O `hive_instance` deixa de ser um clone obrigatório para a pessoa usuária. | Em máquina limpa de cada SO anunciado, membro ativo chega à primeira consulta do acervo geral e um writer aprovado envia a primeira nota sem SSH, JWT/CA manual, Ollama local, Git ou intervenção no host; atualização preserva dados/sessão e erros de rede/auth/escopo são distinguíveis. |
+| P3 — cliente instalável e login | Backend HTTP para o mesmo MCP `stdio`, download da HIVE, pacote assinado por SO suportado, `hive setup`/`login`/`doctor`/`update`, cofre de sessão, primeiro uso guiado. O clone do cliente legado deixa de ser obrigatório para a pessoa usuária. | Em máquina limpa de cada SO anunciado, membro ativo chega à primeira consulta do acervo geral e um writer aprovado envia a primeira nota sem SSH, JWT/CA manual, Ollama local, Git ou intervenção no host; atualização preserva dados/sessão e erros de rede/auth/escopo são distinguíveis. |
 | P4 — coorte paga assistida | Painel mínimo de membros, assinaturas, papéis, programas, curadoria, revogação, uso/cotas, suporte, atualização/rollback e documentação pública. | Caçadores externos concluem adesão, consulta ao acervo geral, contribuição revisada, desativação de dispositivo e cancelamento; acesso cessa, contribuição admitida continua conforme termos e restauração/custo operacional são medidos. |
 | P5 — escala validada | Busca híbrida avaliada, paginação, quotas, fila sob carga, deduplicação canônica avançada, eventual object storage e MCP remoto autenticado conforme necessidade. | Relatório reproduzível com concorrência, acervo crescente, latência p50/p95/p99, taxa de erro, ausência de vazamentos entre programas, qualidade do acervo geral e custo por membro; sem perda silenciosa acima dos limites atuais. |
 
@@ -234,7 +233,7 @@ Métricas de serviço: duração de requests, profundidade/idade da fila, falhas
 
 ## 8. Migração e publicação sem perda
 
-1. Preservar e conferir o acervo privado da limpeza. Antes de importar, comparar com o conteúdo canônico do serviço e decidir o que deve existir no `hive_instance`; não ingerir automaticamente a cópia arquivada.
+1. Preservar e conferir o acervo privado da limpeza. Antes de importar, comparar com o conteúdo canônico do serviço e decidir o que deve existir na instalação do cliente; não ingerir automaticamente a cópia arquivada.
 2. Corrigir a instalação atual e produzir backup recuperável dos dados/controle/acesso e dos originais disponíveis. Não inferir backup a partir da presença de um volume Docker.
 3. Criar ambiente piloto com credenciais e dados sintéticos próprios. Projetar IDs, ownership, partições e transformação de revisões/tombstones existentes.
 4. Importar o estado aprovado para PostgreSQL e construir uma collection de destino versionada. Se o piloto já tiver storage de objetos, importar também os originais para lá. Conferir contagens, hashes, escopo, exclusões, proveniência e buscas de referência.

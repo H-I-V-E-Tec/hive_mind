@@ -1,21 +1,29 @@
 # Hive Mind
 
-Hive Mind é um núcleo de memória privada para trabalho de segurança autorizado. Este repositório contém o código Go, contratos, testes e automações de release. O cliente operacional é instalado por [`hive_instance`](../hive_instance/README.md); agentes de trabalho não usam este checkout como fonte de documentos ou servidor MCP.
+Hive Mind é um núcleo de memória privada para trabalho de segurança autorizado. Este repositório contém o código Go, contratos, testes e automações de release. O cliente operacional é o binário `hive` publicado nas releases; agentes de trabalho não usam este checkout como fonte de documentos ou servidor MCP.
 
 ## O que funciona hoje
 
 O executável inicia um MCP local via `stdio`. Um writer observa uma pasta de documentos e publica revisões no Qdrant privado; readers consultam o mesmo índice. Cada cliente gera embeddings com Ollama em loopback. Qdrant concentra documentos indexados e registros de controle. Busca e contexto exigem `program_id` e respeitam escopo aprovado, classificação e papéis. Há CLI de diagnóstico, conversão de documentos, auditoria local e releases por plataforma.
 
 ```text
-Agente → hive_instance / MCP local → Ollama local
-                              └────→ Qdrant privado via TLS/túnel
+Agente → hive (MCP stdio) ─ modo remoto (HIVE_MIND_URL) → hive serve (HTTP + JWT) → Qdrant privado
+                          └ modo local → Ollama local + Qdrant privado via TLS
 ```
 
 O pacote de servidor atual implanta Qdrant e suas ferramentas de operação. Uma API central, PostgreSQL, armazenamento canônico de originais e embeddings no servidor são propostas do [plano de melhoria e limpeza](PLANO_MELHORIA_E_LIMPEZA.md), não funcionalidades já disponíveis. As specs 06–08 continuam pendentes de aceite operacional; veja [registro de execução](docs/spec/status.json).
 
 ## Usar o produto
 
-Instale o cliente em [`hive_instance`](../hive_instance/README.md), configure suas credenciais privadas e a pasta de documentos dessa instalação. Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
+Em uma máquina nova:
+
+1. Instale o binário com o [`install.sh`](install.sh), que baixa a release da sua plataforma e confere o checksum.
+2. Entre com `hive login --center-url <url do HIVE Center>`; o token fica em `~/.hive/`.
+3. Defina `HIVE_MIND_URL` com o endereço do `hive serve`. Fora de loopback a URL precisa ser `https://`; para teste, um túnel SSH até o servidor permite `http://127.0.0.1:8443`.
+4. Registre o MCP no agente com `hive setup <claude-code|claude-desktop|codex|all>`.
+5. Confira token, conectividade e acesso autenticado com `hive doctor`.
+
+Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
 
 `hive_mind` não contém mais `hive-data/` nem configuração operacional local. Se você desenvolve aqui, use apenas fixtures sintéticas e diretórios temporários isolados; não aponte o agente a este checkout. Consulte [AGENTS.md](AGENTS.md) antes de alterar o comportamento do produto.
 
@@ -28,6 +36,6 @@ go test ./...
 go vet ./...
 ```
 
-Para build local, produza o binário em `bin/`, que é ignorado pelo Git. O [Compose](docker-compose.yml) é somente laboratório isolado e exige `HIVE_DATA_DIR` apontando para uma pasta externa explícita; não cria dados no checkout. O fluxo de distribuição aos clientes usa as releases verificadas e o instalador do `hive_instance`.
+Para build local, produza o binário em `bin/`, que é ignorado pelo Git. O [Compose](docker-compose.yml) é somente laboratório isolado e exige `HIVE_DATA_DIR` apontando para uma pasta externa explícita; não cria dados no checkout. O fluxo de distribuição aos clientes usa as releases verificadas e o [`install.sh`](install.sh).
 
 A documentação normativa e sua situação ficam em [docs/README.md](docs/README.md). Guias operacionais foram movidos para fora do repositório; o bundle de release não depende deles. Essa pasta irmã precisa ser publicada/versionada separadamente antes que os links apareçam em um clone isolado no GitHub.

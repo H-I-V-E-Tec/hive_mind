@@ -2,7 +2,7 @@
 
 Este checkout é usado para desenvolver, testar e publicar o Hive Mind.
 
-- Agentes operacionais usam o cliente instalado em `../hive_instance`, com o launcher e a configuração dessa instância.
+- Agentes operacionais usam o binário `hive` instalado a partir das releases (`hive login`, `hive setup`), nunca este checkout.
 - Não configure este checkout como MCP operacional, writer, reader ou fonte de documentos reais. Não recrie `hive-data/` e não carregue credenciais de produção aqui.
 - Desenvolvimento e testes podem executar o código com fixtures sintéticas e diretórios temporários isolados, sem acessar o acervo ou as collections de produção.
 - Mantenha contratos, schemas, decisões e fixtures sintéticas versionados. Dados de clientes, segredos, logs, backups e artefatos gerados ficam fora do Git e do contexto Docker.
