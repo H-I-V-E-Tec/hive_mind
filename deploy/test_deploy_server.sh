@@ -80,6 +80,15 @@ test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.3"
 test ! -e "$INSTALL_ROOT/releases/v1.2.3/docs"
 test -x "$INSTALL_ROOT/releases/v1.2.3/hive"
 test -f "$INSTALL_ROOT/releases/v1.2.3/deploy/hive.service"
+# The hive service user must be able to traverse to the binary despite umask 077.
+for path in "$INSTALL_ROOT" "$INSTALL_ROOT/releases" "$INSTALL_ROOT/releases/v1.2.3" "$INSTALL_ROOT/releases/v1.2.3/hive"; do
+  [ -n "$(find "$path" -maxdepth 0 -perm 0755)" ] || { printf 'modo incorreto: %s\n' "$path" >&2; exit 1; }
+done
+
+# --- Test 1b: redeploying a release left as 0700 by an older deploy repairs it ---
+chmod 0700 "$INSTALL_ROOT/releases/v1.2.3"
+bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.3 >/dev/null 2>&1
+[ -n "$(find "$INSTALL_ROOT/releases/v1.2.3" -maxdepth 0 -perm 0755)" ]
 
 # --- Test 2: Upgrade runs backup ---
 printf '%040d\n' 2 > "$BUNDLE/REVISION"

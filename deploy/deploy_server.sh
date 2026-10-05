@@ -48,12 +48,16 @@ elif [ -e "$CURRENT_LINK" ]; then
   die "$CURRENT_LINK deve ser um link simbólico"
 fi
 
-install -d -m 0755 "$INSTALL_ROOT/releases"
+install -d -m 0755 "$INSTALL_ROOT" "$INSTALL_ROOT/releases"
 if [ -e "$TARGET" ]; then
   [ -f "$TARGET/REVISION" ] || die "release existente incompleta: $TARGET"
   [ "$(tr -d '\r\n' < "$TARGET/REVISION")" = "$REVISION" ] || die "versão já existe com outra revisão"
+  # Repairs releases unpacked by earlier deploys that left $TARGET as 0700.
+  chmod 0755 "$TARGET"
 else
-  install -d -m 0755 "$TARGET/deploy" "$TARGET/scripts"
+  # Explicit modes: under umask 077 implicit parents would be 0700 and the
+  # unprivileged hive service user could not reach $TARGET/hive.
+  install -d -m 0755 "$TARGET" "$TARGET/deploy" "$TARGET/scripts"
   install -m 0644 "$SOURCE_ROOT/REVISION" "$TARGET/REVISION"
   install -m 0644 "$SOURCE_ROOT/deploy/qdrant-server.compose.yml" "$TARGET/deploy/qdrant-server.compose.yml"
   install -m 0755 "$SOURCE_ROOT/deploy/qdrant_admin.py" "$TARGET/deploy/qdrant_admin.py"
@@ -161,12 +165,33 @@ if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
       useradd --system --no-create-home --shell /usr/sbin/nologin --user-group hive
     fi
     install -d -m 0700 -o hive -g hive /var/lib/hive /var/lib/hive/audit
+    # Fail before touching the service if the unit's user cannot run the binary
+    # (directory permissions, wrong architecture, broken build).
+    if ! runuser -u hive -- "$CURRENT_LINK/hive" version >/dev/null; then
+      printf 'ERRO: usuário hive não consegue executar %s/hive\n' "$CURRENT_LINK" >&2
+      namei -l "$CURRENT_LINK/hive" >&2 || true
+      false
+    fi
   fi
 
   if [ ! -f "$PRIVATE_ROOT/hive.env" ]; then
     printf 'AVISO: %s/hive.env ausente; copie hive.env.example e configure.\n' "$PRIVATE_ROOT" >&2
     printf 'O serviço hive NÃO foi iniciado.\n' >&2
   else
+    if [ "${HIVE_DEPLOY_TEST_MODE:-}" != 1 ]; then
+      unreadable=""
+      for key in QDRANT_TLS_CA_FILE HIVE_HTTP_TLS_CERT HIVE_HTTP_TLS_KEY HIVE_DATA_DIR; do
+        path="$(hive_env_value "$key")"
+        if [ -n "$path" ] && ! runuser -u hive -- test -r "$path"; then
+          unreadable="$unreadable $key=$path"
+        fi
+      done
+      if [ -n "$unreadable" ]; then
+        printf 'ERRO: usuário hive não consegue ler:%s\n' "$unreadable" >&2
+        false
+      fi
+    fi
+
     install -m 0644 "$TARGET/deploy/hive.service" "$UNIT_DIR/hive.service"
     systemctl daemon-reload
     systemctl enable hive
