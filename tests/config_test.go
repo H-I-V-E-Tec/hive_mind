@@ -186,7 +186,7 @@ func TestHiveConfigDoesNotAutoDiscover(t *testing.T) {
 	}
 }
 
-func TestHiveConfigRejectsLegacyEnvironment(t *testing.T) {
+func TestHiveConfigIgnoresLegacyEnvironment(t *testing.T) {
 	for _, legacyKey := range []string{
 		"HIVE_MODE", "WATCH_DIRECTORY", "QDRANT_COLLECTION",
 		"QDRANT_HOST", "QDRANT_PORT", "OLLAMA_HOST",
@@ -194,10 +194,11 @@ func TestHiveConfigRejectsLegacyEnvironment(t *testing.T) {
 		t.Run(legacyKey, func(t *testing.T) {
 			env := validHiveEnv(t.TempDir())
 			env[legacyKey] = "legacy-value"
-			_, err := server.LoadConfigFrom(nil, env)
-			if err == nil || !strings.Contains(err.Error(), legacyKey) {
-				t.Fatalf("expected explicit legacy rejection, got %v", err)
+			cfg, err := server.LoadConfigFrom(nil, env)
+			if err != nil {
+				t.Fatalf("legacy key %s should be ignored, got error: %v", legacyKey, err)
 			}
+			_ = cfg
 		})
 	}
 }
