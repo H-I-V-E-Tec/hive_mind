@@ -53,7 +53,7 @@ func (s Secret) Format(state fmt.State, _ rune) {
 
 // Config is the effective Hive Mind configuration. The legacy-named fields at
 // the bottom are temporary internal adapters for code replaced by later specs;
-// legacy environment variables and flags are never accepted.
+// legacy environment variables are ignored with a warning at startup.
 type Config struct {
 	AuditDirectory      string
 	HiveID              string

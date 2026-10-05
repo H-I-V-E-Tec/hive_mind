@@ -735,7 +735,7 @@ func printCLIHelp() {
 	fmt.Println()
 	fmt.Println("QDRANT_API_KEY is never accepted as a process argument. Configuration files")
 	fmt.Println("containing it must be permission-restricted and outside HIVE_DATA_DIR.")
-	fmt.Println("No configuration file is auto-discovered and legacy keys are rejected.")
+	fmt.Println("No configuration file is auto-discovered and legacy keys are ignored with a warning.")
 }
 
 func flagValueFromArgs(args []string, name string) string {
