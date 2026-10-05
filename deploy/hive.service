@@ -8,6 +8,7 @@ Requires=docker.service
 Type=simple
 ExecStart=/opt/hive-mind/current/hive serve
 EnvironmentFile=/srv/hive-private/hive.env
+UnsetEnvironment=OLLAMA_HOST QDRANT_HOST QDRANT_PORT QDRANT_COLLECTION HIVE_MODE WATCH_DIRECTORY
 Restart=on-failure
 RestartSec=5
 User=hive

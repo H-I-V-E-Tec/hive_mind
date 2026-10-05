@@ -133,7 +133,8 @@ func LoadConfig() (Config, error) {
 func LoadConfigFrom(args []string, env map[string]string) (Config, error) {
 	for _, key := range legacyConfigKeys {
 		if _, exists := env[key]; exists {
-			return Config{}, fmt.Errorf("legacy configuration %s is not supported", key)
+			fmt.Fprintf(os.Stderr, "warning: ignoring legacy environment variable %s\n", key)
+			delete(env, key)
 		}
 	}
 

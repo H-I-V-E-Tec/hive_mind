@@ -153,7 +153,7 @@ func Start(version string) {
 
 	cfg, err := LoadConfig()
 	if err != nil {
-		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: "configuration is invalid; check required Hive settings"}}})
+		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: sanitizeConfigError(err)}}})
 		os.Exit(ExitConfiguration)
 	}
 
@@ -492,7 +492,7 @@ func waitMCPClient(ctx context.Context, listen func(context.Context)) {
 func runConvertIngest(ctx context.Context, outputPath string) int {
 	cfg, err := LoadConfig()
 	if err != nil {
-		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: "configuration is invalid; check required Hive settings"}}})
+		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: sanitizeConfigError(err)}}})
 		return ExitConfiguration
 	}
 	if !cfg.IsWriter() {
@@ -552,6 +552,14 @@ func createWorker(cfg Config) (*qdrant.Client, *IngestionWorker, error) {
 	worker.auditOwned = true
 	log.SetOutput(privateDiagnosticWriter{worker})
 	return client, worker, nil
+}
+
+func sanitizeConfigError(err error) string {
+	msg := err.Error()
+	if strings.Contains(strings.ToLower(msg), "api_key") || strings.Contains(strings.ToLower(msg), "credential") {
+		return "configuration is invalid; check required Hive settings"
+	}
+	return msg
 }
 
 func printJSON(value any) {
