@@ -89,6 +89,7 @@ rollback() {
   trap - ERR
   if [ "$ROLLBACK_NEEDED" = true ] && [ -n "$OLD_RELEASE" ] && [ -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" ]; then
     printf 'Deploy falhou; restaurando release anterior %s\n' "$OLD_RELEASE" >&2
+    ln -sfn "$OLD_RELEASE" "$INSTALL_ROOT/.current.rollback" && mv -Tf "$INSTALL_ROOT/.current.rollback" "$CURRENT_LINK" || true
     docker compose -p "$PROJECT" -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" up -d --remove-orphans || true
     if [ -f "$OLD_RELEASE/hive" ] && [ -f "$OLD_RELEASE/deploy/hive.service" ]; then
       install -m 0644 "$OLD_RELEASE/deploy/hive.service" /etc/systemd/system/hive.service 2>/dev/null || true
@@ -120,6 +121,12 @@ if command -v python3 >/dev/null 2>&1; then
     false
   fi
 fi
+
+# The systemd unit runs $CURRENT_LINK/hive, so the link must point at the new
+# release before the service restarts; rollback() restores it on failure.
+NEW_LINK="$INSTALL_ROOT/.current.$$"
+ln -s "$TARGET" "$NEW_LINK"
+mv -Tf "$NEW_LINK" "$CURRENT_LINK"
 
 # hive serve deployment (if binary present in bundle)
 if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
@@ -161,9 +168,6 @@ if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
   fi
 fi
 
-NEW_LINK="$INSTALL_ROOT/.current.$$"
-ln -s "$TARGET" "$NEW_LINK"
-mv -Tf "$NEW_LINK" "$CURRENT_LINK"
 ROLLBACK_NEEDED=false
 
 install -d -m 0700 "$HISTORY_DIR"
