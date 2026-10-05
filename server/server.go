@@ -24,6 +24,14 @@ var SourceRevision = "development"
 
 func Start(version string) {
 	Version = version
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "install", "update", "rollback", "uninstall":
+			fmt.Fprintf(os.Stderr, "%q é um comando do launcher HIVE, não do Hive Mind.\n", os.Args[1])
+			fmt.Fprintln(os.Stderr, "Para instalar skills de agente use: hive install-skill <agente|all>")
+			os.Exit(ExitUsage)
+		}
+	}
 	args, err := splitCLIArgs(os.Args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "invalid command arguments")
@@ -237,7 +245,7 @@ func Start(version string) {
 		case "list-skills", "-list", "--list":
 			ListSkills()
 			return
-		case "install-skill", "-install", "--install", "install":
+		case "install-skill":
 			if len(args) < 3 {
 				fmt.Fprintln(os.Stderr, "Error: missing agent name.")
 				fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server install-skill <agent|all> [destination_directory]")

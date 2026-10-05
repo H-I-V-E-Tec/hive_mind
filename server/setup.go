@@ -15,7 +15,33 @@ type SetupTarget struct {
 	Name     string
 	Aliases  []string
 	Help     string
-	ConfigFn func(binary, mindURL string) error
+	ConfigFn func(cmd mcpCommand, mindURL string) error
+}
+
+// mcpCommand is what an agent runs to start the MCP server over stdio.
+type mcpCommand struct {
+	Command string
+	Args    []string
+}
+
+// resolveMCPCommand prefers the HIVE launcher, whose path survives product
+// updates; the versioned product binary path would break after `hive update`.
+func resolveMCPCommand() (mcpCommand, error) {
+	if launcher := strings.TrimSpace(os.Getenv("HIVE_LAUNCHER")); launcher != "" {
+		if !filepath.IsAbs(launcher) {
+			return mcpCommand{}, errors.New("HIVE_LAUNCHER deve ser um caminho absoluto")
+		}
+		info, err := os.Stat(launcher)
+		if err != nil || !info.Mode().IsRegular() {
+			return mcpCommand{}, fmt.Errorf("HIVE_LAUNCHER não aponta para um executável: %s", launcher)
+		}
+		return mcpCommand{Command: launcher, Args: []string{"mind"}}, nil
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		return mcpCommand{}, fmt.Errorf("não foi possível determinar o caminho do binário: %w", err)
+	}
+	return mcpCommand{Command: binary, Args: []string{}}, nil
 }
 
 var setupTargets = []SetupTarget{
@@ -45,9 +71,9 @@ func RunSetup(agent string, stderr io.Writer) error {
 		return listSetupTargets(stderr)
 	}
 
-	binary, err := os.Executable()
+	cmd, err := resolveMCPCommand()
 	if err != nil {
-		return fmt.Errorf("não foi possível determinar o caminho do binário: %w", err)
+		return err
 	}
 
 	mindURL := os.Getenv("HIVE_MIND_URL")
@@ -58,7 +84,7 @@ func RunSetup(agent string, stderr io.Writer) error {
 	if agent == "all" {
 		for _, t := range setupTargets {
 			fmt.Fprintf(stderr, "Configurando %s...\n", t.Name)
-			if err := t.ConfigFn(binary, mindURL); err != nil {
+			if err := t.ConfigFn(cmd, mindURL); err != nil {
 				fmt.Fprintf(stderr, "  ✗ %s: %v\n", t.Name, err)
 			} else {
 				fmt.Fprintf(stderr, "  ✓ %s configurado\n", t.Name)
@@ -69,7 +95,7 @@ func RunSetup(agent string, stderr io.Writer) error {
 
 	for _, t := range setupTargets {
 		if t.Name == agent || sliceContainsStr(t.Aliases, agent) {
-			if err := t.ConfigFn(binary, mindURL); err != nil {
+			if err := t.ConfigFn(cmd, mindURL); err != nil {
 				return err
 			}
 			fmt.Fprintf(stderr, "✓ %s configurado com sucesso\n", t.Name)
@@ -99,7 +125,7 @@ func listSetupTargets(stderr io.Writer) error {
 	return errors.New("especifique um agente")
 }
 
-func setupClaudeCode(binary, mindURL string) error {
+func setupClaudeCode(cmd mcpCommand, mindURL string) error {
 	path := filepath.Join(".", ".mcp.json")
 	data := readJSONFileMap(path)
 	servers, _ := data["mcpServers"].(map[string]any)
@@ -107,8 +133,8 @@ func setupClaudeCode(binary, mindURL string) error {
 		servers = map[string]any{}
 	}
 	servers["hive_mind"] = map[string]any{
-		"command": binary,
-		"args":    []string{},
+		"command": cmd.Command,
+		"args":    cmd.Args,
 		"env": map[string]string{
 			"HIVE_MIND_URL": mindURL,
 		},
@@ -117,7 +143,7 @@ func setupClaudeCode(binary, mindURL string) error {
 	return writeJSONFile(path, data, 0o644)
 }
 
-func setupClaudeDesktop(binary, mindURL string) error {
+func setupClaudeDesktop(cmd mcpCommand, mindURL string) error {
 	path := claudeDesktopConfigPath()
 	if path == "" {
 		return errors.New("diretório de configuração do Claude Desktop não encontrado para este SO")
@@ -131,8 +157,8 @@ func setupClaudeDesktop(binary, mindURL string) error {
 		servers = map[string]any{}
 	}
 	servers["hive_mind"] = map[string]any{
-		"command": binary,
-		"args":    []string{},
+		"command": cmd.Command,
+		"args":    cmd.Args,
 		"env": map[string]string{
 			"HIVE_MIND_URL": mindURL,
 		},
@@ -141,7 +167,7 @@ func setupClaudeDesktop(binary, mindURL string) error {
 	return writeJSONFile(path, data, 0o644)
 }
 
-func setupCodex(binary, mindURL string) error {
+func setupCodex(cmd mcpCommand, mindURL string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -180,8 +206,8 @@ func setupCodex(binary, mindURL string) error {
 	}
 	out = append(out,
 		header,
-		fmt.Sprintf("command = %q", binary),
-		"args = []",
+		fmt.Sprintf("command = %q", cmd.Command),
+		fmt.Sprintf("args = %s", tomlStringArray(cmd.Args)),
 		fmt.Sprintf("[mcp_servers.hive_mind.env]"),
 		fmt.Sprintf("HIVE_MIND_URL = %q", mindURL),
 	)
@@ -240,4 +266,12 @@ func sliceContainsStr(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func tomlStringArray(values []string) string {
+	quoted := make([]string, len(values))
+	for i, v := range values {
+		quoted[i] = fmt.Sprintf("%q", v)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }

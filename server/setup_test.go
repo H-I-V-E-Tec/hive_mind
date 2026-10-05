@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,99 @@ func TestSetupUnknownAgent(t *testing.T) {
 	err := RunSetup("unknown-agent", &stderr)
 	if err == nil {
 		t.Fatal("expected error for unknown agent")
+	}
+}
+
+func writeFakeLauncher(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "hive")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSetupClaudeCodeUsesLauncherPath(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
+	launcher := writeFakeLauncher(t)
+	t.Setenv("HIVE_LAUNCHER", launcher)
+
+	var stderr strings.Builder
+	if err := RunSetup("claude-code", &stderr); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	hive := config["mcpServers"].(map[string]any)["hive_mind"].(map[string]any)
+	if hive["command"] != launcher {
+		t.Fatalf("command = %v, want launcher %s", hive["command"], launcher)
+	}
+	args, _ := hive["args"].([]any)
+	if len(args) != 1 || args[0] != "mind" {
+		t.Fatalf("args = %v, want [mind]", hive["args"])
+	}
+}
+
+func TestSetupWithoutLauncherUsesOwnBinary(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	t.Cleanup(func() { os.Chdir(origDir) })
+	t.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
+	t.Setenv("HIVE_LAUNCHER", "")
+
+	var stderr strings.Builder
+	if err := RunSetup("claude-code", &stderr); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	var config map[string]any
+	json.Unmarshal(data, &config)
+	hive := config["mcpServers"].(map[string]any)["hive_mind"].(map[string]any)
+	self, _ := os.Executable()
+	if hive["command"] != self {
+		t.Fatalf("command = %v, want %s", hive["command"], self)
+	}
+	if args, _ := hive["args"].([]any); len(args) != 0 {
+		t.Fatalf("args = %v, want []", args)
+	}
+}
+
+func TestSetupCodexUsesLauncherPath(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	t.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
+	launcher := writeFakeLauncher(t)
+	t.Setenv("HIVE_LAUNCHER", launcher)
+
+	var stderr strings.Builder
+	if err := RunSetup("codex", &stderr); err != nil {
+		t.Fatalf("setup codex failed: %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, fmt.Sprintf("command = %q", launcher)) || !strings.Contains(content, `args = ["mind"]`) {
+		t.Fatalf("codex config does not use the launcher:\n%s", content)
+	}
+}
+
+func TestSetupRejectsInvalidLauncher(t *testing.T) {
+	t.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
+	for _, value := range []string{"relative/hive", filepath.Join(t.TempDir(), "missing")} {
+		t.Setenv("HIVE_LAUNCHER", value)
+		var stderr strings.Builder
+		if err := RunSetup("claude-code", &stderr); err == nil || !strings.Contains(err.Error(), "HIVE_LAUNCHER") {
+			t.Fatalf("HIVE_LAUNCHER=%q: expected rejection, got %v", value, err)
+		}
 	}
 }
