@@ -159,6 +159,15 @@ func Start(version string) {
 		return
 	}
 
+	// A remote MCP client only needs HIVE_MIND_URL and the login token; the
+	// local writer/reader settings LoadConfig requires do not apply to it.
+	if len(args) == 1 {
+		if mindURL := remoteMindURL(); mindURL != "" {
+			runRemoteMCP(mindURL)
+			return
+		}
+	}
+
 	cfg, err := LoadConfig()
 	if err != nil {
 		printJSON(ValidationReport{OK: false, ExitCode: ExitConfiguration, Checks: []ValidationCheck{{Name: "configuration", Status: "failed", Detail: sanitizeConfigError(err)}}})
@@ -414,21 +423,8 @@ func Start(version string) {
 		}
 	}
 
-	// Remote mode: connect to a remote hive serve instance via HTTP+JWT
-	// instead of requiring local Qdrant/Ollama access.
 	if cfg.HiveMindURL != "" {
-		mindURL, err := ValidateHiveCenterURL(cfg.HiveMindURL)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "HIVE_MIND_URL: %v\n", err)
-			os.Exit(ExitConfiguration)
-		}
-		log.Printf("Starting Hive Mind MCP client (remote: %s)", mindURL)
-		remote := NewRemoteClient(mindURL)
-		handler := &MCPHandler{backend: remote}
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-		waitMCPClient(ctx, handler.ListenToMCPClient)
-		log.Println("Hive Mind MCP client stopped.")
+		runRemoteMCP(cfg.HiveMindURL)
 		return
 	}
 
@@ -756,4 +752,27 @@ func flagValueFromArgs(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func remoteMindURL() string {
+	if value := flagValueFromArgs(os.Args[1:], "--mind-url"); value != "" {
+		return strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(os.Getenv("HIVE_MIND_URL"))
+}
+
+// runRemoteMCP serves MCP over stdio backed by a remote hive serve (HTTP+JWT)
+// instead of local Qdrant/Ollama.
+func runRemoteMCP(rawURL string) {
+	mindURL, err := ValidateHiveCenterURL(rawURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "HIVE_MIND_URL: %v\n", err)
+		os.Exit(ExitConfiguration)
+	}
+	log.Printf("Starting Hive Mind MCP client (remote: %s)", mindURL)
+	handler := &MCPHandler{backend: NewRemoteClient(mindURL)}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	waitMCPClient(ctx, handler.ListenToMCPClient)
+	log.Println("Hive Mind MCP client stopped.")
 }
