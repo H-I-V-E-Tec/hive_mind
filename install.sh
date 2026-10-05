@@ -115,11 +115,14 @@ if [ -z "$VERSION" ]; then
         fi
     fi
 
-    # Extract tag_name using standard grep and sed
-    VERSION=$(echo "$RESPONSE" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/' | tr -d '[:space:]' 2>/dev/null || true)
+    # POSIX classes only: BSD sed (macOS) does not understand \s.
+    VERSION=$(echo "$RESPONSE" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/' | tr -d '[:space:]' 2>/dev/null || true)
+    if ! printf '%s' "$VERSION" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
+        VERSION=""
+    fi
 
     # Fallback to redirect URL method if API method fails
-    if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ] || echo "$RESPONSE" | grep -q "message" 2>/dev/null; then
+    if [ -z "$VERSION" ]; then
         log_warning "GitHub API rate limit reached or private repository auth required. Retrying with redirect URL method..."
         if command -v curl >/dev/null 2>&1; then
             LATEST_URL=$(curl -sSL -o /dev/null -w "%{url_effective}" "https://github.com/${GITHUB_REPO}/releases/latest")
@@ -130,7 +133,7 @@ if [ -z "$VERSION" ]; then
         fi
     fi
     
-    if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+    if ! printf '%s' "$VERSION" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$'; then
         log_error "Failed to retrieve the latest version."
         log_error "If this is a private repository, please pass GITHUB_TOKEN or specify the version manually, e.g.:"
         log_error "  curl -fsSL https://raw.githubusercontent.com/... | VERSION=1.4.0 sh"
@@ -180,62 +183,65 @@ if [ ! -f "${TMP_DIR}/${ASSET_NAME}" ]; then
     exit 1
 fi
 
-# 6b. Verify checksum (if checksums file exists in the release)
-CHECKSUM_NAME="${BINARY_NAME}-${VERSION}-checksums.txt"
-CHECKSUM_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${CHECKSUM_NAME}"
+# 6b. Verify checksum against the release's SHA256SUMS
+CHECKSUM_NAME="SHA256SUMS"
+RELEASE_BASE="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}"
 log_info "Verifying checksum..."
-CHECKSUM_OK=false
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || true
+    curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}" "${RELEASE_BASE}/${CHECKSUM_NAME}" 2>/dev/null || true
 else
-    wget -qO "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || true
+    wget -qO "${TMP_DIR}/${CHECKSUM_NAME}" "${RELEASE_BASE}/${CHECKSUM_NAME}" 2>/dev/null || true
 fi
-if [ -f "${TMP_DIR}/${CHECKSUM_NAME}" ]; then
-    EXPECTED=$(grep "${ASSET_NAME}" "${TMP_DIR}/${CHECKSUM_NAME}" | awk '{print $1}')
-    if [ -n "$EXPECTED" ]; then
-        if command -v sha256sum >/dev/null 2>&1; then
-            ACTUAL=$(sha256sum "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
-        elif command -v shasum >/dev/null 2>&1; then
-            ACTUAL=$(shasum -a 256 "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
-        fi
-        if [ -n "$ACTUAL" ] && [ "$EXPECTED" = "$ACTUAL" ]; then
-            log_success "Checksum verified (SHA-256)."
-            CHECKSUM_OK=true
-        else
-            log_error "Checksum mismatch! Expected ${EXPECTED}, got ${ACTUAL}."
-            log_error "The downloaded file may be corrupted or tampered with."
-            exit 1
-        fi
-    else
-        log_warning "Asset not found in checksums file; skipping verification."
-    fi
+if [ ! -s "${TMP_DIR}/${CHECKSUM_NAME}" ]; then
+    log_error "Could not download ${CHECKSUM_NAME} for ${VERSION}; refusing to install an unverified binary."
+    exit 1
+fi
+EXPECTED=$(awk -v asset="$ASSET_NAME" '$2 == asset || $2 == "*" asset {print $1}' "${TMP_DIR}/${CHECKSUM_NAME}")
+if [ -z "$EXPECTED" ]; then
+    log_error "${ASSET_NAME} is not listed in ${CHECKSUM_NAME}; refusing to install."
+    exit 1
+fi
+ACTUAL=""
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL=$(sha256sum "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
+elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL=$(shasum -a 256 "${TMP_DIR}/${ASSET_NAME}" | awk '{print $1}')
 else
-    log_warning "No checksums file in this release; skipping verification."
+    log_error "sha256sum or shasum is required to verify the download."
+    exit 1
 fi
+if [ "$EXPECTED" != "$ACTUAL" ]; then
+    log_error "Checksum mismatch! Expected ${EXPECTED}, got ${ACTUAL}."
+    log_error "The downloaded file may be corrupted or tampered with."
+    exit 1
+fi
+log_success "Checksum verified (SHA-256)."
 
-# 6c. Verify cosign signature (optional, if cosign is available)
-if command -v cosign >/dev/null 2>&1 && [ "$CHECKSUM_OK" = true ]; then
-    SIG_URL="${CHECKSUM_URL}.sig"
-    CERT_URL="${CHECKSUM_URL}.cert"
+# 6c. Verify the Sigstore signature of SHA256SUMS when cosign is available.
+# The identity is pinned to this repository's release workflow at this tag,
+# matching deploy/pull_server_release.sh.
+if command -v cosign >/dev/null 2>&1; then
+    BUNDLE_NAME="${CHECKSUM_NAME}.sigstore.json"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}.sig" "$SIG_URL" 2>/dev/null || true
-        curl -fsSL -o "${TMP_DIR}/${CHECKSUM_NAME}.cert" "$CERT_URL" 2>/dev/null || true
+        curl -fsSL -o "${TMP_DIR}/${BUNDLE_NAME}" "${RELEASE_BASE}/${BUNDLE_NAME}" 2>/dev/null || true
     else
-        wget -qO "${TMP_DIR}/${CHECKSUM_NAME}.sig" "$SIG_URL" 2>/dev/null || true
-        wget -qO "${TMP_DIR}/${CHECKSUM_NAME}.cert" "$CERT_URL" 2>/dev/null || true
+        wget -qO "${TMP_DIR}/${BUNDLE_NAME}" "${RELEASE_BASE}/${BUNDLE_NAME}" 2>/dev/null || true
     fi
-    if [ -f "${TMP_DIR}/${CHECKSUM_NAME}.sig" ] && [ -f "${TMP_DIR}/${CHECKSUM_NAME}.cert" ]; then
-        if cosign verify-blob \
-            --signature "${TMP_DIR}/${CHECKSUM_NAME}.sig" \
-            --certificate "${TMP_DIR}/${CHECKSUM_NAME}.cert" \
-            --certificate-identity-regexp ".*" \
-            --certificate-oidc-issuer-regexp ".*" \
-            "${TMP_DIR}/${CHECKSUM_NAME}" >/dev/null 2>&1; then
-            log_success "Cosign signature verified."
-        else
-            log_warning "Cosign signature verification failed; continuing with checksum-only verification."
-        fi
+    if [ ! -s "${TMP_DIR}/${BUNDLE_NAME}" ]; then
+        log_error "Could not download ${BUNDLE_NAME}; refusing to install."
+        exit 1
     fi
+    if ! cosign verify-blob \
+        --bundle "${TMP_DIR}/${BUNDLE_NAME}" \
+        --certificate-identity "https://github.com/${GITHUB_REPO}/.github/workflows/release.yml@refs/tags/${VERSION}" \
+        --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+        "${TMP_DIR}/${CHECKSUM_NAME}" >/dev/null 2>&1; then
+        log_error "Sigstore signature verification failed for ${CHECKSUM_NAME}; refusing to install."
+        exit 1
+    fi
+    log_success "Sigstore signature verified (release.yml@${VERSION})."
+else
+    log_warning "cosign not found; release signature not verified (checksum only). Install cosign for full verification."
 fi
 
 # 7. Extract Archive
