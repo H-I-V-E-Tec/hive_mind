@@ -9,6 +9,7 @@ BACKUP_HOOK="${HIVE_DEPLOY_BACKUP_HOOK:-/usr/local/sbin/hive-predeploy-backup}"
 HEALTH_ATTEMPTS="${HIVE_DEPLOY_HEALTH_ATTEMPTS:-12}"
 HEALTH_DELAY="${HIVE_DEPLOY_HEALTH_DELAY:-5}"
 HISTORY_DIR="${HIVE_DEPLOY_HISTORY_DIR:-/var/lib/hive-deploy}"
+UNIT_DIR="${HIVE_SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 PROJECT="hive-server"
 VERSION=""
 INITIAL=false
@@ -27,7 +28,7 @@ done
 [[ "$HEALTH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die "tentativas de health check inválidas"
 [[ "$HEALTH_DELAY" =~ ^[0-9]+$ ]] || die "intervalo de health check inválido"
 if [ "$(id -u)" -ne 0 ]; then
-  if [ "${HIVE_DEPLOY_TEST_MODE:-}" != 1 ] || [[ "$INSTALL_ROOT" != /tmp/* ]] || [[ "$PRIVATE_ROOT" != /tmp/* ]]; then
+  if [ "${HIVE_DEPLOY_TEST_MODE:-}" != 1 ] || [[ "$INSTALL_ROOT" != /tmp/* ]] || [[ "$PRIVATE_ROOT" != /tmp/* ]] || [[ "$UNIT_DIR" != /tmp/* ]]; then
     die "execute como root"
   fi
 fi
@@ -83,18 +84,34 @@ elif [ -z "$OLD_RELEASE" ] && [ "$INITIAL" != true ]; then
   die "primeiro deploy exige --initial; migrações existentes exigem cadastrar a release atual antes"
 fi
 
+switch_current() {
+  local link_tmp="$INSTALL_ROOT/.current.$$"
+  rm -f -- "$link_tmp"
+  ln -s "$1" "$link_tmp"
+  mv -Tf "$link_tmp" "$CURRENT_LINK"
+}
+
 ROLLBACK_NEEDED=false
 rollback() {
   status=$?
   trap - ERR
-  if [ "$ROLLBACK_NEEDED" = true ] && [ -n "$OLD_RELEASE" ] && [ -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" ]; then
-    printf 'Deploy falhou; restaurando release anterior %s\n' "$OLD_RELEASE" >&2
-    ln -sfn "$OLD_RELEASE" "$INSTALL_ROOT/.current.rollback" && mv -Tf "$INSTALL_ROOT/.current.rollback" "$CURRENT_LINK" || true
-    docker compose -p "$PROJECT" -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" up -d --remove-orphans || true
-    if [ -f "$OLD_RELEASE/hive" ] && [ -f "$OLD_RELEASE/deploy/hive.service" ]; then
-      install -m 0644 "$OLD_RELEASE/deploy/hive.service" /etc/systemd/system/hive.service 2>/dev/null || true
-      systemctl daemon-reload 2>/dev/null || true
-      systemctl restart hive 2>/dev/null || true
+  # errtrace propagates this trap into $(...) subshells; only the main shell
+  # may roll back, otherwise a harmless failed lookup would undo the deploy.
+  [ "${BASHPID:-$$}" = "$$" ] || exit "$status"
+  if [ "$ROLLBACK_NEEDED" = true ]; then
+    if [ -n "$OLD_RELEASE" ] && [ -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" ]; then
+      printf 'Deploy falhou; restaurando release anterior %s\n' "$OLD_RELEASE" >&2
+      switch_current "$OLD_RELEASE" || true
+      docker compose -p "$PROJECT" -f "$OLD_RELEASE/deploy/qdrant-server.compose.yml" up -d --remove-orphans || true
+      if [ -f "$OLD_RELEASE/hive" ] && [ -f "$OLD_RELEASE/deploy/hive.service" ]; then
+        install -m 0644 "$OLD_RELEASE/deploy/hive.service" "$UNIT_DIR/hive.service" || true
+        systemctl daemon-reload || true
+        systemctl restart hive || true
+      fi
+    elif [ -z "$OLD_RELEASE" ]; then
+      printf 'Deploy inicial falhou; removendo %s\n' "$CURRENT_LINK" >&2
+      rm -f -- "$CURRENT_LINK"
+      systemctl stop hive 2>/dev/null || true
     fi
   fi
   exit "$status"
@@ -124,13 +141,21 @@ fi
 
 # The systemd unit runs $CURRENT_LINK/hive, so the link must point at the new
 # release before the service restarts; rollback() restores it on failure.
-NEW_LINK="$INSTALL_ROOT/.current.$$"
-ln -s "$TARGET" "$NEW_LINK"
-mv -Tf "$NEW_LINK" "$CURRENT_LINK"
+switch_current "$TARGET"
+
+# Last KEY=value from hive.env, without quotes or whitespace. Every command here
+# must exit 0: with `set -E` a failure inside $(...) fires the ERR trap (and the
+# rollback) in the subshell, even when the caller appends `|| true`.
+hive_env_value() {
+  local value
+  value="$(awk -v key="$1" '{ line = $0; sub(/^[ \t]+/, "", line) }
+    index(line, key "=") == 1 { value = substr(line, length(key) + 2) }
+    END { print value }' "$PRIVATE_ROOT/hive.env")"
+  printf '%s' "$value" | tr -d "[:space:]\"'"
+}
 
 # hive serve deployment (if binary present in bundle)
 if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
-  # Create system user if missing
   if [ "${HIVE_DEPLOY_TEST_MODE:-}" != 1 ]; then
     if ! id -u hive >/dev/null 2>&1; then
       useradd --system --no-create-home --shell /usr/sbin/nologin --user-group hive
@@ -142,28 +167,40 @@ if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
     printf 'AVISO: %s/hive.env ausente; copie hive.env.example e configure.\n' "$PRIVATE_ROOT" >&2
     printf 'O serviço hive NÃO foi iniciado.\n' >&2
   else
-    # Install and (re)start the systemd service
-    if [ "${HIVE_DEPLOY_TEST_MODE:-}" != 1 ]; then
-      install -m 0644 "$TARGET/deploy/hive.service" /etc/systemd/system/hive.service
-      systemctl daemon-reload
-      systemctl enable hive
-      systemctl restart hive
+    install -m 0644 "$TARGET/deploy/hive.service" "$UNIT_DIR/hive.service"
+    systemctl daemon-reload
+    systemctl enable hive
+    systemctl restart hive
 
-      # hive health check via /healthz
-      MIND_ADDR="$(grep -E '^HIVE_HTTP_ADDR=' "$PRIVATE_ROOT/hive.env" | cut -d= -f2- | tr -d '[:space:]')" || true
-      [ -n "$MIND_ADDR" ] || MIND_ADDR="127.0.0.1:8443"
-      mind_healthy=false
-      for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
-        if curl -sf "http://${MIND_ADDR}/healthz" >/dev/null 2>&1; then
-          mind_healthy=true
-          break
-        fi
-        sleep "$HEALTH_DELAY"
-      done
-      if [ "$mind_healthy" != true ]; then
-        printf 'ERRO: hive serve não respondeu em /healthz\n' >&2
-        false
+    # serve listens on HIVE_HTTP_ADDR (default :8443); a wildcard or empty host
+    # is probed on loopback, and TLS is used when both cert and key are set.
+    MIND_ADDR="$(hive_env_value HIVE_HTTP_ADDR)"
+    [ -n "$MIND_ADDR" ] || MIND_ADDR=":8443"
+    MIND_PORT="${MIND_ADDR##*:}"
+    MIND_HOST="${MIND_ADDR%:*}"
+    case "$MIND_HOST" in
+      ""|0.0.0.0|"[::]"|"::") MIND_HOST="127.0.0.1" ;;
+    esac
+    MIND_SCHEME=http
+    if [ -n "$(hive_env_value HIVE_HTTP_TLS_CERT)" ] && [ -n "$(hive_env_value HIVE_HTTP_TLS_KEY)" ]; then
+      MIND_SCHEME=https
+    fi
+    MIND_URL="${MIND_SCHEME}://${MIND_HOST}:${MIND_PORT}/healthz"
+
+    mind_healthy=false
+    for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
+      # -k: loopback liveness probe only; the certificate is validated by clients.
+      if curl -sfk --max-time 5 "$MIND_URL" >/dev/null 2>&1; then
+        mind_healthy=true
+        break
       fi
+      sleep "$HEALTH_DELAY"
+    done
+    if [ "$mind_healthy" != true ]; then
+      printf 'ERRO: hive serve não respondeu em %s\n' "$MIND_URL" >&2
+      printf -- '--- últimas linhas de journalctl -u hive ---\n' >&2
+      journalctl -u hive -n 40 --no-pager >&2 || true
+      false
     fi
   fi
 fi
