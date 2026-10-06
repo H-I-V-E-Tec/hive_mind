@@ -263,15 +263,23 @@ func remoteMCPReply(t *testing.T, backend HiveBackend, method string, params any
 	stdout := os.Stdout
 	os.Stdout = writer
 	defer func() { os.Stdout = stdout; writer.Close(); reader.Close() }()
-	if err := reader.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	// Start reading before synchronous responses fill the pipe. Pipe deadlines
+	// are not portable, so bound the response wait with a Go timer instead.
+	var reply map[string]json.RawMessage
+	decoded := make(chan error, 1)
+	go func() { decoded <- json.NewDecoder(reader).Decode(&reply) }()
+	timer := time.NewTimer(60 * time.Second)
+	defer timer.Stop()
 	encoded, _ := json.Marshal(params)
 	handler := MCPHandler{backend: backend}
 	handler.handleMCPMethod(MCPRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method, Params: encoded})
-	var reply map[string]json.RawMessage
-	if err := json.NewDecoder(reader).Decode(&reply); err != nil {
-		t.Fatal(err)
+	select {
+	case err := <-decoded:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-timer.C:
+		t.Fatal("timed out waiting for the MCP response")
 	}
 	return reply
 }
