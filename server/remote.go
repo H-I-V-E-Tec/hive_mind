@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -68,6 +69,46 @@ func (rc *RemoteClient) IsWriter() bool {
 	return false
 }
 
+// Unverified local claims only control tool presentation. The server verifies
+// the signature and permissions again for every request, including direct calls.
+func (rc *RemoteClient) CanIngestDocument() bool {
+	token, err := LoadStoredToken()
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := decodeJWTPayload(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims struct {
+		HiveClaims
+		Exp int64 `json:"exp"`
+	}
+	return json.Unmarshal(payload, &claims) == nil && claims.Exp > time.Now().Unix() &&
+		claims.Audience == expectedAudience && validMemberSubject(claims.Sub) &&
+		claims.HasPermissions(permissionMindRead, permissionMindIngest)
+}
+
+func (rc *RemoteClient) IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport {
+	if err := validateRemoteDocument(args); err != nil {
+		return failedDocumentReport(ExitUsage, err.Error())
+	}
+	ctx, cancel := context.WithTimeout(ctx, remoteIngestTimeout)
+	defer cancel()
+	var report IngestionReport
+	if err := rc.postJSON(ctx, "/api/v1/documents/ingest", args, &report); err != nil {
+		return failedDocumentReport(ExitPartialFailure, err.Error()+"; publication was not confirmed")
+	}
+	if report.SchemaVersion != 1 {
+		return failedDocumentReport(ExitPartialFailure, "server did not return a supported ingestion report; publication was not confirmed")
+	}
+	return report
+}
+
 func (rc *RemoteClient) Close() {}
 
 func (rc *RemoteClient) postJSON(ctx context.Context, path string, body any, result any) error {
@@ -117,6 +158,17 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	if resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("forbidden: insufficient permissions")
 	}
+	// Preserve structured file outcomes even when index publication failed.
+	if report, ok := result.(*IngestionReport); ok && (resp.StatusCode == http.StatusOK || resp.StatusCode >= 500 || resp.StatusCode == http.StatusBadRequest) {
+		var decoded IngestionReport
+		if json.Unmarshal(respBody, &decoded) == nil && decoded.SchemaVersion == 1 {
+			if resp.StatusCode != http.StatusOK {
+				decoded.OK = false
+			}
+			*report = decoded
+			return nil
+		}
+	}
 	if resp.StatusCode == http.StatusBadRequest {
 		var errResp struct {
 			Error string `json:"error"`
@@ -127,6 +179,9 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 		return &searchValidationError{message: "invalid request"}
 	}
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusRequestEntityTooLarge {
+			return fmt.Errorf("document request exceeds the server size limit")
+		}
 		return fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 

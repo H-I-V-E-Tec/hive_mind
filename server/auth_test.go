@@ -70,7 +70,7 @@ func TestValidateTokenSuccess(t *testing.T) {
 
 	jwksClient := NewJWKSClient(srv.URL)
 	token := signTestToken(t, key, kid, jwt.MapClaims{
-		"iss": "https://center.hive.test", "sub": "member-1",
+		"iss": srv.URL, "sub": "member-1",
 		"aud": "mind", "exp": jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 		"iat": jwt.NewNumericDate(time.Now()), "name": "Ana",
 		"permissions": []string{"product.mind"}, "profiles": []string{"membro"},
@@ -102,9 +102,9 @@ func TestValidateTokenExpired(t *testing.T) {
 
 	jwksClient := NewJWKSClient(srv.URL)
 	token := signTestToken(t, key, kid, jwt.MapClaims{
-		"iss": "https://center.hive.test", "sub": "member-1",
+		"iss": srv.URL, "sub": "member-1",
 		"aud": "mind", "exp": jwt.NewNumericDate(time.Now().Add(-1 * time.Minute)),
-		"iat": jwt.NewNumericDate(time.Now().Add(-16 * time.Minute)),
+		"iat":  jwt.NewNumericDate(time.Now().Add(-16 * time.Minute)),
 		"name": "Ana", "permissions": []string{}, "profiles": []string{}, "programs": []string{},
 	})
 
@@ -121,9 +121,9 @@ func TestValidateTokenWrongAudience(t *testing.T) {
 
 	jwksClient := NewJWKSClient(srv.URL)
 	token := signTestToken(t, key, kid, jwt.MapClaims{
-		"iss": "https://center.hive.test", "sub": "member-1",
+		"iss": srv.URL, "sub": "member-1",
 		"aud": "atlas", "exp": jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-		"iat": jwt.NewNumericDate(time.Now()),
+		"iat":  jwt.NewNumericDate(time.Now()),
 		"name": "Ana", "permissions": []string{}, "profiles": []string{}, "programs": []string{},
 	})
 
@@ -139,9 +139,9 @@ func TestValidateTokenUnknownKid(t *testing.T) {
 
 	jwksClient := NewJWKSClient(srv.URL)
 	token := signTestToken(t, key, "key-b", jwt.MapClaims{
-		"iss": "https://center.hive.test", "sub": "member-1",
+		"iss": srv.URL, "sub": "member-1",
 		"aud": "mind", "exp": jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-		"iat": jwt.NewNumericDate(time.Now()),
+		"iat":  jwt.NewNumericDate(time.Now()),
 		"name": "Ana", "permissions": []string{}, "profiles": []string{}, "programs": []string{},
 	})
 
@@ -166,9 +166,9 @@ func TestJWKSCacheHit(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		token := signTestToken(t, key, kid, jwt.MapClaims{
-			"iss": "https://center.hive.test", "sub": "member-1",
+			"iss": srv.URL, "sub": "member-1",
 			"aud": "mind", "exp": jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
-			"iat": jwt.NewNumericDate(time.Now()),
+			"iat":  jwt.NewNumericDate(time.Now()),
 			"name": "Ana", "permissions": []string{}, "profiles": []string{}, "programs": []string{},
 		})
 		if _, err := jwksClient.ValidateToken(token); err != nil {

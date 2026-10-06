@@ -3,11 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type contextKey string
@@ -53,6 +56,7 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("POST /api/v1/targets", s.authMiddleware(http.HandlerFunc(s.handleTargets)))
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
 	s.mux.Handle("POST /api/v1/ingest", s.authMiddleware(s.writerMiddleware(http.HandlerFunc(s.handleIngest))))
+	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.writerMiddleware(http.HandlerFunc(s.handleIngestDocument))))
 }
 
 func (s *HTTPServer) ListenAndServe() error {
@@ -88,6 +92,10 @@ func (s *HTTPServer) authMiddleware(next http.Handler) http.Handler {
 			writeJSONError(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
+		if !claims.HasPermissions(permissionMindRead) {
+			writeJSONError(w, http.StatusForbidden, "product.mind permission is required")
+			return
+		}
 
 		ctx := context.WithValue(r.Context(), claimsContextKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -96,6 +104,10 @@ func (s *HTTPServer) authMiddleware(next http.Handler) http.Handler {
 
 func (s *HTTPServer) writerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !claimsFromContext(r.Context()).HasPermissions(permissionMindRead, permissionMindIngest) {
+			writeJSONError(w, http.StatusForbidden, "product.mind and mind.ingest permissions are required")
+			return
+		}
 		if !s.worker.Cfg.IsWriter() {
 			writeJSONError(w, http.StatusForbidden, "this instance is not a writer")
 			return
@@ -191,6 +203,48 @@ func (s *HTTPServer) handleIngest(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if !report.OK {
 		status = http.StatusInternalServerError
+	}
+	writeJSON(w, status, report)
+}
+
+func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, remoteRequestLimit)
+	defer r.Body.Close()
+	var args HiveIngestDocumentArguments
+	body, err := io.ReadAll(r.Body)
+	if err == nil {
+		if !utf8.Valid(body) {
+			err = errors.New("request must be UTF-8")
+		} else {
+			err = decodeStrictJSON(body, &args)
+		}
+	}
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "request body exceeds the limit")
+		} else {
+			writeJSONError(w, http.StatusBadRequest, "invalid document request; unknown fields and trailing JSON are not allowed")
+		}
+		return
+	}
+	if err := validateRemoteDocument(args); err != nil {
+		status := http.StatusBadRequest
+		if len(args.Content) > remoteContentLimit {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSONError(w, status, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), remoteIngestTimeout)
+	defer cancel()
+	report := s.worker.IngestRemoteDocument(ctx, claimsFromContext(ctx), args)
+	status := http.StatusOK
+	if !report.OK {
+		status = http.StatusInternalServerError
+		if report.ExitCode == ExitUsage {
+			status = http.StatusBadRequest
+		}
 	}
 	writeJSON(w, status, report)
 }

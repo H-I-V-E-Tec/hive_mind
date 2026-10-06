@@ -14,6 +14,8 @@ type HiveBackend interface {
 	HiveGetContext(ctx context.Context, args HiveContextArguments) (HiveContextResponse, error)
 	HiveListTargets(ctx context.Context, args HiveListTargetsArguments) (HiveListTargetsResponse, error)
 	IngestWorkspaceReport(ctx context.Context, prune bool) IngestionReport
+	IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport
+	CanIngestDocument() bool
 	SyncStatus() SyncStatusSnapshot
 	IsWriter() bool
 	Close()
@@ -57,6 +59,12 @@ func (w *workerBackend) SyncStatus() SyncStatusSnapshot {
 
 func (w *workerBackend) IsWriter() bool {
 	return w.worker.Cfg.IsWriter()
+}
+
+func (w *workerBackend) CanIngestDocument() bool { return false }
+
+func (w *workerBackend) IngestDocument(context.Context, HiveIngestDocumentArguments) IngestionReport {
+	return failedDocumentReport(ExitAuthorization, "content ingestion requires a remote member session")
 }
 
 func (w *workerBackend) Close() {

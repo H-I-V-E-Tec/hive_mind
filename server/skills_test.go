@@ -19,6 +19,7 @@ func TestSpec010InstallsMaintainedSkillTemplates(t *testing.T) {
 		"`hive_search`",                    // 2.
 		"`get_sync_status`",                // 2.
 		"`ingest_workspace`",               // 2.
+		"`hive_ingest_document`",           // remote content ingestion
 		"Before acting on an asset",        // 3. workflow
 		"discarded hypotheses",             // 3. negative results
 		"program_id:",                      // 4. front matter
