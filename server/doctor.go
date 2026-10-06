@@ -33,10 +33,9 @@ func RunDoctor(stderr io.Writer) DoctorReport {
 		Platform: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 	}
 
-	mindURL := os.Getenv("HIVE_MIND_URL")
-	if mindURL != "" {
+	if os.Getenv("HIVE_MIND_URL") != "" || !hasLocalConfig(os.Args[1:]) {
 		report.Mode = "remote"
-		runRemoteDoctor(&report, mindURL, stderr)
+		runRemoteDoctor(&report, ResolveMindURL(os.Args[1:]), stderr)
 	} else {
 		report.Mode = "local"
 		runLocalDoctor(&report, stderr)
@@ -52,11 +51,11 @@ func runRemoteDoctor(report *DoctorReport, mindURL string, stderr io.Writer) {
 	validatedURL, err := ValidateHiveCenterURL(mindURL)
 	if err != nil {
 		report.addFail("mind_url", fmt.Sprintf("URL inválida: %v", err))
-		fmt.Fprintf(stderr, "  ✗ HIVE_MIND_URL: %v\n", err)
+		fmt.Fprintf(stderr, "  ✗ Mind URL: %v\n", err)
 		return
 	}
 	report.addPass("mind_url", validatedURL)
-	fmt.Fprintf(stderr, "  ✓ HIVE_MIND_URL: %s\n", validatedURL)
+	fmt.Fprintf(stderr, "  ✓ Mind URL: %s\n", validatedURL)
 
 	// 2. Check stored token
 	token, err := LoadStoredToken()

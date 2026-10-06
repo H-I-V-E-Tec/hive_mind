@@ -16,14 +16,35 @@ func TestRemoteMCPStartsWithoutLocalConfiguration(t *testing.T) {
 		Start("test")
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestRemoteMCPStartsWithoutLocalConfiguration$")
-	env := []string{"HIVE_TEST_REMOTE_MCP=1", "HIVE_MIND_URL=http://127.0.0.1:1", "HOME=" + t.TempDir(), "USERPROFILE=" + t.TempDir()}
+	assertRemoteMCPInitializes(t, "^TestRemoteMCPStartsWithoutLocalConfiguration$", "HIVE_MIND_URL=http://127.0.0.1:1")
+}
+
+// Without HIVE_MIND_URL or local configuration, the MCP derives the Mind URL
+// from the Center URL instead of failing on missing writer/reader settings.
+func TestRemoteMCPDefaultsWithoutMindURL(t *testing.T) {
+	if os.Getenv("HIVE_TEST_REMOTE_MCP") == "1" {
+		os.Args = []string{"hive"}
+		Start("test")
+		return
+	}
+	stderr := assertRemoteMCPInitializes(t, "^TestRemoteMCPDefaultsWithoutMindURL$", "HIVE_CENTER_URL=http://127.0.0.1:1")
+	if !strings.Contains(stderr(), "remote: http://127.0.0.1:1/mind") {
+		t.Fatalf("MCP did not use the Center URL plus /mind:\n%s", stderr())
+	}
+}
+
+func assertRemoteMCPInitializes(t *testing.T, run string, extraEnv ...string) (stderr func() string) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run="+run)
+	env := append([]string{"HIVE_TEST_REMOTE_MCP=1", "HOME=" + t.TempDir(), "USERPROFILE=" + t.TempDir()}, extraEnv...)
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "PATH=") || strings.HasPrefix(kv, "SYSTEMROOT=") {
 			env = append(env, kv)
 		}
 	}
 	cmd.Env = env
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
 	stdin, _ := cmd.StdinPipe()
 	stdout, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
@@ -49,5 +70,10 @@ func TestRemoteMCPStartsWithoutLocalConfiguration(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("remote MCP did not answer initialize")
+	}
+	return func() string {
+		cmd.Process.Kill()
+		cmd.Wait()
+		return errBuf.String()
 	}
 }
