@@ -7,7 +7,7 @@ Hive Mind é um núcleo de memória privada para trabalho de segurança autoriza
 O executável inicia um MCP local via `stdio`. Um writer observa uma pasta de documentos e publica revisões no Qdrant privado; readers consultam o mesmo índice. Cada cliente gera embeddings com Ollama em loopback. Qdrant concentra documentos indexados e registros de controle. Busca e contexto exigem `program_id` e respeitam escopo aprovado, classificação e papéis. Há CLI de diagnóstico, conversão de documentos, auditoria local e releases por plataforma.
 
 ```text
-Agente → hive (MCP stdio) ─ modo remoto (HIVE_MIND_URL) → hive serve (HTTP + JWT) → Qdrant privado
+Agente → hive (MCP stdio) ─ modo remoto (<center>/mind) → hive serve (HTTP + JWT) → Qdrant privado
                           └ modo local → Ollama local + Qdrant privado via TLS
 ```
 
@@ -17,11 +17,15 @@ O pacote de servidor atual implanta Qdrant e suas ferramentas de operação. Uma
 
 Em uma máquina nova:
 
-1. Instale o binário com o [`install.sh`](install.sh), que baixa a release da sua plataforma e confere o checksum.
-2. Entre com `hive login --center-url <url do HIVE Center>`; o token fica em `~/.hive/`.
-3. Defina `HIVE_MIND_URL` com o endereço do `hive serve`. Fora de loopback a URL precisa ser `https://`; para teste, um túnel SSH até o servidor permite `http://127.0.0.1:8443`.
-4. Registre o MCP no agente com `hive setup <claude-code|claude-desktop|codex|all>`.
-5. Confira token, conectividade e acesso autenticado com `hive doctor`.
+```bash
+curl -fsSL https://github.com/H-I-V-E-Tec/hive_cli/releases/latest/download/install.sh | sh
+hive install mind
+hive login     # usuário e senha do HIVE Center
+hive setup     # registra o MCP nos agentes encontrados (Claude Code, Claude Desktop, Codex)
+hive doctor    # confere token, conectividade e acesso autenticado
+```
+
+O [launcher `hive`](https://github.com/H-I-V-E-Tec/hive_cli) instala e atualiza o Mind com assinatura verificada. Nenhuma URL precisa ser informada: o HIVE Center padrão (`https://hive-center.duckdns.org`) está embutido no binário e o Mind fica em `<center>/mind`. Para outro ambiente, use `--center-url`/`HIVE_CENTER_URL` (lembrado após o login) e `--mind-url`/`HIVE_MIND_URL`; fora de loopback as URLs precisam ser `https://`. Sem `HIVE_ID`, `QDRANT_URL` ou `--config`, o MCP roda em modo remoto. `hive setup <claude-code|claude-desktop|codex|all>` configura um agente específico; no Claude Code o registro é no escopo de usuário.
 
 Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
 

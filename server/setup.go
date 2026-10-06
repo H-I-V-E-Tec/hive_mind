@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,6 +17,9 @@ type SetupTarget struct {
 	Aliases  []string
 	Help     string
 	ConfigFn func(cmd mcpCommand, mindURL string) error
+	// Detect reports whether the agent is installed; `hive setup` without an
+	// argument configures only detected agents.
+	Detect func() bool
 }
 
 // mcpCommand is what an agent runs to start the MCP server over stdio.
@@ -48,47 +52,64 @@ var setupTargets = []SetupTarget{
 	{
 		Name:     "claude-code",
 		Aliases:  []string{"claude", "cc"},
-		Help:     "Registra o MCP no Claude Code (.mcp.json no diretório atual)",
+		Help:     "Registra o MCP no Claude Code para o usuário (claude mcp add-json -s user)",
 		ConfigFn: setupClaudeCode,
+		Detect:   detectClaudeCode,
 	},
 	{
 		Name:     "claude-desktop",
 		Aliases:  []string{"desktop"},
 		Help:     "Registra o MCP no Claude Desktop (claude_desktop_config.json)",
 		ConfigFn: setupClaudeDesktop,
+		Detect:   detectClaudeDesktop,
 	},
 	{
 		Name:     "codex",
 		Aliases:  []string{},
 		Help:     "Registra o MCP no Codex (~/.codex/config.toml)",
 		ConfigFn: setupCodex,
+		Detect:   detectCodex,
 	},
 }
 
 func RunSetup(agent string, stderr io.Writer) error {
 	agent = strings.ToLower(strings.TrimSpace(agent))
-	if agent == "" {
-		return listSetupTargets(stderr)
-	}
 
 	cmd, err := resolveMCPCommand()
 	if err != nil {
 		return err
 	}
 
-	mindURL := os.Getenv("HIVE_MIND_URL")
-	if mindURL == "" {
-		return errors.New("HIVE_MIND_URL é obrigatório para setup; configure a URL do servidor remoto")
+	mindURL, err := ValidateHiveCenterURL(ResolveMindURL(os.Args[1:]))
+	if err != nil {
+		return fmt.Errorf("URL do Mind inválida: %w", err)
 	}
 
-	if agent == "all" {
+	if agent == "" || agent == "all" {
+		var targets []SetupTarget
 		for _, t := range setupTargets {
+			if agent == "all" || t.Detect() {
+				targets = append(targets, t)
+			}
+		}
+		if len(targets) == 0 {
+			fmt.Fprintln(stderr, "Nenhum agente compatível foi encontrado nesta máquina.")
+			fmt.Fprintln(stderr)
+			return listSetupTargets(stderr)
+		}
+		fmt.Fprintf(stderr, "Mind: %s\n", mindURL)
+		failed := 0
+		for _, t := range targets {
 			fmt.Fprintf(stderr, "Configurando %s...\n", t.Name)
 			if err := t.ConfigFn(cmd, mindURL); err != nil {
+				failed++
 				fmt.Fprintf(stderr, "  ✗ %s: %v\n", t.Name, err)
 			} else {
 				fmt.Fprintf(stderr, "  ✓ %s configurado\n", t.Name)
 			}
+		}
+		if failed == len(targets) {
+			return errors.New("nenhum agente foi configurado")
 		}
 		return nil
 	}
@@ -108,7 +129,7 @@ func RunSetup(agent string, stderr io.Writer) error {
 }
 
 func listSetupTargets(stderr io.Writer) error {
-	fmt.Fprintln(stderr, "Uso: hive setup <agente>")
+	fmt.Fprintln(stderr, "Uso: hive setup [agente]")
 	fmt.Fprintln(stderr)
 	fmt.Fprintln(stderr, "Agentes disponíveis:")
 	for _, t := range setupTargets {
@@ -121,26 +142,71 @@ func listSetupTargets(stderr io.Writer) error {
 	fmt.Fprintln(stderr)
 	fmt.Fprintln(stderr, "  all              Configura todos os agentes acima")
 	fmt.Fprintln(stderr)
-	fmt.Fprintln(stderr, "Requisito: HIVE_MIND_URL deve estar configurado.")
+	fmt.Fprintln(stderr, "Sem argumento, configura os agentes encontrados nesta máquina.")
+	fmt.Fprintln(stderr, "A URL do Mind vem de --mind-url, HIVE_MIND_URL ou do HIVE Center padrão.")
 	return errors.New("especifique um agente")
 }
 
-func setupClaudeCode(cmd mcpCommand, mindURL string) error {
-	path := filepath.Join(".", ".mcp.json")
-	data := readJSONFileMap(path)
-	servers, _ := data["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
+// lookPath and claudeCLI are replaced in tests.
+var lookPath = exec.LookPath
+
+// claudeCLI runs the Claude Code CLI.
+var claudeCLI = func(args ...string) ([]byte, error) {
+	path, err := lookPath("claude")
+	if err != nil {
+		return nil, errors.New("comando 'claude' não encontrado no PATH; instale o Claude Code")
 	}
-	servers["hive_mind"] = map[string]any{
+	return exec.Command(path, args...).CombinedOutput()
+}
+
+func detectClaudeCode() bool {
+	_, err := lookPath("claude")
+	return err == nil
+}
+
+func detectClaudeDesktop() bool {
+	path := claudeDesktopConfigPath()
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	return err == nil && info.IsDir()
+}
+
+func detectCodex() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(home, ".codex"))
+	return err == nil && info.IsDir()
+}
+
+// setupClaudeCode registers the MCP in the user scope, so it works in every
+// directory. The CLI is used instead of editing ~/.claude.json, which Claude
+// Code rewrites while running.
+func setupClaudeCode(cmd mcpCommand, mindURL string) error {
+	entry, err := json.Marshal(map[string]any{
+		"type":    "stdio",
 		"command": cmd.Command,
 		"args":    cmd.Args,
 		"env": map[string]string{
 			"HIVE_MIND_URL": mindURL,
 		},
+	})
+	if err != nil {
+		return err
 	}
-	data["mcpServers"] = servers
-	return writeJSONFile(path, data, 0o644)
+	// Replace an earlier user-scope entry, such as a legacy binary path; a
+	// missing entry is not an error.
+	_, _ = claudeCLI("mcp", "remove", "hive_mind", "-s", "user")
+	if out, err := claudeCLI("mcp", "add-json", "hive_mind", string(entry), "-s", "user"); err != nil {
+		if detail := strings.TrimSpace(string(out)); detail != "" {
+			return fmt.Errorf("claude mcp add-json falhou: %w: %s", err, detail)
+		}
+		return fmt.Errorf("claude mcp add-json falhou: %w", err)
+	}
+	return nil
 }
 
 func setupClaudeDesktop(cmd mcpCommand, mindURL string) error {

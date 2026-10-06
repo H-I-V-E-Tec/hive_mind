@@ -113,9 +113,6 @@ func Start(version string) {
 			agent = args[2]
 		}
 		if err := RunSetup(agent, os.Stderr); err != nil {
-			if agent == "" {
-				os.Exit(ExitUsage)
-			}
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 			os.Exit(1)
 		}
@@ -123,22 +120,7 @@ func Start(version string) {
 	}
 
 	if len(args) > 1 && args[1] == "login" {
-		centerURL := flagValueFromArgs(os.Args[2:], "--center-url")
-		if centerURL == "" {
-			for _, item := range os.Environ() {
-				parts := strings.SplitN(item, "=", 2)
-				if len(parts) == 2 && parts[0] == "HIVE_CENTER_URL" {
-					centerURL = parts[1]
-				}
-			}
-		}
-		if centerURL == "" {
-			centerURL = LoadStoredCenterURL()
-		}
-		if centerURL == "" {
-			fmt.Fprintln(os.Stderr, "HIVE_CENTER_URL or --center-url is required for login")
-			os.Exit(ExitConfiguration)
-		}
+		centerURL := ResolveCenterURL(os.Args[2:])
 		checkOnly := false
 		for _, a := range args[2:] {
 			if a == "--check" {
@@ -159,11 +141,16 @@ func Start(version string) {
 		return
 	}
 
-	// A remote MCP client only needs HIVE_MIND_URL and the login token; the
+	// A remote MCP client only needs the Mind URL and the login token; the
 	// local writer/reader settings LoadConfig requires do not apply to it.
+	// Without local configuration, a member gets the built-in Mind URL.
 	if len(args) == 1 {
 		if mindURL := remoteMindURL(); mindURL != "" {
 			runRemoteMCP(mindURL)
+			return
+		}
+		if !hasLocalConfig(os.Args[1:]) {
+			runRemoteMCP(ResolveMindURL(os.Args[1:]))
 			return
 		}
 	}
@@ -690,13 +677,16 @@ func printCLIHelp() {
 	fmt.Println("                                 Optional: HIVE_HTTP_ADDR (default :8443),")
 	fmt.Println("                                 HIVE_HTTP_TLS_CERT and HIVE_HTTP_TLS_KEY.")
 	fmt.Println("  doctor                         Diagnose token, connectivity and configuration.")
-	fmt.Println("  setup <agent|all>              Register MCP in an AI agent (claude-code, claude-desktop, codex).")
+	fmt.Println("  setup [agent|all]              Register MCP in AI agents; no argument configures the detected")
+	fmt.Println("                                 ones (claude-code, claude-desktop, codex).")
 	fmt.Println("  login [--center-url <url>]     Authenticate with HIVE Center and save JWT locally.")
 	fmt.Println("  login --check                  Verify the stored token is valid and not expired.")
 	fmt.Println()
-	fmt.Println("  When HIVE_MIND_URL (or --mind-url) is set, the MCP server runs in remote")
-	fmt.Println("  mode: tool calls are forwarded via HTTP+JWT to a hive serve instance")
-	fmt.Println("  instead of connecting directly to Qdrant. Run 'hive login' first.")
+	fmt.Println("  Without local configuration (HIVE_ID, QDRANT_URL or --config), the MCP server")
+	fmt.Println("  runs in remote mode: tool calls are forwarded via HTTP+JWT to a hive serve")
+	fmt.Println("  instance instead of connecting directly to Qdrant. Run 'hive login' first.")
+	fmt.Println("  Center URL: --center-url, HIVE_CENTER_URL, the last login, then " + DefaultCenterURL + ".")
+	fmt.Println("  Mind URL: --mind-url, HIVE_MIND_URL, then the Center URL plus /mind.")
 	fmt.Println("  list-skills                    List all available AI agent skills.")
 	fmt.Println("  install-skill <agent> [dir]    Installs the rules file for the specified agent.")
 	fmt.Println("                                 Options: claude, codex (maintained); cursor, windsurf,")

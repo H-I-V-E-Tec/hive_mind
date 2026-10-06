@@ -107,11 +107,30 @@ func TestDoctorRemoteServerDown(t *testing.T) {
 
 func TestDoctorLocalMode(t *testing.T) {
 	os.Unsetenv("HIVE_MIND_URL")
+	t.Setenv("HIVE_ID", "local-hive")
 
 	var stderr strings.Builder
 	report := RunDoctor(&stderr)
 
 	if report.Mode != "local" {
 		t.Fatalf("expected local mode, got %s", report.Mode)
+	}
+}
+
+func TestDoctorDefaultsToRemoteWithoutLocalConfig(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	t.Setenv("HIVE_MIND_URL", "")
+	t.Setenv("HIVE_ID", "")
+	t.Setenv("QDRANT_URL", "")
+	t.Setenv("HIVE_CENTER_URL", "http://127.0.0.1:19999")
+
+	var stderr strings.Builder
+	report := RunDoctor(&stderr)
+
+	if report.Mode != "remote" {
+		t.Fatalf("expected remote mode, got %s", report.Mode)
+	}
+	if !strings.Contains(stderr.String(), "http://127.0.0.1:19999/mind") {
+		t.Fatalf("doctor did not use the Center URL plus /mind:\n%s", stderr.String())
 	}
 }
