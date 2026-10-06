@@ -30,10 +30,10 @@ func testHTTPServer(t *testing.T) (*HTTPServer, *rsa.PrivateKey, string) {
 	return httpSrv, key, kid
 }
 
-func validBearerToken(t *testing.T, key *rsa.PrivateKey, kid string) string {
+func validBearerToken(t *testing.T, key *rsa.PrivateKey, kid, issuer string) string {
 	t.Helper()
 	return signTestToken(t, key, kid, jwt.MapClaims{
-		"iss": "https://center.hive.test", "sub": "member-1",
+		"iss": issuer, "sub": "member-1",
 		"aud": "mind", "exp": jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 		"iat": jwt.NewNumericDate(time.Now()), "name": "Ana",
 		"permissions": []string{"product.mind"}, "profiles": []string{"membro"},
@@ -84,7 +84,7 @@ func TestSearchWithInvalidToken(t *testing.T) {
 
 func TestSearchBadBody(t *testing.T) {
 	srv, key, kid := testHTTPServer(t)
-	token := validBearerToken(t, key, kid)
+	token := validBearerToken(t, key, kid, srv.jwks.centerURL)
 
 	req := httptest.NewRequest("POST", "/api/v1/search", bytes.NewReader([]byte("not json")))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -98,7 +98,7 @@ func TestSearchBadBody(t *testing.T) {
 
 func TestSyncStatusWithAuth(t *testing.T) {
 	srv, key, kid := testHTTPServer(t)
-	token := validBearerToken(t, key, kid)
+	token := validBearerToken(t, key, kid, srv.jwks.centerURL)
 
 	req := httptest.NewRequest("GET", "/api/v1/sync-status", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -132,7 +132,7 @@ func TestIngestRequiresWriter(t *testing.T) {
 	jwks := NewJWKSClient(jwksSrv.URL)
 	httpSrv := NewHTTPServer(readerWorker, jwks, ":0")
 
-	token := validBearerToken(t, key, kid)
+	token := validBearerToken(t, key, kid, jwksSrv.URL)
 	req := httptest.NewRequest("POST", "/api/v1/ingest", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()

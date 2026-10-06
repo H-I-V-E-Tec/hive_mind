@@ -564,6 +564,19 @@ func (iw *IngestionWorker) SyncFileState(ctx context.Context, path string) error
 // second read of the head that could race with another synchronization.
 func (iw *IngestionWorker) syncFileResult(ctx context.Context, path string) (result SyncFileResult, resultErr error) {
 	result = SyncFileResult{Path: iw.syncReportPath(path), Outcome: SyncFailed}
+	iw.documentLocksOnce.Do(func() {
+		for i := range iw.documentSyncLocks {
+			iw.documentSyncLocks[i] = make(chan struct{}, 1)
+		}
+	})
+	lock := iw.documentSyncLocks[int(sha256.Sum256([]byte(result.Path))[0])%len(iw.documentSyncLocks)]
+	select {
+	case lock <- struct{}{}:
+		defer func() { <-lock }()
+	case <-ctx.Done():
+		result.Outcome, result.ReasonCode, result.Detail = SyncCancelled, "cancelled", syncReasonDetail("cancelled")
+		return result, ctx.Err()
+	}
 	reason := "synchronization_failed"
 	defer func() {
 		if resultErr == nil {

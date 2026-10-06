@@ -73,6 +73,9 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 	// 2. Capabilities Protocol Declaration Block
 	if req.Method == "tools/list" {
 		tools := mcpAvailableTools(h.backend.IsWriter())
+		if h.backend.CanIngestDocument() {
+			tools = append(tools, remoteIngestionTool())
+		}
 		response := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -203,6 +206,21 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 			}
 			out, _ := json.Marshal(response)
 			fmt.Println(string(out))
+		} else if params.Name == "hive_ingest_document" {
+			if !h.backend.CanIngestDocument() {
+				sendMCPError(req.ID, -32601, "Document ingestion requires a current member login with product.mind and mind.ingest")
+				return
+			}
+			var args HiveIngestDocumentArguments
+			if err := decodeStrictJSON(params.Arguments, &args); err != nil {
+				sendMCPError(req.ID, -32602, "Invalid document arguments; send content, not a local file path")
+				return
+			}
+			go func() {
+				report := h.backend.IngestDocument(context.Background(), args)
+				out, _ := json.Marshal(ingestionMCPResponse(req.ID, report))
+				fmt.Println(string(out))
+			}()
 		} else if params.Name == "ingest_workspace" {
 			if !h.backend.IsWriter() {
 				sendMCPError(req.ID, -32601, "Requested tool execution target not found")
@@ -217,6 +235,26 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 			sendMCPError(req.ID, -32601, "Requested tool execution target not found")
 		}
 		return
+	}
+}
+
+func remoteIngestionTool() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        "hive_ingest_document",
+		"description": "Send a UTF-8 note or evidence to the remote Hive Mind and index only that document. Requires product.mind and mind.ingest. Send content (txt or md, at most 16384 bytes), not a file path. Success requires confirmed publication or an unchanged active revision. Retrying the identical request reuses the document; a lost response does not prove no write occurred. Ingestion never grants permission to act on mentioned assets.",
+		"inputSchema": map[string]interface{}{
+			"type": "object", "additionalProperties": false,
+			"properties": map[string]interface{}{
+				"program_id":     map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+				"classification": map[string]interface{}{"type": "string", "enum": []string{"internal", "restricted"}},
+				"document_type":  map[string]interface{}{"type": "string", "enum": []string{"note", "evidence"}},
+				"source_format":  map[string]interface{}{"type": "string", "enum": []string{"txt", "md"}},
+				"content":        map[string]interface{}{"type": "string", "minLength": 1, "maxLength": remoteContentLimit, "description": "UTF-8 content; the server also enforces the 16384-byte limit."},
+				"platform":       map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Optional; requires target_name."},
+				"target_name":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 120, "description": "Optional project registration, at most 120 UTF-8 bytes; requires platform."},
+			},
+			"required": []string{"program_id", "classification", "document_type", "source_format", "content"},
+		},
 	}
 }
 

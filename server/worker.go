@@ -307,7 +307,11 @@ type IngestionWorker struct {
 	CustomStopWords       map[string]struct{}
 	infrastructureMu      sync.Mutex
 	infrastructureReady   bool
-	embeddingStats        embeddingCounters
+	// Bounded stripes serialize revision publication for a path across HTTP,
+	// workspace scans and watcher events without a growing lock registry.
+	documentSyncLocks [64]chan struct{}
+	documentLocksOnce sync.Once
+	embeddingStats    embeddingCounters
 }
 
 // embeddingCounters accumulates successful embedding requests so callers can

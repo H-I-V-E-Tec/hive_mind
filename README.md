@@ -29,6 +29,37 @@ O [launcher `hive`](https://github.com/H-I-V-E-Tec/hive_cli) instala e atualiza 
 
 Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
 
+### Ingestão pelo MCP remoto
+
+Após um `hive login` com as permissões `product.mind` e `mind.ingest`, o MCP oferece
+`hive_ingest_document`. Envie o conteúdo de uma nota ou evidência em `txt` ou `md`
+(até 16 KiB), com programa e classificação explícitos:
+
+```json
+{
+  "program_id": "teste-remoto",
+  "classification": "internal",
+  "document_type": "note",
+  "source_format": "txt",
+  "content": "farol-violeta-427: nota sintética para verificar ingestão e busca remotas."
+}
+```
+
+O serviço precisa rodar como writer e ter escrita no seu `HIVE_DATA_DIR`. Ele
+valida o JWT, deriva a origem do membro, grava um envelope completo e indexa apenas
+esse documento. Consulte o relatório: sucesso exige publicação confirmada ou uma
+nota já ativa (`unchanged`). Repetir o mesmo pedido reutiliza a nota; conteúdo
+diferente cria outra. Se a resposta se perder, repita exatamente o pedido para
+reconciliar. Um leitor recebe `403` na chamada direta de ingestão.
+
+Para buscar a nota de teste em programa sem escopo aprovado, use `hive_search` com
+`program_id: teste-remoto`, `query: farol-violeta-427` e
+`effective_scope_status: unknown`. A ingestão não aprova escopo. `platform` e
+`target_name` podem ser enviados juntos para vincular a nota ao catálogo de alvos.
+Esta primeira entrega usa permissão global de contribuição; concessões por
+programa, jobs e revisão editorial ficam no [plano arquitetural](PLANO_MELHORIA_ARQUITETURAL.md).
+Veja o [contrato e teste integrado](docs/spec/contracts/remote-ingestion.md).
+
 `hive_mind` não contém mais `hive-data/` nem configuração operacional local. Se você desenvolve aqui, use apenas fixtures sintéticas e diretórios temporários isolados; não aponte o agente a este checkout. Consulte [AGENTS.md](AGENTS.md) antes de alterar o comportamento do produto.
 
 ## Desenvolver e verificar

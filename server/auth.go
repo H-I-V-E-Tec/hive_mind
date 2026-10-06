@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 const (
-	jwksCacheTTL    = 5 * time.Minute
+	jwksCacheTTL     = 5 * time.Minute
 	jwksFetchTimeout = 10 * time.Second
 	expectedAudience = "mind"
 )
@@ -56,6 +57,7 @@ func (j *JWKSClient) ValidateToken(tokenString string) (*HiveClaims, error) {
 	token, err := jwt.Parse(tokenString, j.keyFunc,
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithExpirationRequired(),
+		jwt.WithIssuer(strings.TrimRight(j.centerURL, "/")),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("token validation failed: %w", err)
@@ -72,6 +74,9 @@ func (j *JWKSClient) ValidateToken(tokenString string) (*HiveClaims, error) {
 	aud := claimString(mapClaims, "aud")
 	if aud != expectedAudience {
 		return nil, fmt.Errorf("unexpected audience %q", aud)
+	}
+	if !validMemberSubject(claimString(mapClaims, "sub")) {
+		return nil, errors.New("missing or invalid member subject")
 	}
 
 	return &HiveClaims{
