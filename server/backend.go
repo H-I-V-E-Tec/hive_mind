@@ -1,6 +1,9 @@
 package server
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 type SyncStatusSnapshot struct {
 	Status       string `json:"status"`
@@ -16,6 +19,9 @@ type HiveBackend interface {
 	IngestWorkspaceReport(ctx context.Context, prune bool) IngestionReport
 	IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport
 	CanIngestDocument() bool
+	CanApproveScope() bool
+	PreviewScopeApproval(ctx context.Context, programID string) (ScopeApprovalSummary, error)
+	ApproveScopeRevision(ctx context.Context, programID, sha256 string) (ScopeApprovalResult, error)
 	SyncStatus() SyncStatusSnapshot
 	IsWriter() bool
 	Close()
@@ -62,6 +68,16 @@ func (w *workerBackend) IsWriter() bool {
 }
 
 func (w *workerBackend) CanIngestDocument() bool { return false }
+
+func (w *workerBackend) CanApproveScope() bool { return false }
+
+func (w *workerBackend) PreviewScopeApproval(context.Context, string) (ScopeApprovalSummary, error) {
+	return ScopeApprovalSummary{}, errors.New("scope approval requires a remote member session")
+}
+
+func (w *workerBackend) ApproveScopeRevision(context.Context, string, string) (ScopeApprovalResult, error) {
+	return ScopeApprovalResult{}, errors.New("scope approval requires a remote member session")
+}
 
 func (w *workerBackend) IngestDocument(context.Context, HiveIngestDocumentArguments) IngestionReport {
 	return failedDocumentReport(ExitAuthorization, "content ingestion requires a remote member session")

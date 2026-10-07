@@ -53,6 +53,24 @@ type ScopeApprovalSummary struct {
 	Excludes  int    `json:"excludes"`
 }
 
+type ScopeApprovalResult struct {
+	ProgramID     string `json:"program_id"`
+	Status        string `json:"status"`
+	ScopeRevision string `json:"scope_revision"`
+}
+
+func validScopeApprovalHash(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, ch := range value {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // ScopeApprovalPreview validates the canonical file without changing Qdrant
 // and returns only non-sensitive counts and the exact byte hash to approve.
 func (iw *IngestionWorker) ScopeApprovalPreview(programID string) (ScopeApprovalSummary, error) {

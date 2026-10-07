@@ -12,7 +12,7 @@ O operador consegue validar e usar a instância sem inspeção manual de banco, 
 - `search`: chama a busca Hive com `program_id` e filtros por flags.
 - `status`: mostra configuração efetiva mascarada, collection, modelo, dimensão, última sincronização e pendências.
 - `validate`: verifica papel, diretório quando aplicável, Qdrant, permissão da credencial, TLS, Ollama e fingerprint completo de embedding/schema.
-- `scope approve <program_id>`: valida o manifesto, mostra somente resumo/hash, rematerializa o programa sob o novo `scope_revision` e registra aprovação após confirmação explícita; disponível a qualquer writer registrado, que passa a ser o dono da aprovação, e nunca por MCP. A rematerialização preserva o dono de cada documento.
+- `scope approve <program_id>`: valida o manifesto, mostra somente resumo/hash, rematerializa o programa sob o novo `scope_revision` e registra aprovação após confirmação explícita. No CLI local, qualquer writer registrado pode aprovar e passa a ser o dono da aprovação. No MCP remoto, `hive_preview_scope_approval` mostra hash e contagens e `hive_approve_scope` confirma o hash exato, com `product.mind` e `mind.scope.approve` verificados pelo servidor writer. A rematerialização preserva o dono de cada documento.
 - `remove <path>`: registra tombstone e remove de forma verificável a revisão ativa; disponível apenas ao writer dono do documento (código `12` para documento de outro writer).
 - `audit record <evento> <change>`: registra rotação, revogação ou promoção executada pelo operador.
 - `audit report [--since=AAAA-MM-DD] [--program=<id>]`: agrega os eventos de recuperação dos logs locais conforme a [spec 09](09-usage-metrics.md); saída somente numérica.

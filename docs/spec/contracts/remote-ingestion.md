@@ -14,8 +14,13 @@ conteúdo vazio/binário e metadados inválidos são recusados antes da gravaç�
 Notas e evidências exigem `mind.ingest`. Um manifesto usa `document_type=scope`,
 `source_format=json`, exige `mind.scope.approve` e é publicado no path canônico
 `programs/<program_id>/scope.json`. A publicação o mantém não aprovado. A aprovação
-é separada em `POST /api/v1/scopes/<program_id>/approve`, com o SHA-256 dos bytes
-exatos, e exige a mesma permissão. Alteração concorrente falha por conflito.
+é separada da publicação: `GET /api/v1/scopes/<program_id>/approval-preview`
+valida o manifesto publicado e devolve somente SHA-256 e contagens de regras.
+`POST /api/v1/scopes/<program_id>/approve` exige esse SHA-256 exato e a mesma
+permissão. Alteração concorrente falha por conflito. No cliente MCP remoto,
+`hive_preview_scope_approval` fornece a prévia e `hive_approve_scope` recebe
+`program_id` e o hash confirmado; ambos exigem `product.mind` e
+`mind.scope.approve`. A prévia não altera o escopo.
 
 O servidor exige JWT RS256 do Center configurado, audiência `mind`, expiração,
 sujeito não vazio e `product.mind`, além da permissão da operação. A instância também

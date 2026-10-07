@@ -26,7 +26,7 @@ Operador ─CLI─ MCP writer ────────────────�
         hive-data canônico/sincronizado
 ```
 
-`stdio` não torna automaticamente o cliente confiável. Arquivos sincronizados e conteúdo indexado são entradas não confiáveis. Somente um manifesto de escopo validado e com hash aprovado fora do fluxo MCP pode conceder autorização. Rede privada reduz exposição, mas não substitui autenticação nem criptografia.
+`stdio` não torna automaticamente o cliente confiável. Arquivos sincronizados e conteúdo indexado são entradas não confiáveis. Somente um manifesto de escopo validado e com hash aprovado explicitamente pelo operador pode conceder autorização. No MCP remoto, a prévia retorna o hash e a aprovação exige sua confirmação exata, JWT válido e `mind.scope.approve` no servidor writer. Rede privada reduz exposição, mas não substitui autenticação nem criptografia.
 
 ## Ameaças mínimas
 
