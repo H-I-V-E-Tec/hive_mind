@@ -116,6 +116,41 @@ func TestRemoteDocumentAuthorizationAndValidation(t *testing.T) {
 	}
 }
 
+func TestRemoteScopeRequiresDedicatedPermissionAndSeparateApproval(t *testing.T) {
+	srv, key, kid := testHTTPServer(t)
+	manifest := `{"schema_version":1,"program_id":"remote-scope","platform":"h1","target_name":"@program","classification":"internal","source":"synthetic portal","collected_at":"2026-10-07T12:00:00Z","rules":[{"action":"include","asset_type":"host","value":"api.example.test"}]}`
+	args := HiveIngestDocumentArguments{ProgramID: "remote-scope", Classification: "internal",
+		DocumentType: "scope", SourceFormat: "json", Content: manifest}
+	body, _ := json.Marshal(args)
+
+	ordinary := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionMindIngest}, nil)
+	if rec := documentRequest(srv, ordinary, body); rec.Code != http.StatusForbidden {
+		t.Fatalf("ordinary ingestion published scope: %d %s", rec.Code, rec.Body.String())
+	}
+
+	scopeToken := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionScopeAdmin}, nil)
+	if rec := documentRequest(srv, scopeToken, body); rec.Code != http.StatusOK {
+		t.Fatalf("scope publication failed: %d %s", rec.Code, rec.Body.String())
+	}
+	revision, _, err := srv.worker.resolveActiveScope(context.Background(), "remote-scope")
+	if err != nil || revision != "unapproved" {
+		t.Fatalf("publication implicitly approved scope: revision=%s err=%v", revision, err)
+	}
+
+	approveBody, _ := json.Marshal(map[string]string{"sha256": sha256Hex([]byte(manifest))})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scopes/remote-scope/approve", bytes.NewReader(approveBody))
+	req.Header.Set("Authorization", "Bearer "+scopeToken)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("scope approval failed: %d %s", rec.Code, rec.Body.String())
+	}
+	revision, _, err = srv.worker.resolveActiveScope(context.Background(), "remote-scope")
+	if err != nil || revision != sha256Hex([]byte(manifest)) {
+		t.Fatalf("scope was not approved: revision=%s err=%v", revision, err)
+	}
+}
+
 func TestRemoteDocumentPublicationReplayAndSearch(t *testing.T) {
 	srv, key, kid := testHTTPServer(t)
 	token := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionMindIngest}, nil)

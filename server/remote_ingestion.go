@@ -17,10 +17,12 @@ import (
 
 const (
 	remoteContentLimit   = 16 << 10
-	remoteRequestLimit   = 128 << 10 // JSON escapes can expand each content byte sixfold.
+	remoteScopeLimit     = 1 << 20
+	remoteRequestLimit   = 6 << 20 // JSON escapes can expand each content byte sixfold.
 	remoteIngestTimeout  = 45 * time.Second
 	permissionMindRead   = "product.mind"
 	permissionMindIngest = "mind.ingest"
+	permissionScopeAdmin = "mind.scope.approve"
 )
 
 type HiveIngestDocumentArguments struct {
@@ -35,8 +37,26 @@ type HiveIngestDocumentArguments struct {
 
 func validateRemoteDocument(args HiveIngestDocumentArguments) error {
 	if !validIdentifier(args.ProgramID, 64) ||
-		(args.Classification != "internal" && args.Classification != "restricted") ||
-		(args.DocumentType != "note" && args.DocumentType != "evidence") ||
+		(args.Classification != "internal" && args.Classification != "restricted") {
+		return errors.New("provide a valid program_id, classification, document_type and source_format")
+	}
+	if args.DocumentType == "scope" {
+		if args.SourceFormat != "json" || args.Platform != "" || args.TargetName != "" {
+			return errors.New("scope documents require source_format=json and take metadata from the manifest")
+		}
+		if len(args.Content) > remoteScopeLimit {
+			return &documentInputError{"file_size_limit", "scope content exceeds 1048576 UTF-8 bytes"}
+		}
+		manifest, err := parseScopeManifest([]byte(args.Content), args.ProgramID)
+		if err != nil {
+			return err
+		}
+		if manifest.Classification != args.Classification {
+			return errors.New("scope manifest classification must match the request")
+		}
+		return nil
+	}
+	if (args.DocumentType != "note" && args.DocumentType != "evidence") ||
 		(args.SourceFormat != "txt" && args.SourceFormat != "md") {
 		return errors.New("provide a valid program_id, classification, document_type and source_format")
 	}
@@ -60,11 +80,22 @@ func failedDocumentReport(code int, message string) IngestionReport {
 
 // The HTTP boundary supplies verified claims. The caller never supplies authorship.
 func (iw *IngestionWorker) IngestRemoteDocument(ctx context.Context, claims *HiveClaims, args HiveIngestDocumentArguments) IngestionReport {
-	if !iw.Cfg.IsWriter() || claims == nil || !claims.HasPermissions(permissionMindRead, permissionMindIngest) || !validMemberSubject(claims.Sub) {
+	requiredPermission := permissionMindIngest
+	if args.DocumentType == "scope" {
+		requiredPermission = permissionScopeAdmin
+	}
+	if !iw.Cfg.IsWriter() || claims == nil || !claims.HasPermissions(permissionMindRead, requiredPermission) || !validMemberSubject(claims.Sub) {
 		return failedDocumentReport(ExitAuthorization, "document ingestion requires an authorized member and writer")
 	}
 	if err := validateRemoteDocument(args); err != nil {
 		return failedDocumentReport(ExitUsage, err.Error())
+	}
+	if args.DocumentType == "scope" {
+		rel := filepath.Join("programs", args.ProgramID, "scope.json")
+		if err := publishRemoteScopeManifest(iw.Cfg.DataDirectory, rel, []byte(args.Content)); err != nil {
+			return failedDocumentReport(ExitPartialFailure, "scope manifest could not be saved safely")
+		}
+		return iw.IngestPathReport(ctx, filepath.Join(iw.Cfg.DataDirectory, rel))
 	}
 	doc, err := ConvertDocument(ctx, args.SourceFormat, []byte(args.Content), iw.Cfg)
 	if err != nil {
@@ -97,6 +128,46 @@ func (iw *IngestionWorker) IngestRemoteDocument(ctx context.Context, claims *Hiv
 		report.OK, report.ExitCode, report.Error = false, ExitPartialFailure, "document publication was not confirmed; inspect the file result"
 	}
 	return report
+}
+
+func publishRemoteScopeManifest(dataDir, rel string, content []byte) error {
+	root, err := os.OpenRoot(dataDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	programDir := filepath.Dir(rel)
+	if err := root.MkdirAll(programDir, 0o700); err != nil {
+		return err
+	}
+	if info, err := root.Lstat(programDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("scope parent must be a real directory")
+	}
+	if info, err := root.Lstat(rel); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return errors.New("scope destination must be a regular file")
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	tmp := filepath.Join(programDir, ".hive-scope-"+hex.EncodeToString(nonce[:]))
+	file, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(tmp)
+	if _, err = file.Write(content); err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return root.Rename(tmp, rel)
 }
 
 // Root confines all publication operations, including symlinks. Link exposes only

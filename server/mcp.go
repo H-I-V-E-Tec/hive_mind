@@ -241,15 +241,15 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 func remoteIngestionTool() map[string]interface{} {
 	return map[string]interface{}{
 		"name":        "hive_ingest_document",
-		"description": "Send a UTF-8 note or evidence to the remote Hive Mind and index only that document. Requires product.mind and mind.ingest. Send content (txt or md, at most 16384 bytes), not a file path. Success requires confirmed publication or an unchanged active revision. Retrying the identical request reuses the document; a lost response does not prove no write occurred. Ingestion never grants permission to act on mentioned assets.",
+		"description": "Send a note, evidence, or scope manifest to the remote Hive Mind. Notes/evidence require mind.ingest; scope requires mind.scope.approve, source_format=json, and a valid scope manifest. Publishing scope leaves it unapproved until the separate approval endpoint confirms its exact SHA-256.",
 		"inputSchema": map[string]interface{}{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]interface{}{
 				"program_id":     map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
 				"classification": map[string]interface{}{"type": "string", "enum": []string{"internal", "restricted"}},
-				"document_type":  map[string]interface{}{"type": "string", "enum": []string{"note", "evidence"}},
-				"source_format":  map[string]interface{}{"type": "string", "enum": []string{"txt", "md"}},
-				"content":        map[string]interface{}{"type": "string", "minLength": 1, "maxLength": remoteContentLimit, "description": "UTF-8 content; the server also enforces the 16384-byte limit."},
+				"document_type":  map[string]interface{}{"type": "string", "enum": []string{"note", "evidence", "scope"}},
+				"source_format":  map[string]interface{}{"type": "string", "enum": []string{"txt", "md", "json"}},
+				"content":        map[string]interface{}{"type": "string", "minLength": 1, "maxLength": remoteScopeLimit, "description": "UTF-8 content; notes/evidence are limited to 16384 bytes and scope manifests to 1048576 bytes."},
 				"platform":       map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Optional; requires target_name."},
 				"target_name":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 120, "description": "Optional project registration, at most 120 UTF-8 bytes; requires platform."},
 			},

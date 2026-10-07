@@ -88,9 +88,12 @@ func (rc *RemoteClient) CanIngestDocument() bool {
 		HiveClaims
 		Exp int64 `json:"exp"`
 	}
-	return json.Unmarshal(payload, &claims) == nil && claims.Exp > time.Now().Unix() &&
-		supportedAudience(claims.Audience) && validMemberSubject(claims.Sub) &&
-		claims.HasPermissions(permissionMindRead, permissionMindIngest)
+	if json.Unmarshal(payload, &claims) != nil || claims.Exp <= time.Now().Unix() ||
+		!supportedAudience(claims.Audience) || !validMemberSubject(claims.Sub) ||
+		!claims.HasPermissions(permissionMindRead) {
+		return false
+	}
+	return claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin)
 }
 
 func (rc *RemoteClient) IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport {

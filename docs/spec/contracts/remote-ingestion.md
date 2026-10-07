@@ -6,13 +6,19 @@ Estado: implementado e validado localmente com serviços reais isolados; deploy 
 `POST /api/v1/documents/ingest`. Não lê caminhos locais nem dispara uma varredura.
 
 Entrada obrigatória: `program_id`, `classification` (`internal` ou `restricted`),
-`document_type` (`note` ou `evidence`), `source_format` (`txt` ou `md`) e `content`
-(UTF-8, até 16 KiB). `platform` e `target_name` são opcionais, mas devem ser
+`document_type` (`note`, `evidence` ou `scope`), `source_format` (`txt`, `md` ou `json`) e `content`
+(UTF-8; até 16 KiB para nota/evidência e 1 MiB para escopo). `platform` e `target_name` são opcionais, mas devem ser
 informados juntos para registrar a nota no catálogo de alvos. Campos desconhecidos,
 conteúdo vazio/binário e metadados inválidos são recusados antes da gravação.
 
+Notas e evidências exigem `mind.ingest`. Um manifesto usa `document_type=scope`,
+`source_format=json`, exige `mind.scope.approve` e é publicado no path canônico
+`programs/<program_id>/scope.json`. A publicação o mantém não aprovado. A aprovação
+é separada em `POST /api/v1/scopes/<program_id>/approve`, com o SHA-256 dos bytes
+exatos, e exige a mesma permissão. Alteração concorrente falha por conflito.
+
 O servidor exige JWT RS256 do Center configurado, audiência `mind`, expiração,
-sujeito não vazio e permissões `product.mind` + `mind.ingest`. A instância também
+sujeito não vazio e `product.mind`, além da permissão da operação. A instância também
 precisa ser writer. As rotas de consulta exigem `product.mind`; a varredura legada
 também exige `mind.ingest`. As claims locais servem apenas à apresentação da
 ferramenta; a autorização acontece no servidor em toda chamada.

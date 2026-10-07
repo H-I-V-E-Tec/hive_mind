@@ -56,7 +56,22 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("POST /api/v1/targets", s.authMiddleware(http.HandlerFunc(s.handleTargets)))
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
 	s.mux.Handle("POST /api/v1/ingest", s.authMiddleware(s.writerMiddleware(http.HandlerFunc(s.handleIngest))))
-	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.writerMiddleware(http.HandlerFunc(s.handleIngestDocument))))
+	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.instanceWriterMiddleware(http.HandlerFunc(s.handleIngestDocument))))
+	s.mux.Handle("POST /api/v1/scopes/{programID}/approve", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleApproveScope))))
+}
+
+func (s *HTTPServer) scopeAdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !claimsFromContext(r.Context()).HasPermissions(permissionMindRead, permissionScopeAdmin) {
+			writeJSONError(w, http.StatusForbidden, "product.mind and mind.scope.approve permissions are required")
+			return
+		}
+		if !s.worker.Cfg.IsWriter() {
+			writeJSONError(w, http.StatusForbidden, "this instance is not a writer")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *HTTPServer) ListenAndServe() error {
@@ -108,6 +123,16 @@ func (s *HTTPServer) writerMiddleware(next http.Handler) http.Handler {
 			writeJSONError(w, http.StatusForbidden, "product.mind and mind.ingest permissions are required")
 			return
 		}
+		if !s.worker.Cfg.IsWriter() {
+			writeJSONError(w, http.StatusForbidden, "this instance is not a writer")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *HTTPServer) instanceWriterMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.worker.Cfg.IsWriter() {
 			writeJSONError(w, http.StatusForbidden, "this instance is not a writer")
 			return
@@ -230,7 +255,8 @@ func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request
 	}
 	if err := validateRemoteDocument(args); err != nil {
 		status := http.StatusBadRequest
-		if len(args.Content) > remoteContentLimit {
+		if (args.DocumentType == "scope" && len(args.Content) > remoteScopeLimit) ||
+			(args.DocumentType != "scope" && len(args.Content) > remoteContentLimit) {
 			status = http.StatusRequestEntityTooLarge
 		}
 		writeJSONError(w, status, err.Error())
@@ -244,9 +270,34 @@ func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request
 		status = http.StatusInternalServerError
 		if report.ExitCode == ExitUsage {
 			status = http.StatusBadRequest
+		} else if report.ExitCode == ExitAuthorization {
+			status = http.StatusForbidden
 		}
 	}
 	writeJSON(w, status, report)
+}
+
+func (s *HTTPServer) handleApproveScope(w http.ResponseWriter, r *http.Request) {
+	programID := r.PathValue("programID")
+	var body struct {
+		SHA256 string `json:"sha256"`
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1025))
+	if err != nil || len(raw) > 1024 || decodeStrictJSON(raw, &body) != nil || len(body.SHA256) != 64 {
+		writeJSONError(w, http.StatusBadRequest, "a valid sha256 confirmation is required")
+		return
+	}
+	if err := s.worker.ApproveScopeRevision(r.Context(), programID, body.SHA256); err != nil {
+		var operational *operationalError
+		if errors.As(err, &operational) && operational.code == ExitUsage {
+			writeJSONError(w, http.StatusConflict, operational.message)
+			return
+		}
+		log.Printf("scope approval failed for program_id=%s: %v", programID, err)
+		writeJSONError(w, http.StatusInternalServerError, "scope approval failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"program_id": programID, "status": "approved", "scope_revision": body.SHA256})
 }
 
 // --- Helpers ---
