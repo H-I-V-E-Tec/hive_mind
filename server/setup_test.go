@@ -122,6 +122,22 @@ func TestSetupCodex(t *testing.T) {
 	if !strings.Contains(content, "HIVE_MIND_URL") {
 		t.Fatal("missing HIVE_MIND_URL in codex config")
 	}
+
+	// Re-running setup must not duplicate the section or its env subtable.
+	if err := RunSetup("codex", &stderr); err != nil {
+		t.Fatalf("second setup codex failed: %v", err)
+	}
+	data, err = os.ReadFile(filepath.Join(tmpHome, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
+	}
+	content = string(data)
+	if n := strings.Count(content, "[mcp_servers.hive_mind]"); n != 1 {
+		t.Fatalf("expected 1 [mcp_servers.hive_mind], got %d", n)
+	}
+	if n := strings.Count(content, "[mcp_servers.hive_mind.env]"); n != 1 {
+		t.Fatalf("expected 1 [mcp_servers.hive_mind.env], got %d:\n%s", n, content)
+	}
 }
 
 func TestSetupDefaultsMindURL(t *testing.T) {
