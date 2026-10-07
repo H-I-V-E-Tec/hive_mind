@@ -253,7 +253,9 @@ func setupCodex(cmd mcpCommand, mindURL string) error {
 	var out []string
 	i := 0
 	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) == header {
+		// Drop [mcp_servers.hive_mind] and any subtables like [mcp_servers.hive_mind.env].
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == header || strings.HasPrefix(trimmed, "[mcp_servers.hive_mind.") {
 			i++
 			for i < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[i]), "[") {
 				i++
