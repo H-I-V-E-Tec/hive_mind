@@ -89,7 +89,7 @@ func (rc *RemoteClient) CanIngestDocument() bool {
 		Exp int64 `json:"exp"`
 	}
 	return json.Unmarshal(payload, &claims) == nil && claims.Exp > time.Now().Unix() &&
-		claims.Audience == expectedAudience && validMemberSubject(claims.Sub) &&
+		supportedAudience(claims.Audience) && validMemberSubject(claims.Sub) &&
 		claims.HasPermissions(permissionMindRead, permissionMindIngest)
 }
 

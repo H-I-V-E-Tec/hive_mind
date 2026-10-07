@@ -1,5 +1,7 @@
 # Hive Mind
 
+Release preparada: **v1.5.0**, branch `release/v1.5.0`.
+
 Hive Mind é um núcleo de memória privada para trabalho de segurança autorizado. Este repositório contém o código Go, contratos, testes e automações de release. O cliente operacional é o binário `hive` publicado nas releases; agentes de trabalho não usam este checkout como fonte de documentos ou servidor MCP.
 
 ## O que funciona hoje
@@ -28,6 +30,12 @@ hive doctor    # confere token, conectividade e acesso autenticado
 O [launcher `hive`](https://github.com/H-I-V-E-Tec/hive_cli) instala e atualiza o Mind com assinatura verificada. Nenhuma URL precisa ser informada: o HIVE Center padrão (`https://hive-center.duckdns.org`) está embutido no binário e o Mind fica em `<center>/mind`. Para outro ambiente, use `--center-url`/`HIVE_CENTER_URL` (lembrado após o login) e `--mind-url`/`HIVE_MIND_URL`; fora de loopback as URLs precisam ser `https://`. Sem `HIVE_ID`, `QDRANT_URL` ou `--config`, o MCP roda em modo remoto. `hive setup <claude-code|claude-desktop|codex|all>` configura um agente específico; no Claude Code o registro é no escopo de usuário.
 
 Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
+
+A sessão é compartilhada entre produtos: `hive login` no launcher solicita
+`aud=hive` com as permissões efetivas e salva `$HIVE_HOME/token` (padrão
+`~/.hive/token`) e `center-url`. O Mind exige `product.mind` no serviço; Atlas
+exige `product.atlas`. `HIVE_TOKEN`/`HIVE_TOKEN_FILE` são opções comuns de injeção.
+Mind continua aceitando `aud=mind` legado até a expiração para o rollout.
 
 ### Ingestão pelo MCP remoto
 

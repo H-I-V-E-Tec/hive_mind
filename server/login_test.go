@@ -34,7 +34,7 @@ func testCenterServer(t *testing.T, wantUser, wantPass string) *httptest.Server 
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_credentials"})
 			return
 		}
-		if body.Audience != "mind" {
+		if body.Audience != "hive" {
 			w.WriteHeader(400)
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_audience"})
 			return
