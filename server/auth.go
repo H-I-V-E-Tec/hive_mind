@@ -18,7 +18,7 @@ import (
 const (
 	jwksCacheTTL     = 5 * time.Minute
 	jwksFetchTimeout = 10 * time.Second
-	expectedAudience = "mind"
+	expectedAudience = "hive"
 )
 
 type HiveClaims struct {
@@ -72,7 +72,7 @@ func (j *JWKSClient) ValidateToken(tokenString string) (*HiveClaims, error) {
 	}
 
 	aud := claimString(mapClaims, "aud")
-	if aud != expectedAudience {
+	if !supportedAudience(aud) {
 		return nil, fmt.Errorf("unexpected audience %q", aud)
 	}
 	if !validMemberSubject(claimString(mapClaims, "sub")) {
@@ -207,3 +207,6 @@ func claimStringSlice(claims jwt.MapClaims, key string) []string {
 	}
 	return result
 }
+
+// Legacy Mind sessions remain valid until expiry during the shared-login rollout.
+func supportedAudience(aud string) bool { return aud == expectedAudience || aud == "mind" }

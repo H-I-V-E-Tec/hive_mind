@@ -20,6 +20,9 @@ const tokenDirPerm = 0o700
 const tokenFilePerm = 0o600
 
 func TokenDir() string {
+	if root := os.Getenv("HIVE_HOME"); root != "" {
+		return root
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -28,6 +31,9 @@ func TokenDir() string {
 }
 
 func TokenPath() string {
+	if path := os.Getenv("HIVE_TOKEN_FILE"); path != "" {
+		return path
+	}
 	dir := TokenDir()
 	if dir == "" {
 		return ""
@@ -68,6 +74,9 @@ func storeCenterURL(centerURL string) error {
 }
 
 func LoadStoredToken() (string, error) {
+	if token := strings.TrimSpace(os.Getenv("HIVE_TOKEN")); token != "" {
+		return token, nil
+	}
 	path := TokenPath()
 	if path == "" {
 		return "", errors.New("cannot determine token path")
@@ -131,7 +140,7 @@ func RunLogin(centerURL string, stdin io.Reader, stderr io.Writer) error {
 	body, _ := json.Marshal(map[string]string{
 		"username": username,
 		"password": password,
-		"audience": "mind",
+		"audience": "hive",
 	})
 
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Post(
@@ -217,18 +226,28 @@ func RunLoginCheck(stderr io.Writer) error {
 }
 
 func storeToken(token string) error {
-	dir := TokenDir()
-	if dir == "" {
-		return errors.New("cannot determine home directory")
+	path := TokenPath()
+	if path == "" {
+		return errors.New("cannot determine token path")
 	}
-	if err := os.MkdirAll(dir, tokenDirPerm); err != nil {
-		return fmt.Errorf("cannot create %s: %w", dir, err)
+	if err := os.MkdirAll(filepath.Dir(path), tokenDirPerm); err != nil {
+		return err
 	}
-	path := filepath.Join(dir, "token")
-	if err := os.WriteFile(path, []byte(token+"\n"), tokenFilePerm); err != nil {
-		return fmt.Errorf("cannot write token: %w", err)
+	file, err := os.CreateTemp(filepath.Dir(path), ".session-")
+	if err != nil {
+		return err
 	}
-	return nil
+	defer os.Remove(file.Name())
+	if err = file.Chmod(tokenFilePerm); err == nil {
+		_, err = file.WriteString(token + "\n")
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
 
 func decodeJWTPayload(b64 string) ([]byte, error) {
