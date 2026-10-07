@@ -249,11 +249,18 @@ func setupCodex(cmd mcpCommand, mindURL string) error {
 	}
 
 	header := "[mcp_servers.hive_mind]"
+	env := "[mcp_servers.hive_mind.env]"
 	lines := strings.Split(existing, "\n")
 	var out []string
 	i := 0
 	for i < len(lines) {
-		if strings.TrimSpace(lines[i]) == header {
+		// Remove o bloco do servidor E o subbloco env que o setup reescreve,
+		// inclusive se um deles tiver ficado órfão de uma gravação anterior. Sem
+		// remover o env órfão, o append abaixo criaria uma segunda tabela
+		// [mcp_servers.hive_mind.env] e o TOML ficaria inválido (declaração dupla).
+		// Subtabelas que o setup não gerencia (ex.: [mcp_servers.hive_mind.tools.*])
+		// são preservadas.
+		if trimmed := strings.TrimSpace(lines[i]); trimmed == header || trimmed == env {
 			i++
 			for i < len(lines) && !strings.HasPrefix(strings.TrimSpace(lines[i]), "[") {
 				i++

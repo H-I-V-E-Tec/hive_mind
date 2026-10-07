@@ -124,6 +124,70 @@ func TestSetupCodex(t *testing.T) {
 	}
 }
 
+// Rerunning setup over a prior hive_mind entry (including an orphaned env
+// subtable and a user-managed tools subtable) must leave exactly one server
+// table and one env table — never a duplicate [mcp_servers.hive_mind.env],
+// which TOML rejects as a double declaration — while preserving subtables the
+// setup does not manage.
+func TestSetupCodexReplacesWithoutDuplicatingEnv(t *testing.T) {
+	tmpHome := t.TempDir()
+	setTestHome(t, tmpHome)
+
+	os.Setenv("HIVE_MIND_URL", "https://mind.hive.test:8443")
+	t.Cleanup(func() { os.Unsetenv("HIVE_MIND_URL") })
+
+	dir := filepath.Join(tmpHome, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prior := strings.Join([]string{
+		"model = \"gpt\"",
+		"",
+		"[mcp_servers.hive_mind.tools.hive_search]",
+		"approval_mode = \"approve\"",
+		"",
+		"[mcp_servers.hive_mind.env]",
+		"HIVE_MIND_URL = \"https://old.example/mind\"",
+		"",
+		"[mcp_servers.hive_mind]",
+		"command = \"/old/hive\"",
+		"args = [\"mind\"]",
+		"[mcp_servers.hive_mind.env]",
+		"HIVE_MIND_URL = \"https://old.example/mind\"",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(prior), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr strings.Builder
+	if err := RunSetup("codex", &stderr); err != nil {
+		t.Fatalf("setup codex failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("codex config not created: %v", err)
+	}
+	content := string(data)
+
+	if n := strings.Count(content, "[mcp_servers.hive_mind.env]"); n != 1 {
+		t.Fatalf("expected exactly one env table, got %d:\n%s", n, content)
+	}
+	if n := strings.Count(content, "[mcp_servers.hive_mind]"); n != 1 {
+		t.Fatalf("expected exactly one server table, got %d:\n%s", n, content)
+	}
+	if !strings.Contains(content, "[mcp_servers.hive_mind.tools.hive_search]") {
+		t.Fatalf("user-managed tools subtable was dropped:\n%s", content)
+	}
+	if strings.Contains(content, "https://old.example/mind") {
+		t.Fatalf("stale Mind URL survived the rewrite:\n%s", content)
+	}
+	if !strings.Contains(content, "https://mind.hive.test:8443") {
+		t.Fatalf("new Mind URL missing:\n%s", content)
+	}
+}
+
 func TestSetupDefaultsMindURL(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	t.Setenv("HIVE_MIND_URL", "")
