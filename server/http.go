@@ -56,6 +56,7 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("POST /api/v1/targets", s.authMiddleware(http.HandlerFunc(s.handleTargets)))
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
 	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.instanceWriterMiddleware(http.HandlerFunc(s.handleIngestDocument))))
+	s.mux.Handle("GET /api/v1/scopes/{programID}/approval-preview", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handlePreviewScope))))
 	s.mux.Handle("POST /api/v1/scopes/{programID}/approve", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleApproveScope))))
 }
 
@@ -253,13 +254,32 @@ func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request
 	writeJSON(w, status, report)
 }
 
+func (s *HTTPServer) handlePreviewScope(w http.ResponseWriter, r *http.Request) {
+	programID := r.PathValue("programID")
+	if !validIdentifier(programID, 64) {
+		writeJSONError(w, http.StatusBadRequest, "invalid program_id")
+		return
+	}
+	summary, err := s.worker.ScopeApprovalPreview(programID)
+	if err != nil {
+		log.Printf("scope approval preview failed for program_id=%s: %v", programID, err)
+		writeJSONError(w, http.StatusBadRequest, "scope manifest is unavailable or invalid")
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
 func (s *HTTPServer) handleApproveScope(w http.ResponseWriter, r *http.Request) {
 	programID := r.PathValue("programID")
+	if !validIdentifier(programID, 64) {
+		writeJSONError(w, http.StatusBadRequest, "invalid program_id")
+		return
+	}
 	var body struct {
 		SHA256 string `json:"sha256"`
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1025))
-	if err != nil || len(raw) > 1024 || decodeStrictJSON(raw, &body) != nil || len(body.SHA256) != 64 {
+	if err != nil || len(raw) > 1024 || decodeStrictJSON(raw, &body) != nil || !validScopeApprovalHash(body.SHA256) {
 		writeJSONError(w, http.StatusBadRequest, "a valid sha256 confirmation is required")
 		return
 	}
@@ -273,7 +293,7 @@ func (s *HTTPServer) handleApproveScope(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusInternalServerError, "scope approval failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"program_id": programID, "status": "approved", "scope_revision": body.SHA256})
+	writeJSON(w, http.StatusOK, ScopeApprovalResult{ProgramID: programID, Status: "approved", ScopeRevision: body.SHA256})
 }
 
 // --- Helpers ---

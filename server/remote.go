@@ -79,17 +79,27 @@ func (rc *RemoteClient) SyncStatus() (SyncStatusSnapshot, error) {
 // Unverified local claims only control tool presentation. The server verifies
 // the signature and permissions again for every request, including direct calls.
 func (rc *RemoteClient) CanIngestDocument() bool {
+	claims, ok := localMemberClaims()
+	return ok && (claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin))
+}
+
+func (rc *RemoteClient) CanApproveScope() bool {
+	claims, ok := localMemberClaims()
+	return ok && claims.HasPermissions(permissionScopeAdmin)
+}
+
+func localMemberClaims() (*HiveClaims, bool) {
 	token, err := LoadStoredToken()
 	if err != nil {
-		return false
+		return nil, false
 	}
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return false
+		return nil, false
 	}
 	payload, err := decodeJWTPayload(parts[1])
 	if err != nil {
-		return false
+		return nil, false
 	}
 	var claims struct {
 		HiveClaims
@@ -98,9 +108,31 @@ func (rc *RemoteClient) CanIngestDocument() bool {
 	if json.Unmarshal(payload, &claims) != nil || claims.Exp <= time.Now().Unix() ||
 		!supportedAudience(claims.Audience) || !validMemberSubject(claims.Sub) ||
 		!claims.HasPermissions(permissionMindRead) {
-		return false
+		return nil, false
 	}
-	return claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin)
+	return &claims.HiveClaims, true
+}
+
+func (rc *RemoteClient) PreviewScopeApproval(ctx context.Context, programID string) (ScopeApprovalSummary, error) {
+	if !validIdentifier(programID, 64) {
+		return ScopeApprovalSummary{}, &searchValidationError{message: "invalid program_id"}
+	}
+	var summary ScopeApprovalSummary
+	if err := rc.getJSON(ctx, "/api/v1/scopes/"+programID+"/approval-preview", &summary); err != nil {
+		return ScopeApprovalSummary{}, err
+	}
+	return summary, nil
+}
+
+func (rc *RemoteClient) ApproveScopeRevision(ctx context.Context, programID, sha256 string) (ScopeApprovalResult, error) {
+	if !validIdentifier(programID, 64) || !validScopeApprovalHash(sha256) {
+		return ScopeApprovalResult{}, &searchValidationError{message: "valid program_id and lowercase sha256 are required"}
+	}
+	var result ScopeApprovalResult
+	if err := rc.postJSON(ctx, "/api/v1/scopes/"+programID+"/approve", map[string]string{"sha256": sha256}, &result); err != nil {
+		return ScopeApprovalResult{}, err
+	}
+	return result, nil
 }
 
 func (rc *RemoteClient) IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport {
@@ -187,6 +219,15 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 			return &searchValidationError{message: errResp.Error}
 		}
 		return &searchValidationError{message: "invalid request"}
+	}
+	if resp.StatusCode == http.StatusConflict {
+		var errResp struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error != "" {
+			return fmt.Errorf("scope approval conflict: %s", errResp.Error)
+		}
+		return fmt.Errorf("scope approval conflict")
 	}
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusRequestEntityTooLarge {

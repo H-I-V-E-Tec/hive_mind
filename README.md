@@ -65,7 +65,12 @@ reconciliar. Um leitor recebe `403` na chamada direta de ingestão.
 
 Para buscar a nota de teste em programa sem escopo aprovado, use `hive_search` com
 `program_id: teste-remoto`, `query: farol-violeta-427` e
-`effective_scope_status: unknown`. A ingestão não aprova escopo. `platform` e
+`effective_scope_status: unknown`. A ingestão não aprova escopo. Para um manifesto publicado com
+`document_type: scope`, `source_format: json` e `mind.scope.approve`, use
+`hive_preview_scope_approval` para revisar o SHA-256 e as contagens de regras.
+Depois chame `hive_approve_scope` com `program_id` e exatamente esse `sha256`.
+O servidor exige `product.mind` e `mind.scope.approve` nas duas chamadas e
+recusa o hash se o manifesto mudou. `platform` e
 `target_name` podem ser enviados juntos para vincular a nota ao catálogo de alvos.
 Uma referência de ativo revisada em `asset_refs` também torna a nota recuperável
 por `hive_get_context`, sem autorizar ações no ativo. A varredura integral do

@@ -87,6 +87,9 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 		if h.backend.CanIngestDocument() {
 			tools = append(tools, remoteIngestionTool())
 		}
+		if h.backend.CanApproveScope() {
+			tools = append(tools, remoteScopeApprovalTools()...)
+		}
 		response := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -222,6 +225,39 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 			}
 			out, _ := json.Marshal(response)
 			fmt.Println(string(out))
+		} else if params.Name == "hive_preview_scope_approval" {
+			if !h.backend.CanApproveScope() {
+				sendMCPError(req.ID, -32601, "Scope approval requires a current member login with product.mind and mind.scope.approve")
+				return
+			}
+			var args struct {
+				ProgramID string `json:"program_id"`
+			}
+			if decodeStrictJSON(params.Arguments, &args) != nil || !validIdentifier(args.ProgramID, 64) {
+				sendMCPError(req.ID, -32602, "A valid program_id is required")
+				return
+			}
+			go func() {
+				summary, err := h.backend.PreviewScopeApproval(context.Background(), args.ProgramID)
+				writeMCPToolResult(req.ID, summary, err)
+			}()
+		} else if params.Name == "hive_approve_scope" {
+			if !h.backend.CanApproveScope() {
+				sendMCPError(req.ID, -32601, "Scope approval requires a current member login with product.mind and mind.scope.approve")
+				return
+			}
+			var args struct {
+				ProgramID string `json:"program_id"`
+				SHA256    string `json:"sha256"`
+			}
+			if decodeStrictJSON(params.Arguments, &args) != nil || !validIdentifier(args.ProgramID, 64) || !validScopeApprovalHash(args.SHA256) {
+				sendMCPError(req.ID, -32602, "A valid program_id and lowercase sha256 confirmation are required")
+				return
+			}
+			go func() {
+				result, err := h.backend.ApproveScopeRevision(context.Background(), args.ProgramID, args.SHA256)
+				writeMCPToolResult(req.ID, result, err)
+			}()
 		} else if params.Name == "hive_ingest_document" {
 			if !h.backend.CanIngestDocument() {
 				sendMCPError(req.ID, -32601, "Document ingestion requires a current member login with product.mind and mind.ingest")
@@ -241,6 +277,47 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 			sendMCPError(req.ID, -32601, "Requested tool execution target not found")
 		}
 		return
+	}
+}
+
+func writeMCPToolResult(id json.RawMessage, value any, err error) {
+	result := map[string]interface{}{}
+	if err != nil {
+		result["isError"] = true
+		result["content"] = []map[string]string{{"type": "text", "text": err.Error()}}
+	} else {
+		encoded, _ := json.Marshal(value)
+		result["structuredContent"] = value
+		result["content"] = []map[string]string{{"type": "text", "text": string(encoded)}}
+	}
+	out, _ := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": id, "result": result})
+	fmt.Println(string(out))
+}
+
+func remoteScopeApprovalTools() []map[string]interface{} {
+	programID := map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"}
+	return []map[string]interface{}{
+		{
+			"name":        "hive_preview_scope_approval",
+			"description": "Validate the published scope manifest and return only its exact SHA-256 and rule counts. Review this summary before approving; this tool makes no changes.",
+			"inputSchema": map[string]interface{}{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]interface{}{"program_id": programID},
+				"required":   []string{"program_id"},
+			},
+		},
+		{
+			"name":        "hive_approve_scope",
+			"description": "Approve the published scope manifest for one program using the exact lowercase SHA-256 returned by hive_preview_scope_approval. A changed manifest fails instead of approving another revision. Requires product.mind and mind.scope.approve.",
+			"inputSchema": map[string]interface{}{
+				"type": "object", "additionalProperties": false,
+				"properties": map[string]interface{}{
+					"program_id": programID,
+					"sha256":     map[string]interface{}{"type": "string", "pattern": "^[0-9a-f]{64}$"},
+				},
+				"required": []string{"program_id", "sha256"},
+			},
+		},
 	}
 }
 

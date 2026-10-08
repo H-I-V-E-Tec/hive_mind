@@ -10,7 +10,7 @@ A v0.1 possui uma única topologia e regras de confiança explícitas, usadas po
 - Os demais processos são `reader`: geram embeddings de consulta e pesquisam, mas não alteram collections, índices, manifests ou aprovações.
 - `HIVE_ROLE` é `writer` ou `reader` e não pode ser alterado pelo cliente MCP. A implantação entrega a cada writer uma credencial read-write individual e a cada reader uma credencial read-only individual, limitadas às collections do Hive.
 - **Cada documento tem exatamente um writer dono**: o dispositivo que publicou a primeira revisão. Somente o dono publica novas revisões, marca `pending_delete`, remove ou poda o documento. Outro writer que encontre o mesmo path em sua pasta o ignora, registra o evento em auditoria e continua; ele nunca falha nem sobrescreve. Não há transferência automática de propriedade na v0.1; ela exige que o dono remova o documento por tombstone e outro writer o publique.
-- **Cada aprovação de escopo tem um writer dono**: o dispositivo que executou `scope approve --yes`. Somente ele valida o `scope.json` local contra o hash aprovado e invalida a aprovação quando o arquivo muda. Os demais writers usam a revisão aprovada da collection de controle e reconstroem o manifesto a partir do documento de escopo publicado; a ausência ou divergência do arquivo local em um writer não dono nunca revoga a aprovação. Qualquer writer pode executar uma nova aprovação explícita e passa a ser o dono dela.
+- **Cada aprovação de escopo tem um writer dono**: o dispositivo writer que executou `scope approve --yes` ou atendeu à aprovação HTTP/MCP autenticada. Somente ele valida o `scope.json` local contra o hash aprovado e invalida a aprovação quando o arquivo muda. Os demais writers usam a revisão aprovada da collection de controle e reconstroem o manifesto a partir do documento de escopo publicado; a ausência ou divergência do arquivo local em um writer não dono nunca revoga a aprovação. Qualquer writer pode executar uma nova aprovação explícita e passa a ser o dono dela.
 - Escrita concorrente entre writers é serializada por registro de controle com versão otimista: dois writers que disputem o mesmo registro falham fechados sem sobrescrever. Não existe eleição, failover ou reconciliação automática entre writers.
 - A pasta pode ser sincronizada entre máquinas; cada writer alimenta o Qdrant apenas com os documentos que possui. Ausência temporária em uma cópia sincronizada não equivale a exclusão confirmada.
 
@@ -38,7 +38,7 @@ A v0.1 possui uma única topologia e regras de confiança explícitas, usadas po
 
 ## Aceite e testes
 
-- Um reader não consegue executar ingestão, remoção, aprovação ou alteração de schema, inclusive por chamada MCP forjada.
+- Um reader local ou membro remoto sem `mind.scope.approve` não consegue aprovar escopo, inclusive por chamada MCP forjada; o servidor writer verifica o JWT e a confirmação do hash.
 - Dois writers registrados publicam documentos distintos no mesmo Hive e programa; um writer não consegue alterar, marcar para exclusão, remover ou podar documento de outro.
 - Um writer sem `scope.json` local ingere em programa aprovado por outro writer, herda o escopo efetivo do manifesto aprovado e não invalida a aprovação; a alteração do arquivo no writer aprovador continua invalidando.
 - Writer não registrado, ou registrado com outro `HIVE_WRITER_APPROVAL_ID`, falha em `validate`; reader exige ao menos um writer registrado.
