@@ -49,7 +49,10 @@ Após um `hive login` com as permissões `product.mind` e `mind.ingest`, o MCP o
   "classification": "internal",
   "document_type": "note",
   "source_format": "txt",
-  "content": "farol-violeta-427: nota sintética para verificar ingestão e busca remotas."
+  "content": "farol-violeta-427: nota sintética para verificar ingestão e busca remotas.",
+  "asset_refs": ["host:api.example.test"],
+  "tags": ["recon"],
+  "collected_at": "2026-10-06T12:00:00Z"
 }
 ```
 
@@ -64,6 +67,9 @@ Para buscar a nota de teste em programa sem escopo aprovado, use `hive_search` c
 `program_id: teste-remoto`, `query: farol-violeta-427` e
 `effective_scope_status: unknown`. A ingestão não aprova escopo. `platform` e
 `target_name` podem ser enviados juntos para vincular a nota ao catálogo de alvos.
+Uma referência de ativo revisada em `asset_refs` também torna a nota recuperável
+por `hive_get_context`, sem autorizar ações no ativo. A varredura integral do
+workspace fica apenas no comando operacional `hive ingest`, não no MCP ou HTTP.
 Esta primeira entrega usa permissão global de contribuição; concessões por
 programa, jobs e revisão editorial ficam no [plano arquitetural](PLANO_MELHORIA_ARQUITETURAL.md).
 Veja o [contrato e teste integrado](docs/spec/contracts/remote-ingestion.md).

@@ -1,6 +1,6 @@
 # Relatório de ingestão — versão 1
 
-Contrato de `IngestWorkspaceReport`, usado pela CLI `ingest` e pelo MCP `ingest_workspace`. Não altera o schema dos documentos ou das collections.
+Contrato de `IngestWorkspaceReport`, usado pela CLI `ingest`, e de `IngestPathReport`, usado pela ingestão remota de um documento. Não altera o schema dos documentos ou das collections. A varredura do workspace não é exposta por MCP ou HTTP.
 
 ## Envelope
 
@@ -14,7 +14,7 @@ Contrato de `IngestWorkspaceReport`, usado pela CLI `ingest` e pelo MCP `ingest_
 
 CLI: JSON em stdout, seguido de saída com `exit_code`. Falhas de configuração ou de construção/validação inicial do cliente mantêm o tratamento operacional anterior à geração deste relatório.
 
-MCP: JSON serializado em `result.content[0].text`, com `type: "text"` e `result.isError: !ok`. Não usa erro JSON-RPC para falha de execução da ingestão; erros de protocolo e ferramentas indisponíveis continuam usando o mecanismo existente. Readers não expõem a ferramenta mutável.
+MCP remoto: relatório completo em `result.structuredContent` e JSON equivalente em `result.content[0].text`, com `type: "text"` e `result.isError: !ok`. Não usa erro JSON-RPC para falha de execução da ingestão; erros de protocolo e ferramentas indisponíveis continuam usando o mecanismo existente. Readers não expõem a ferramenta mutável.
 
 ## Seleção e contagem
 

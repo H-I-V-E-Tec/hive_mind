@@ -79,11 +79,6 @@ func testRemoteServer(t *testing.T) *httptest.Server {
 		json.NewEncoder(w).Encode(SyncStatusSnapshot{Status: "idle", PendingFiles: 0, ActiveSyncs: 0, TotalSynced: 42})
 	})
 
-	mux.HandleFunc("POST /api/v1/ingest", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "this instance is not a writer"})
-	})
-
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -178,7 +173,10 @@ func TestRemoteSyncStatus(t *testing.T) {
 	setupTestToken(t)
 
 	rc := NewRemoteClient(srv.URL)
-	snap := rc.SyncStatus()
+	snap, err := rc.SyncStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if snap.Status != "idle" {
 		t.Fatalf("expected idle, got %s", snap.Status)
 	}
@@ -187,21 +185,31 @@ func TestRemoteSyncStatus(t *testing.T) {
 	}
 }
 
-func TestRemoteIngestForbidden(t *testing.T) {
+func TestRemoteSyncStatusReportsAuthenticationFailure(t *testing.T) {
 	srv := testRemoteServer(t)
-	setupTestToken(t)
-
-	rc := NewRemoteClient(srv.URL)
-	report := rc.IngestWorkspaceReport(context.Background(), false)
-	if report.OK {
-		t.Fatal("expected failure for forbidden ingest")
+	setTestHome(t, t.TempDir())
+	_, err := NewRemoteClient(srv.URL).SyncStatus()
+	if err == nil || syncStatusErrorMessage(err) != "Hive session is missing or expired; run 'hive login' and reconnect the MCP" {
+		t.Fatalf("missing token was not reported: %v", err)
 	}
 }
 
-func TestRemoteIsWriterFalse(t *testing.T) {
-	rc := NewRemoteClient("http://localhost:0")
-	if rc.IsWriter() {
-		t.Fatal("remote client should not report as writer")
+func TestMCPRemoteSyncStatusReturnsErrorInsteadOfUnknownCounters(t *testing.T) {
+	srv := testRemoteServer(t)
+	setTestHome(t, t.TempDir())
+	reply := remoteMCPReply(t, NewRemoteClient(srv.URL), "tools/call", CallToolParams{
+		Name: "get_sync_status", Arguments: json.RawMessage(`{}`),
+	})
+	if len(reply["result"]) != 0 {
+		t.Fatalf("status failure looked like a successful snapshot: %v", reply)
+	}
+	var failure struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(reply["error"], &failure); err != nil || failure.Code != -32603 ||
+		failure.Message != "Hive session is missing or expired; run 'hive login' and reconnect the MCP" {
+		t.Fatalf("unexpected MCP status failure: %v (%v)", reply, err)
 	}
 }
 

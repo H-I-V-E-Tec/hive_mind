@@ -142,8 +142,9 @@ func ingestionMCPResponse(id json.RawMessage, report IngestionReport) map[string
 	return map[string]any{
 		"jsonrpc": "2.0", "id": id,
 		"result": map[string]any{
-			"isError": !report.OK,
-			"content": []map[string]any{{"type": "text", "text": string(encoded)}},
+			"isError":           !report.OK,
+			"structuredContent": report,
+			"content":           []map[string]any{{"type": "text", "text": string(encoded)}},
 		},
 	}
 }

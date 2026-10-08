@@ -55,7 +55,6 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("POST /api/v1/context", s.authMiddleware(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("POST /api/v1/targets", s.authMiddleware(http.HandlerFunc(s.handleTargets)))
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
-	s.mux.Handle("POST /api/v1/ingest", s.authMiddleware(s.writerMiddleware(http.HandlerFunc(s.handleIngest))))
 	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.instanceWriterMiddleware(http.HandlerFunc(s.handleIngestDocument))))
 	s.mux.Handle("POST /api/v1/scopes/{programID}/approve", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleApproveScope))))
 }
@@ -114,20 +113,6 @@ func (s *HTTPServer) authMiddleware(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), claimsContextKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func (s *HTTPServer) writerMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !claimsFromContext(r.Context()).HasPermissions(permissionMindRead, permissionMindIngest) {
-			writeJSONError(w, http.StatusForbidden, "product.mind and mind.ingest permissions are required")
-			return
-		}
-		if !s.worker.Cfg.IsWriter() {
-			writeJSONError(w, http.StatusForbidden, "this instance is not a writer")
-			return
-		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -221,15 +206,6 @@ func (s *HTTPServer) handleSyncStatus(w http.ResponseWriter, _ *http.Request) {
 		"active_syncs":  active,
 		"total_synced":  total,
 	})
-}
-
-func (s *HTTPServer) handleIngest(w http.ResponseWriter, r *http.Request) {
-	report := s.worker.IngestWorkspaceReport(r.Context(), false)
-	status := http.StatusOK
-	if !report.OK {
-		status = http.StatusInternalServerError
-	}
-	writeJSON(w, status, report)
 }
 
 func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request) {

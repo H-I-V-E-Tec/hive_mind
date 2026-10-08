@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,22 @@ import (
 type RemoteClient struct {
 	baseURL    string
 	httpClient *http.Client
+}
+
+var (
+	errRemoteLogin  = errors.New("Hive login required")
+	errRemoteAccess = errors.New("Hive access denied")
+)
+
+func syncStatusErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, errRemoteLogin):
+		return "Hive session is missing or expired; run 'hive login' and reconnect the MCP"
+	case errors.Is(err, errRemoteAccess):
+		return "Hive account lacks Mind access; ask an administrator to review permissions"
+	default:
+		return "Hive Mind status is unavailable; run 'hive doctor' to check connectivity"
+	}
 }
 
 func NewRemoteClient(baseURL string) *RemoteClient {
@@ -49,24 +66,14 @@ func (rc *RemoteClient) HiveListTargets(ctx context.Context, args HiveListTarget
 	return result, nil
 }
 
-func (rc *RemoteClient) IngestWorkspaceReport(ctx context.Context, _ bool) IngestionReport {
-	var result IngestionReport
-	if err := rc.postJSON(ctx, "/api/v1/ingest", struct{}{}, &result); err != nil {
-		return IngestionReport{OK: false, ExitCode: 1, Error: err.Error()}
-	}
-	return result
-}
-
-func (rc *RemoteClient) SyncStatus() SyncStatusSnapshot {
+func (rc *RemoteClient) SyncStatus() (SyncStatusSnapshot, error) {
 	var result SyncStatusSnapshot
-	if err := rc.getJSON(context.Background(), "/api/v1/sync-status", &result); err != nil {
-		return SyncStatusSnapshot{Status: "unknown"}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := rc.getJSON(ctx, "/api/v1/sync-status", &result); err != nil {
+		return SyncStatusSnapshot{}, err
 	}
-	return result
-}
-
-func (rc *RemoteClient) IsWriter() bool {
-	return false
+	return result, nil
 }
 
 // Unverified local claims only control tool presentation. The server verifies
@@ -140,7 +147,7 @@ func (rc *RemoteClient) getJSON(ctx context.Context, path string, result any) er
 func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	token, err := LoadStoredToken()
 	if err != nil {
-		return fmt.Errorf("authentication required: run 'hive login' first (%w)", err)
+		return fmt.Errorf("%w: run 'hive login' first (%v)", errRemoteLogin, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -156,10 +163,10 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("token rejected by server; run 'hive login' to reauthenticate")
+		return fmt.Errorf("%w: token rejected by server; run 'hive login' to reauthenticate", errRemoteLogin)
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("forbidden: insufficient permissions")
+		return fmt.Errorf("%w: forbidden: insufficient permissions", errRemoteAccess)
 	}
 	// Preserve structured file outcomes even when index publication failed.
 	if report, ok := result.(*IngestionReport); ok && (resp.StatusCode == http.StatusOK || resp.StatusCode >= 500 || resp.StatusCode == http.StatusBadRequest) {

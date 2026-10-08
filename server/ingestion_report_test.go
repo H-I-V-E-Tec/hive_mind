@@ -256,8 +256,9 @@ func TestIngestionMCPResultIncludesReportOnFailure(t *testing.T) {
 	var wire struct {
 		ID     int `json:"id"`
 		Result struct {
-			IsError bool                          `json:"isError"`
-			Content []struct{ Type, Text string } `json:"content"`
+			IsError           bool                          `json:"isError"`
+			StructuredContent IngestionReport               `json:"structuredContent"`
+			Content           []struct{ Type, Text string } `json:"content"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(encoded, &wire); err != nil {
@@ -272,5 +273,9 @@ func TestIngestionMCPResultIncludesReportOnFailure(t *testing.T) {
 	}
 	if received.Summary.Created != 1 || received.Summary.Failed != 1 || len(received.Summary.Results) != 2 {
 		t.Fatal("MCP lost the partial ingestion report")
+	}
+	if wire.Result.StructuredContent.Summary.Created != received.Summary.Created ||
+		wire.Result.StructuredContent.Summary.Failed != received.Summary.Failed {
+		t.Fatal("structured MCP report disagrees with text fallback")
 	}
 }

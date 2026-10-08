@@ -144,7 +144,7 @@ func assertSearchFilter(t *testing.T, filter *qdrant.Filter, scopeRevision strin
 }
 
 func TestSpec004AdvertisesOnlyHiveSearchContract(t *testing.T) {
-	tools := mcpAvailableTools(false)
+	tools := mcpAvailableTools()
 	if !containsTool(tools, "hive_search") || containsTool(tools, "qdrant_search") {
 		t.Fatalf("unexpected search tools: %+v", tools)
 	}

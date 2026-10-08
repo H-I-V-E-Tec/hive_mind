@@ -69,7 +69,7 @@ Arquivos de referência: [catálogo da API Center](../api-hive-center/src/hive_c
 
 ## 2. Uma ferramenta nova: hive_ingest_document
 
-Criar uma ferramenta específica para enviar conteúdo. Manter `ingest_workspace` com sua semântica de varredura do workspace configurado.
+Criar uma ferramenta específica para enviar conteúdo. A varredura do workspace configurado permanece na CLI operacional e deixa de ser exposta por MCP ou HTTP.
 
 Entrada mínima proposta:
 
@@ -98,7 +98,7 @@ A ponte pode usar as claims locais para decidir se apresenta a ferramenta ao age
 
 ## 3. Um endpoint de ingestão de conteúdo no adaptador existente
 
-Adicionar `POST /api/v1/documents/ingest` ao adaptador HTTP Mind existente. Preservar `POST /api/v1/ingest` como varredura administrativa do diretório.
+Adicionar `POST /api/v1/documents/ingest` ao adaptador HTTP Mind existente. A antiga rota `POST /api/v1/ingest`, que varria o diretório inteiro, foi retirada; a CLI local conserva essa operação.
 
 Fluxo síncrono:
 
@@ -116,7 +116,7 @@ Publicar o arquivo de forma atômica e privada. Mesmo membro, conteúdo e metada
 
 Este corte cria notas imutáveis: conteúdo diferente resulta em outra nota. Edição, exclusão e deduplicação entre membros ficam para a próxima etapa. Não anunciar unicidade global.
 
-Permissão de escrita do membro e papel writer do serviço são condições distintas. Estender também a proteção do endpoint legado de varredura; não deixar o leitor dispará-lo apenas porque o processo do servidor é writer. Nas rotas de leitura, verificar `product.mind`.
+Permissão de escrita do membro e papel writer do serviço são condições distintas. A rota legada de varredura foi retirada; manter a varredura somente na CLI operacional. Nas rotas de leitura, verificar `product.mind`.
 
 ## 4. Resposta e erros
 

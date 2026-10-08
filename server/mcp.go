@@ -25,14 +25,18 @@ type CallToolParams struct {
 }
 
 type MCPHandler struct {
-	backend HiveBackend
+	backend    HiveBackend
+	sessionCtx context.Context
 }
 
 func (h *MCPHandler) ListenToMCPClient(ctx context.Context) {
+	sessionCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	h.sessionCtx = sessionCtx
 	dec := json.NewDecoder(os.Stdin)
 	for {
 		select {
-		case <-ctx.Done():
+		case <-sessionCtx.Done():
 			return
 		default:
 			var req MCPRequest
@@ -46,6 +50,13 @@ func (h *MCPHandler) ListenToMCPClient(ctx context.Context) {
 			h.handleMCPMethod(req)
 		}
 	}
+}
+
+func (h *MCPHandler) toolContext() context.Context {
+	if h.sessionCtx != nil {
+		return h.sessionCtx
+	}
+	return context.Background()
 }
 
 func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
@@ -72,7 +83,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 
 	// 2. Capabilities Protocol Declaration Block
 	if req.Method == "tools/list" {
-		tools := mcpAvailableTools(h.backend.IsWriter())
+		tools := mcpAvailableTools()
 		if h.backend.CanIngestDocument() {
 			tools = append(tools, remoteIngestionTool())
 		}
@@ -104,7 +115,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 			}
 
 			go func() {
-				searchResponse, err := h.backend.HiveSearch(context.Background(), args)
+				searchResponse, err := h.backend.HiveSearch(h.toolContext(), args)
 				if err != nil {
 					if isSearchValidationError(err) {
 						sendMCPError(req.ID, -32602, err.Error())
@@ -138,7 +149,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 				return
 			}
 			go func() {
-				contextResponse, err := h.backend.HiveGetContext(context.Background(), args)
+				contextResponse, err := h.backend.HiveGetContext(h.toolContext(), args)
 				if err != nil {
 					if isSearchValidationError(err) {
 						sendMCPError(req.ID, -32602, err.Error())
@@ -166,7 +177,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 				return
 			}
 			go func() {
-				catalog, err := h.backend.HiveListTargets(context.Background(), args)
+				catalog, err := h.backend.HiveListTargets(h.toolContext(), args)
 				if err != nil {
 					if isSearchValidationError(err) {
 						sendMCPError(req.ID, -32602, err.Error())
@@ -183,14 +194,19 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 				fmt.Println(string(out))
 			}()
 		} else if params.Name == "get_sync_status" {
-			snap := h.backend.SyncStatus()
+			snap, err := h.backend.SyncStatus()
+			if err != nil {
+				sendMCPError(req.ID, -32603, syncStatusErrorMessage(err))
+				return
+			}
 
 			var sb strings.Builder
-			sb.WriteString("### 🔄 Code Ingestion Sync Status\n\n")
+			sb.WriteString("### Hive Mind service sync status\n\n")
 			sb.WriteString(fmt.Sprintf("- **Status:** `%s`\n", snap.Status))
-			sb.WriteString(fmt.Sprintf("- **Queue Size (Debouncing):** `%d`\n", snap.PendingFiles))
-			sb.WriteString(fmt.Sprintf("- **Active Indexing Threads:** `%d`\n", snap.ActiveSyncs))
-			sb.WriteString(fmt.Sprintf("- **Lifetime Synced Files:** `%d`\n", snap.TotalSynced))
+			sb.WriteString(fmt.Sprintf("- **Pending Files:** `%d`\n", snap.PendingFiles))
+			sb.WriteString(fmt.Sprintf("- **Active Indexing Tasks:** `%d`\n", snap.ActiveSyncs))
+			sb.WriteString(fmt.Sprintf("- **Service Lifetime Synced Files:** `%d`\n", snap.TotalSynced))
+			sb.WriteString("- This service-wide snapshot is not a receipt for an individual document.\n")
 
 			response := map[string]interface{}{
 				"jsonrpc": "2.0",
@@ -217,17 +233,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 				return
 			}
 			go func() {
-				report := h.backend.IngestDocument(context.Background(), args)
-				out, _ := json.Marshal(ingestionMCPResponse(req.ID, report))
-				fmt.Println(string(out))
-			}()
-		} else if params.Name == "ingest_workspace" {
-			if !h.backend.IsWriter() {
-				sendMCPError(req.ID, -32601, "Requested tool execution target not found")
-				return
-			}
-			go func() {
-				report := h.backend.IngestWorkspaceReport(context.Background(), false)
+				report := h.backend.IngestDocument(h.toolContext(), args)
 				out, _ := json.Marshal(ingestionMCPResponse(req.ID, report))
 				fmt.Println(string(out))
 			}()
@@ -241,7 +247,7 @@ func (h *MCPHandler) handleMCPMethod(req MCPRequest) {
 func remoteIngestionTool() map[string]interface{} {
 	return map[string]interface{}{
 		"name":        "hive_ingest_document",
-		"description": "Send a note, evidence, or scope manifest to the remote Hive Mind. Notes/evidence require mind.ingest; scope requires mind.scope.approve, source_format=json, and a valid scope manifest. Publishing scope leaves it unapproved until the separate approval endpoint confirms its exact SHA-256.",
+		"description": "Send a note, evidence, or scope manifest to the remote Hive Mind. Include canonical asset_refs to make a note discoverable by hive_get_context; they never grant scope. Notes/evidence require mind.ingest; scope requires mind.scope.approve, source_format=json, and a valid scope manifest. Publishing scope leaves it unapproved until separate approval confirms its exact SHA-256.",
 		"inputSchema": map[string]interface{}{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]interface{}{
@@ -252,13 +258,16 @@ func remoteIngestionTool() map[string]interface{} {
 				"content":        map[string]interface{}{"type": "string", "minLength": 1, "maxLength": remoteScopeLimit, "description": "UTF-8 content; notes/evidence are limited to 16384 bytes and scope manifests to 1048576 bytes."},
 				"platform":       map[string]interface{}{"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Optional; requires target_name."},
 				"target_name":    map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 120, "description": "Optional project registration, at most 120 UTF-8 bytes; requires platform."},
+				"collected_at":   map[string]interface{}{"type": "string", "format": "date-time", "description": "Optional RFC 3339 collection time for notes/evidence."},
+				"tags":           map[string]interface{}{"type": "array", "maxItems": 20, "uniqueItems": true, "items": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 64}},
+				"asset_refs":     map[string]interface{}{"type": "array", "maxItems": 20, "uniqueItems": true, "description": "Reviewed canonical refs such as host:api.example.test; links notes to asset context without authorizing action.", "items": map[string]interface{}{"type": "string", "minLength": 1, "maxLength": 2048}},
 			},
 			"required": []string{"program_id", "classification", "document_type", "source_format", "content"},
 		},
 	}
 }
 
-func mcpAvailableTools(writer bool) []map[string]interface{} {
+func mcpAvailableTools() []map[string]interface{} {
 	tools := []map[string]interface{}{
 		{
 			"name":        "hive_list_targets",
@@ -364,16 +373,9 @@ func mcpAvailableTools(writer bool) []map[string]interface{} {
 		},
 		{
 			"name":        "get_sync_status",
-			"description": "Retrieve the local Hive ingestion status.",
+			"description": "Retrieve the Hive Mind service sync status. This is not a receipt for an individual document; errors identify missing login, missing access or unavailable service.",
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		},
-	}
-	if writer {
-		tools = append(tools, map[string]interface{}{
-			"name":        "ingest_workspace",
-			"description": "Ingest the configured Hive data directory and return a JSON report with created, updated, unchanged, skipped and failed files. Partial failures retain all file results and set isError.",
-			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
-		})
 	}
 	return tools
 }

@@ -8,7 +8,11 @@ Estado: implementado e validado localmente com serviços reais isolados; deploy 
 Entrada obrigatória: `program_id`, `classification` (`internal` ou `restricted`),
 `document_type` (`note`, `evidence` ou `scope`), `source_format` (`txt`, `md` ou `json`) e `content`
 (UTF-8; até 16 KiB para nota/evidência e 1 MiB para escopo). `platform` e `target_name` são opcionais, mas devem ser
-informados juntos para registrar a nota no catálogo de alvos. Campos desconhecidos,
+informados juntos para registrar a nota no catálogo de alvos. Notas e evidências
+também aceitam `collected_at` em RFC 3339, até 20 `tags` distintas em minúsculas
+e até 20 `asset_refs` canônicos revisados, como `host:api.example.test`. Esses
+vínculos permitem recuperar a nota em `hive_get_context`; nunca aprovam escopo.
+Manifestos `scope` não aceitam esses metadados externos. Campos desconhecidos,
 conteúdo vazio/binário e metadados inválidos são recusados antes da gravação.
 
 Notas e evidências exigem `mind.ingest`. Um manifesto usa `document_type=scope`,
@@ -19,8 +23,8 @@ exatos, e exige a mesma permissão. Alteração concorrente falha por conflito.
 
 O servidor exige JWT RS256 do Center configurado, audiência `mind`, expiração,
 sujeito não vazio e `product.mind`, além da permissão da operação. A instância também
-precisa ser writer. As rotas de consulta exigem `product.mind`; a varredura legada
-também exige `mind.ingest`. As claims locais servem apenas à apresentação da
+precisa ser writer. As rotas de consulta exigem `product.mind`. A varredura de
+workspace fica somente na CLI operacional. As claims locais servem apenas à apresentação da
 ferramenta; a autorização acontece no servidor em toda chamada.
 
 O conteúdo passa pelo conversor existente. A origem deriva do sujeito autenticado.
@@ -31,10 +35,13 @@ repetição confirma os bytes existentes e usa a mesma revisão; conteúdo difer
 cria outra nota. Ingestões concorrentes da mesma origem, inclusive pelo watcher,
 são serializadas antes de consultar/publicar a revisão.
 
-O resultado é o relatório v1 de ingestão: sucesso apenas com publicação confirmada
+O resultado é o relatório v1 de ingestão em `structuredContent` e texto JSON:
+sucesso apenas com publicação confirmada
 ou `unchanged` de uma revisão ativa. Falhas preservam o relatório HTTP/MCP e usam
 `isError: true`. `401` pede novo login; `403` indica falta de permissão/writer;
-`400`/`413` recusam entrada; `500` preserva falhas de indexação. O prazo síncrono
+`400`/`413` recusam entrada; `500` preserva falhas de indexação. A antiga
+ferramenta `ingest_workspace` e a rota `POST /api/v1/ingest` foram retiradas;
+o comando local `hive ingest` permanece. O prazo síncrono
 é 45 segundos. Perder a resposta não prova ausência de escrita: repetir exatamente
 o pedido permite reconciliar. Não há jobs, edição, exclusão ou deduplicação global.
 

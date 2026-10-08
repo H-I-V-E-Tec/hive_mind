@@ -19,7 +19,7 @@ O operador consegue validar e usar a instância sem inspeção manual de banco, 
 
 Exit codes são estáveis: `0` sucesso, `2` uso/entrada inválida, `10` configuração, `11` conectividade, `12` autenticação/autorização, `13` TLS, `14` incompatibilidade de embedding/schema e `15` falha parcial recuperável. Quando houver mais de uma falha, prevalece o menor código não zero e todas as falhas sanitizadas aparecem no relatório estruturado.
 
-No lote de ingestão, falhas individuais são resultados de processamento e produzem código agregado `15`, com motivos por arquivo. Cancelamento também produz `15`; erros de infraestrutura anteriores ao lote preservam sua classificação operacional. `ingested` passa a representar somente `created + updated`, sem contar arquivos inalterados. `ingest_workspace` expõe o relatório pelo MCP e usa `isError: true` quando a execução falha, mantendo os itens processados.
+No lote de ingestão da CLI, falhas individuais são resultados de processamento e produzem código agregado `15`, com motivos por arquivo. Cancelamento também produz `15`; erros de infraestrutura anteriores ao lote preservam sua classificação operacional. `ingested` passa a representar somente `created + updated`, sem contar arquivos inalterados. A varredura inteira fica restrita à CLI operacional; o MCP remoto publica um documento por chamada e preserva o mesmo relatório por item, com `isError: true` em falhas.
 
 ## Segurança
 

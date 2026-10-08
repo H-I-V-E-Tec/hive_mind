@@ -21,7 +21,9 @@ import (
 )
 
 func remoteNote() HiveIngestDocumentArguments {
-	return HiveIngestDocumentArguments{ProgramID: "teste-remoto", Classification: "internal", DocumentType: "note", SourceFormat: "txt", Content: "farol-violeta-427: nota sintética para verificar ingestão e busca remotas."}
+	return HiveIngestDocumentArguments{ProgramID: "teste-remoto", Classification: "internal", DocumentType: "note", SourceFormat: "txt",
+		Content:     "farol-violeta-427: nota sintética para verificar ingestão e busca remotas.",
+		CollectedAt: "2026-10-06T12:00:00Z", Tags: []string{"recon"}, AssetRefs: []string{"host:api.example.test"}}
 }
 
 func memberToken(t *testing.T, srv *HTTPServer, key *rsa.PrivateKey, kid string, permissions []string, overrides jwt.MapClaims) string {
@@ -93,15 +95,29 @@ func TestRemoteDocumentAuthorizationAndValidation(t *testing.T) {
 	if rec := documentRequest(srv, token, tooBig); rec.Code != 413 {
 		t.Fatalf("byte limit status %d", rec.Code)
 	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*HiveIngestDocumentArguments)
+	}{
+		{"bad time", func(a *HiveIngestDocumentArguments) { a.CollectedAt = "yesterday" }},
+		{"duplicate tag", func(a *HiveIngestDocumentArguments) { a.Tags = []string{"recon", "recon"} }},
+		{"noncanonical asset", func(a *HiveIngestDocumentArguments) { a.AssetRefs = []string{"API.Example.Test"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := remoteNote()
+			tc.mutate(&args)
+			body, _ := json.Marshal(args)
+			if rec := documentRequest(srv, token, body); rec.Code != 400 {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
 	files, _ := filepath.Glob(filepath.Join(srv.worker.Cfg.DataDirectory, "programs", "*", "imports", "remote", "*", "*.json"))
 	if len(files) != 0 {
 		t.Fatal("denied or invalid requests wrote documents")
 	}
-	for _, path := range []string{"/api/v1/search", "/api/v1/ingest"} {
+	for _, path := range []string{"/api/v1/search", "/api/v1/documents/ingest"} {
 		grants := []string{}
-		if strings.HasSuffix(path, "/ingest") {
-			grants = []string{permissionMindRead}
-		}
 		req := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
 		req.Header.Set("Authorization", "Bearer "+memberToken(t, srv, key, kid, grants, nil))
 		rec := httptest.NewRecorder()
@@ -109,6 +125,13 @@ func TestRemoteDocumentAuthorizationAndValidation(t *testing.T) {
 		if rec.Code != 403 {
 			t.Fatalf("%s: status %d", path, rec.Code)
 		}
+	}
+	legacy := httptest.NewRequest("POST", "/api/v1/ingest", nil)
+	legacy.Header.Set("Authorization", "Bearer "+token)
+	legacyResult := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(legacyResult, legacy)
+	if legacyResult.Code != http.StatusNotFound {
+		t.Fatalf("legacy workspace scan route remains reachable: %d", legacyResult.Code)
 	}
 	srv.worker.Cfg.Role = RoleReader
 	if rec := documentRequest(srv, token, body); rec.Code != 403 {
@@ -170,7 +193,8 @@ func TestRemoteDocumentPublicationReplayAndSearch(t *testing.T) {
 	}
 	var doc ConvertedDocument
 	json.Unmarshal(content, &doc)
-	if doc.Source != "remote-member:member-1" || doc.ProgramID != remoteNote().ProgramID {
+	if doc.Source != "remote-member:member-1" || doc.ProgramID != remoteNote().ProgramID ||
+		len(doc.AssetRefs) != 1 || doc.AssetRefs[0] != "host:api.example.test" || len(doc.Tags) != 1 {
 		t.Fatalf("provenance: %+v", doc)
 	}
 	before := srv.worker.SnapshotEmbeddingStats().Calls
@@ -183,6 +207,13 @@ func TestRemoteDocumentPublicationReplayAndSearch(t *testing.T) {
 	response, err := srv.worker.HiveSearch(context.Background(), HiveSearchArguments{ProgramID: remoteNote().ProgramID, Query: "farol-violeta-427", EffectiveScopeStatus: "unknown"})
 	if err != nil || len(response.Results) == 0 || !strings.Contains(response.Results[0].Text, "farol-violeta-427") {
 		t.Fatalf("search: %+v, %v", response, err)
+	}
+	contextResponse, err := srv.worker.HiveGetContext(context.Background(), HiveContextArguments{
+		ProgramID: remoteNote().ProgramID, Question: "what is known about this host?",
+		Asset: ContextAsset{Type: "host", Value: "api.example.test"},
+	})
+	if err != nil || len(contextResponse.Items) == 0 || contextResponse.Scope.ActionAllowed {
+		t.Fatalf("remote note context must be discoverable without granting scope: %+v, %v", contextResponse, err)
 	}
 	other := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionMindIngest}, jwt.MapClaims{"sub": "member-2"})
 	second := documentRequest(srv, other, body)

@@ -25,9 +25,8 @@ Non-negotiable rules:
 | `hive_list_targets` | Discover ranked projects across all programs with active documents, including unapproved ones. Use `offset`/`next_offset` for more pages or `program_id` to filter. Each result identifies its program and scope status. A project name or rank is not permission to test an asset. |
 | `hive_get_context` | **First call before touching any asset.** Input: `program_id`, `question`, typed `asset` (`host`, `wildcard_domain`, `ip`, `cidr`, `url_prefix`). Returns the scope verdict, matched rules, and a bounded package of relevant rules/notes/evidence. |
 | `hive_search` | Broad questions inside one program: "what do we know about the OAuth flow?", "which endpoints accept uploads?". Filters: `document_types`, `tags`, `classification`, `effective_scope_status`, `limit` (1–20). |
-| `get_sync_status` | Check whether recently written notes are indexed before you rely on them. |
-| `ingest_workspace` | Writer devices only: index the local Hive data directory now. |
-| `hive_ingest_document` | Remote members with `product.mind` and `mind.ingest`: send UTF-8 note/evidence content (`txt`/`md`, at most 16 KiB) to the server and receive a publication report. |
+| `get_sync_status` | Inspect service-wide sync activity; use the publication report to confirm your own note. |
+| `hive_ingest_document` | Remote members with `product.mind` and `mind.ingest`: send UTF-8 note/evidence content (`txt`/`md`, at most 16 KiB) and reviewed `asset_refs` to the server; receive a publication report. |
 
 Query tips: write semantic questions, not keywords. Add `tags` filters to narrow to a team or topic. Use `document_types: ["rules", "scope"]` when you need policy, `["evidence"]` when you need proof.
 
@@ -36,7 +35,7 @@ Query tips: write semantic questions, not keywords. Add `tags` filters to narrow
 1. **Before acting on an asset**: `hive_get_context` with the program and the exact asset. Read `scope` first, then the items. If `scope.confirmed` is false, do not proceed with active testing; report what is missing.
 2. **Before starting a task**: `hive_search` for the topic and for the asset name. Reuse prior findings and, especially, prior **discarded hypotheses** so you do not repeat them.
 3. **While working**: record what you learn as notes (format below). One hypothesis, finding or evidence item per file. Record negative results too — they are what saves the next person time.
-4. **After writing notes**: with a remote contribution session, call `hive_ingest_document` with `program_id`, `classification`, `document_type`, `source_format` and `content`. Send the content, not a local file path. Optionally provide both `platform` and `target_name` for target registration. Report success only when the report has `ok: true` and confirms publication or an unchanged active document. If the response is lost, repeat the identical request; changed content creates a new note. If the tool is absent, obtain an authorized profile and run `hive login` again. Local writer devices can run `ingest_workspace` or wait for the watcher, then `get_sync_status`.
+4. **After writing notes**: with a remote contribution session, call `hive_ingest_document` with `program_id`, `classification`, `document_type`, `source_format` and `content`. Send the content, not a local file path. Add reviewed canonical `asset_refs` (for example `host:api.example.test`) when the note concerns an asset; these links do not authorize testing. Optionally provide both `platform` and `target_name` for target registration, plus `tags` and `collected_at`. Report success only when the report has `ok: true` and confirms publication or an unchanged active document. If the response is lost, repeat the identical request; changed content creates a new note. If the tool is absent, obtain an authorized profile and run `hive login` again. `get_sync_status` reports server sync state, not a per-note receipt.
 
 ## Writing notes the Hive accepts
 

@@ -132,8 +132,9 @@ func TestIngestRequiresWriter(t *testing.T) {
 	jwks := NewJWKSClient(jwksSrv.URL)
 	httpSrv := NewHTTPServer(readerWorker, jwks, ":0")
 
-	token := validBearerToken(t, key, kid, jwksSrv.URL)
-	req := httptest.NewRequest("POST", "/api/v1/ingest", nil)
+	token := memberToken(t, httpSrv, key, kid, []string{permissionMindRead, permissionMindIngest}, nil)
+	body, _ := json.Marshal(remoteNote())
+	req := httptest.NewRequest("POST", "/api/v1/documents/ingest", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	httpSrv.Handler().ServeHTTP(rec, req)

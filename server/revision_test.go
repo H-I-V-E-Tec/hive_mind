@@ -170,7 +170,8 @@ func matchesFilter(payload map[string]*qdrant.Value, filter *qdrant.Filter) bool
 	}
 	for _, condition := range filter.MustNot {
 		field := condition.GetField()
-		if field != nil && payloadString(payload, field.Key, "") == field.Match.GetKeyword() {
+		if field != nil && (payloadString(payload, field.Key, "") == field.Match.GetKeyword() ||
+			containsString(payloadStringList(payload, field.Key), field.Match.GetKeyword())) {
 			return false
 		}
 	}
@@ -189,12 +190,17 @@ func matchesFilter(payload map[string]*qdrant.Value, filter *qdrant.Filter) bool
 			continue
 		}
 		if keywords, ok := field.Match.MatchValue.(*qdrant.Match_Keywords); ok {
-			if !containsString(keywords.Keywords.Strings, payloadString(payload, field.Key, "")) {
+			matched := containsString(keywords.Keywords.Strings, payloadString(payload, field.Key, ""))
+			for _, item := range payloadStringList(payload, field.Key) {
+				matched = matched || containsString(keywords.Keywords.Strings, item)
+			}
+			if !matched {
 				return false
 			}
 			continue
 		}
-		if payloadString(payload, field.Key, "") != field.Match.GetKeyword() {
+		if payloadString(payload, field.Key, "") != field.Match.GetKeyword() &&
+			!containsString(payloadStringList(payload, field.Key), field.Match.GetKeyword()) {
 			return false
 		}
 	}

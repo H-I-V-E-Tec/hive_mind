@@ -13,11 +13,9 @@ type HiveBackend interface {
 	HiveSearch(ctx context.Context, args HiveSearchArguments) (HiveSearchResponse, error)
 	HiveGetContext(ctx context.Context, args HiveContextArguments) (HiveContextResponse, error)
 	HiveListTargets(ctx context.Context, args HiveListTargetsArguments) (HiveListTargetsResponse, error)
-	IngestWorkspaceReport(ctx context.Context, prune bool) IngestionReport
 	IngestDocument(ctx context.Context, args HiveIngestDocumentArguments) IngestionReport
 	CanIngestDocument() bool
-	SyncStatus() SyncStatusSnapshot
-	IsWriter() bool
+	SyncStatus() (SyncStatusSnapshot, error)
 	Close()
 }
 
@@ -38,11 +36,7 @@ func (w *workerBackend) HiveListTargets(ctx context.Context, args HiveListTarget
 	return w.worker.HiveListTargets(ctx, args)
 }
 
-func (w *workerBackend) IngestWorkspaceReport(ctx context.Context, prune bool) IngestionReport {
-	return w.worker.IngestWorkspaceReport(ctx, prune)
-}
-
-func (w *workerBackend) SyncStatus() SyncStatusSnapshot {
+func (w *workerBackend) SyncStatus() (SyncStatusSnapshot, error) {
 	w.worker.Mu.Lock()
 	defer w.worker.Mu.Unlock()
 	status := "idle"
@@ -54,11 +48,7 @@ func (w *workerBackend) SyncStatus() SyncStatusSnapshot {
 		PendingFiles: len(w.worker.PendingFiles),
 		ActiveSyncs:  w.worker.ActiveSyncs,
 		TotalSynced:  w.worker.TotalSynced,
-	}
-}
-
-func (w *workerBackend) IsWriter() bool {
-	return w.worker.Cfg.IsWriter()
+	}, nil
 }
 
 func (w *workerBackend) CanIngestDocument() bool { return false }

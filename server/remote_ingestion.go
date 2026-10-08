@@ -26,13 +26,16 @@ const (
 )
 
 type HiveIngestDocumentArguments struct {
-	ProgramID      string `json:"program_id"`
-	Classification string `json:"classification"`
-	DocumentType   string `json:"document_type"`
-	SourceFormat   string `json:"source_format"`
-	Content        string `json:"content"`
-	Platform       string `json:"platform,omitempty"`
-	TargetName     string `json:"target_name,omitempty"`
+	ProgramID      string   `json:"program_id"`
+	Classification string   `json:"classification"`
+	DocumentType   string   `json:"document_type"`
+	SourceFormat   string   `json:"source_format"`
+	Content        string   `json:"content"`
+	Platform       string   `json:"platform,omitempty"`
+	TargetName     string   `json:"target_name,omitempty"`
+	CollectedAt    string   `json:"collected_at,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	AssetRefs      []string `json:"asset_refs,omitempty"`
 }
 
 func validateRemoteDocument(args HiveIngestDocumentArguments) error {
@@ -41,7 +44,7 @@ func validateRemoteDocument(args HiveIngestDocumentArguments) error {
 		return errors.New("provide a valid program_id, classification, document_type and source_format")
 	}
 	if args.DocumentType == "scope" {
-		if args.SourceFormat != "json" || args.Platform != "" || args.TargetName != "" {
+		if args.SourceFormat != "json" || args.Platform != "" || args.TargetName != "" || args.CollectedAt != "" || len(args.Tags) != 0 || len(args.AssetRefs) != 0 {
 			return errors.New("scope documents require source_format=json and take metadata from the manifest")
 		}
 		if len(args.Content) > remoteScopeLimit {
@@ -69,6 +72,28 @@ func validateRemoteDocument(args HiveIngestDocumentArguments) error {
 	if (args.Platform == "") != (args.TargetName == "") ||
 		(args.Platform != "" && (!validIdentifier(args.Platform, 64) || !validTargetName(args.TargetName, args.DocumentType))) {
 		return errors.New("platform and target_name must be valid and provided together")
+	}
+	if args.CollectedAt != "" {
+		if _, err := time.Parse(time.RFC3339, args.CollectedAt); err != nil {
+			return errors.New("collected_at must be an RFC 3339 timestamp")
+		}
+	}
+	if len(args.Tags) > 20 || len(args.AssetRefs) > 20 {
+		return errors.New("tags and asset_refs are limited to 20 entries each")
+	}
+	seenTags, seenAssets := map[string]bool{}, map[string]bool{}
+	for _, tag := range args.Tags {
+		if tag != strings.ToLower(strings.TrimSpace(tag)) || len(tag) < 1 || len(tag) > 64 || seenTags[tag] {
+			return errors.New("tags must be distinct lowercase values of at most 64 bytes")
+		}
+		seenTags[tag] = true
+	}
+	for _, ref := range args.AssetRefs {
+		asset, err := normalizeAssetReference(ref)
+		if err != nil || ref != asset.Type+":"+asset.Value || seenAssets[ref] {
+			return errors.New("asset_refs must be distinct canonical typed assets")
+		}
+		seenAssets[ref] = true
 	}
 	return nil
 }
@@ -103,6 +128,7 @@ func (iw *IngestionWorker) IngestRemoteDocument(ctx context.Context, claims *Hiv
 	}
 	doc.ProgramID, doc.Classification, doc.DocumentType = args.ProgramID, args.Classification, args.DocumentType
 	doc.Platform, doc.TargetName = args.Platform, args.TargetName
+	doc.CollectedAt, doc.Tags, doc.AssetRefs = args.CollectedAt, args.Tags, args.AssetRefs
 	doc.Source = "remote-member:" + claims.Sub
 	encoded, err := json.Marshal(doc)
 	if err != nil || int64(len(encoded)) > iw.Cfg.MaxFileSize {
