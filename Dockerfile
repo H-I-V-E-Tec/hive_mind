@@ -1,5 +1,5 @@
 # --- Build Stage ---
-FROM golang:1.27-alpine AS builder
+FROM golang:1.27.2-alpine AS builder
 
 # Install system dependencies needed for building
 RUN apk add --no-cache git ca-certificates build-base
