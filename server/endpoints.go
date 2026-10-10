@@ -7,7 +7,7 @@ import (
 
 // DefaultCenterURL is the HIVE Center used when nothing else is configured.
 // It is a var so a release can replace it with -ldflags -X.
-var DefaultCenterURL = "https://hive-center.duckdns.org"
+var DefaultCenterURL = "https://hive-center.com.br"
 
 // mindPathOnCenter is where the Center's proxy serves the Mind API.
 const mindPathOnCenter = "/mind"

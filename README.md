@@ -27,7 +27,7 @@ hive setup     # registra o MCP nos agentes encontrados (Claude Code, Claude Des
 hive doctor    # confere token, conectividade e acesso autenticado
 ```
 
-O [launcher `hive`](https://github.com/H-I-V-E-Tec/hive_cli) instala e atualiza o Mind com assinatura verificada. Nenhuma URL precisa ser informada: o HIVE Center padrão (`https://hive-center.duckdns.org`) está embutido no binário e o Mind fica em `<center>/mind`. Para outro ambiente, use `--center-url`/`HIVE_CENTER_URL` (lembrado após o login) e `--mind-url`/`HIVE_MIND_URL`; fora de loopback as URLs precisam ser `https://`. Sem `HIVE_ID`, `QDRANT_URL` ou `--config`, o MCP roda em modo remoto. `hive setup <claude-code|claude-desktop|codex|all>` configura um agente específico; no Claude Code o registro é no escopo de usuário.
+O [launcher `hive`](https://github.com/H-I-V-E-Tec/hive_cli) instala e atualiza o Mind com assinatura verificada. Nenhuma URL precisa ser informada: o HIVE Center padrão (`https://hive-center.com.br`) está embutido no binário e o Mind fica em `<center>/mind`. Para outro ambiente, use `--center-url`/`HIVE_CENTER_URL` (lembrado após o login) e `--mind-url`/`HIVE_MIND_URL`; fora de loopback as URLs precisam ser `https://`. Sem `HIVE_ID`, `QDRANT_URL` ou `--config`, o MCP roda em modo remoto. `hive setup <claude-code|claude-desktop|codex|all>` configura um agente específico; no Claude Code o registro é no escopo de usuário.
 
 Os guias de instalação, operação, CLI/MCP, atualização e laboratório estão no [catálogo de guias](../guias/README.md). O guia extenso de CLI do README anterior foi preservado como [referência da implementação atual](../guias/GUIA_CLI_E_MCP.md).
 
