@@ -141,6 +141,15 @@ func Start(version string) {
 		return
 	}
 
+	// Scope approval is a remote, member-authenticated operation: the local
+	// backend refuses it by design (workerBackend.CanApproveScope == false), so
+	// the CLI always drives it over HTTP+JWT. This path never touches local
+	// Qdrant settings and therefore requires no HIVE_ID / local config.
+	if len(args) > 1 && strings.ToLower(args[1]) == "scope" {
+		runRemoteScope(args)
+		return
+	}
+
 	// A remote MCP client only needs the Mind URL and the login token; the
 	// local writer/reader settings LoadConfig requires do not apply to it.
 	// Without local configuration, a member gets the built-in Mind URL.
@@ -749,6 +758,48 @@ func remoteMindURL() string {
 		return strings.TrimSpace(value)
 	}
 	return strings.TrimSpace(os.Getenv("HIVE_MIND_URL"))
+}
+
+// runRemoteScope drives scope approval over HTTP+JWT against the remote Hive
+// Mind. Approval is a member-authenticated administrative action; the local
+// backend refuses it, so there is no local path. The server still enforces
+// product.mind + mind.scope.approve on every call, and --yes is required to
+// apply the previewed manifest hash.
+func runRemoteScope(args []string) {
+	if (len(args) != 4 && len(args) != 5) || strings.ToLower(args[2]) != "approve" || (len(args) == 5 && args[4] != "--yes") {
+		fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server scope approve <program_id> [--yes]")
+		os.Exit(ExitUsage)
+	}
+	programID := args[3]
+	mindURL, err := ValidateHiveCenterURL(ResolveMindURL(os.Args[1:]))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "HIVE_MIND_URL: %v\n", err)
+		os.Exit(ExitConfiguration)
+	}
+	rc := NewRemoteClient(mindURL)
+	defer rc.Close()
+	if !rc.CanApproveScope() {
+		fmt.Fprintln(os.Stderr, "authorization error: scope approval requires a current member login with product.mind and mind.scope.approve")
+		os.Exit(ExitAuthorization)
+	}
+	ctx := context.Background()
+	summary, err := rc.PreviewScopeApproval(ctx, programID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scope approval preview failed: %s\n", sanitizeCLIInputError(err))
+		os.Exit(ExitUsage)
+	}
+	printJSON(summary)
+	if len(args) != 5 {
+		fmt.Fprintln(os.Stderr, "Approval not applied. Review the hash and repeat with --yes to confirm explicitly.")
+		os.Exit(ExitUsage)
+	}
+	result, err := rc.ApproveScopeRevision(ctx, programID, summary.SHA256)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "scope approval failed: %s\n", sanitizeCLIInputError(err))
+		os.Exit(ExitPartialFailure)
+	}
+	printJSON(result)
+	fmt.Printf("Scope manifest approved for program %q.\n", programID)
 }
 
 // runRemoteMCP serves MCP over stdio backed by a remote hive serve (HTTP+JWT)
