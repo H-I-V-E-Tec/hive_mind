@@ -1,14 +1,18 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -178,5 +182,91 @@ func TestJWKSCacheHit(t *testing.T) {
 
 	if fetchCount != 1 {
 		t.Errorf("JWKS fetched %d times, want 1 (cache should work)", fetchCount)
+	}
+}
+
+func TestJWKSUnknownKeyFetchIsBoundedAndRefreshesAfterRetry(t *testing.T) {
+	oldKey, newKey := testRSAKey(t), testRSAKey(t)
+	var requests atomic.Int32
+	var current atomic.Value
+	current.Store(testJWKS(t, "old-key", &oldKey.PublicKey))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, current.Load().(string))
+	}))
+	t.Cleanup(srv.Close)
+	client := NewJWKSClient(srv.URL)
+	var wg sync.WaitGroup
+	for range 24 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := client.getKey("new-key"); err == nil {
+				t.Error("unknown key was accepted")
+			}
+		}()
+	}
+	wg.Wait()
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("concurrent unknown keys triggered %d JWKS requests, want 1", got)
+	}
+
+	current.Store(testJWKS(t, "new-key", &newKey.PublicKey))
+	client.mu.Lock()
+	client.fetched = time.Now().Add(-jwksUnknownKeyRetry - time.Second)
+	client.mu.Unlock()
+	if _, err := client.getKey("new-key"); err != nil {
+		t.Fatalf("rotated key was not loaded: %v", err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("rotation triggered %d JWKS requests, want 2", got)
+	}
+}
+
+func TestJWKSFailedFetchIsBackedOff(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	client := NewJWKSClient(srv.URL)
+	for range 5 {
+		if _, err := client.getKey("missing-key"); err == nil {
+			t.Fatal("failed JWKS fetch was accepted")
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("failed JWKS endpoint was called %d times, want 1", got)
+	}
+}
+
+func TestJWKSReadinessRespectsDeadlineDuringRefresh(t *testing.T) {
+	client := NewJWKSClient("http://center.example.test")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	defer func() {
+		close(release)
+		<-done
+	}()
+	client.httpClient.Transport = transportFunc(func(*http.Request) (*http.Response, error) {
+		close(entered)
+		<-release
+		return nil, context.Canceled
+	})
+	go func() {
+		client.getKey("missing-key")
+		close(done)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("JWKS refresh did not start")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := client.ensureFresh(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("readiness wait returned %v, want deadline exceeded", err)
 	}
 }

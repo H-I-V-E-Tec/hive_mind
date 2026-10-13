@@ -35,9 +35,13 @@ func (iw *IngestionWorker) WatchLoop(ctx context.Context, watcher *fsnotify.Watc
 				continue
 			}
 
-			// Focus explicitly on functional mutation blocks
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
-				eventChan <- event.Name
+			// A rename reports the old path, which must be marked missing just like a remove.
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
+				select {
+				case eventChan <- event.Name:
+				case <-ctx.Done():
+					return
+				}
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -70,41 +74,82 @@ func (iw *IngestionWorker) addWatchRecursive(watcher *fsnotify.Watcher, root str
 }
 
 func (iw *IngestionWorker) IngestionConsumer(ctx context.Context, eventChan <-chan string) {
-	timers := make(map[string]*time.Timer)
+	type scheduledSync struct {
+		path     string
+		sequence uint64
+	}
+	type pendingTimer struct {
+		timer    *time.Timer
+		sequence uint64
+	}
+	timers := make(map[string]pendingTimer)
+	fired := make(chan scheduledSync, 100)
+	stopped := make(chan struct{})
+	defer func() {
+		close(stopped)
+		for _, pending := range timers {
+			pending.timer.Stop()
+		}
+		iw.Mu.Lock()
+		for path := range timers {
+			delete(iw.PendingFiles, path)
+		}
+		iw.Mu.Unlock()
+	}()
+	var sequence uint64
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case path := <-eventChan:
+		case path, ok := <-eventChan:
+			if !ok {
+				return
+			}
 			if iw.ShouldIgnoreFile(path, false) {
 				continue
 			}
 
 			// Debounce frequent chunks to avoid thrashing remote CPU/Network resources
-			if timer, exists := timers[path]; exists {
-				timer.Stop()
+			if pending, exists := timers[path]; exists {
+				pending.timer.Stop()
 			}
 
 			iw.Mu.Lock()
 			iw.PendingFiles[path] = time.Now()
 			iw.Mu.Unlock()
 
-			timers[path] = time.AfterFunc(iw.Cfg.DebounceDuration, func() {
-				iw.Mu.Lock()
-				delete(iw.PendingFiles, path)
-				iw.ActiveSyncs++
-				iw.Mu.Unlock()
-
+			sequence++
+			scheduled := scheduledSync{path: path, sequence: sequence}
+			timer := time.AfterFunc(iw.Cfg.DebounceDuration, func() {
+				select {
+				case fired <- scheduled:
+				case <-stopped:
+				}
+			})
+			timers[path] = pendingTimer{timer: timer, sequence: sequence}
+		case scheduled := <-fired:
+			pending, exists := timers[scheduled.path]
+			if !exists || pending.sequence != scheduled.sequence {
+				continue
+			}
+			delete(timers, scheduled.path)
+			if ctx.Err() != nil {
+				return
+			}
+			iw.Mu.Lock()
+			delete(iw.PendingFiles, scheduled.path)
+			iw.ActiveSyncs++
+			iw.Mu.Unlock()
+			go func(path string) {
 				defer func() {
 					iw.Mu.Lock()
 					iw.ActiveSyncs--
 					iw.TotalSynced++
 					iw.Mu.Unlock()
 				}()
-
 				iw.SyncFileState(ctx, path)
-			})
+			}(scheduled.path)
 		}
 	}
 }

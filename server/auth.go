@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"strings"
@@ -16,9 +18,13 @@ import (
 )
 
 const (
-	jwksCacheTTL     = 5 * time.Minute
-	jwksFetchTimeout = 10 * time.Second
-	expectedAudience = "hive"
+	jwksCacheTTL        = 5 * time.Minute
+	jwksFetchTimeout    = 10 * time.Second
+	jwksReadinessTTL    = 15 * time.Second
+	jwksUnknownKeyRetry = 10 * time.Second
+	jwksErrorRetry      = 5 * time.Second
+	jwksMaxBodyBytes    = 1 << 20
+	expectedAudience    = "hive"
 )
 
 type HiveClaims struct {
@@ -40,16 +46,20 @@ type JWKSClient struct {
 	centerURL  string
 	httpClient *http.Client
 
-	mu      sync.RWMutex
-	keys    map[string]*rsa.PublicKey
-	fetched time.Time
+	mu          sync.RWMutex
+	refreshSlot chan struct{}
+	keys        map[string]*rsa.PublicKey
+	fetched     time.Time
+	lastAttempt time.Time
+	lastError   error
 }
 
 func NewJWKSClient(centerURL string) *JWKSClient {
 	return &JWKSClient{
-		centerURL:  centerURL,
-		httpClient: &http.Client{Timeout: jwksFetchTimeout},
-		keys:       make(map[string]*rsa.PublicKey),
+		centerURL:   centerURL,
+		httpClient:  &http.Client{Timeout: jwksFetchTimeout},
+		keys:        make(map[string]*rsa.PublicKey),
+		refreshSlot: make(chan struct{}, 1),
 	}
 }
 
@@ -104,28 +114,82 @@ func (j *JWKSClient) keyFunc(token *jwt.Token) (any, error) {
 }
 
 func (j *JWKSClient) getKey(kid string) (*rsa.PublicKey, error) {
-	j.mu.RLock()
-	if key, ok := j.keys[kid]; ok && time.Since(j.fetched) < jwksCacheTTL {
-		j.mu.RUnlock()
-		return key, nil
+	key, refresh, err := j.cachedKey(kid)
+	if !refresh {
+		return key, err
 	}
-	j.mu.RUnlock()
-
-	if err := j.refresh(); err != nil {
+	j.refreshSlot <- struct{}{}
+	defer func() { <-j.refreshSlot }()
+	key, refresh, err = j.cachedKey(kid)
+	if !refresh {
+		return key, err
+	}
+	if err := j.refresh(context.Background()); err != nil {
 		return nil, fmt.Errorf("JWKS fetch failed: %w", err)
 	}
-
-	j.mu.RLock()
-	defer j.mu.RUnlock()
-	key, ok := j.keys[kid]
-	if !ok {
-		return nil, fmt.Errorf("key %q not found in JWKS", kid)
-	}
-	return key, nil
+	key, _, err = j.cachedKey(kid)
+	return key, err
 }
 
-func (j *JWKSClient) refresh() error {
-	resp, err := j.httpClient.Get(j.centerURL + "/.well-known/jwks.json")
+func (j *JWKSClient) cachedKey(kid string) (*rsa.PublicKey, bool, error) {
+	j.mu.RLock()
+	key, ok := j.keys[kid]
+	fetched, attempted, lastError := j.fetched, j.lastAttempt, j.lastError
+	j.mu.RUnlock()
+	if ok && time.Since(fetched) < jwksCacheTTL {
+		return key, false, nil
+	}
+	if !ok && !fetched.IsZero() && time.Since(fetched) < jwksUnknownKeyRetry {
+		return nil, false, fmt.Errorf("key %q not found in JWKS", kid)
+	}
+	if lastError != nil && time.Since(attempted) < jwksErrorRetry {
+		return nil, false, fmt.Errorf("JWKS fetch failed: %w", lastError)
+	}
+	return nil, true, nil
+}
+
+// ensureFresh checks that the signing keys are available for readiness probes.
+func (j *JWKSClient) ensureFresh(ctx context.Context) error {
+	j.mu.RLock()
+	fresh := len(j.keys) > 0 && time.Since(j.fetched) < jwksReadinessTTL
+	j.mu.RUnlock()
+	if fresh {
+		return nil
+	}
+	select {
+	case j.refreshSlot <- struct{}{}:
+		defer func() { <-j.refreshSlot }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	j.mu.RLock()
+	fresh = len(j.keys) > 0 && time.Since(j.fetched) < jwksReadinessTTL
+	attempted, lastError := j.lastAttempt, j.lastError
+	j.mu.RUnlock()
+	if fresh {
+		return nil
+	}
+	if lastError != nil && time.Since(attempted) < jwksErrorRetry {
+		return lastError
+	}
+	return j.refresh(ctx)
+}
+
+// refresh is serialized by refreshSlot; failed fetches are retried after a short delay.
+func (j *JWKSClient) refresh(ctx context.Context) (resultErr error) {
+	j.mu.Lock()
+	j.lastAttempt = time.Now()
+	j.mu.Unlock()
+	defer func() {
+		j.mu.Lock()
+		j.lastError = resultErr
+		j.mu.Unlock()
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.centerURL+"/.well-known/jwks.json", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := j.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -137,7 +201,14 @@ func (j *JWKSClient) refresh() error {
 	var jwks struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, jwksMaxBodyBytes+1))
+	if err != nil {
+		return fmt.Errorf("JWKS read failed: %w", err)
+	}
+	if len(body) > jwksMaxBodyBytes {
+		return errors.New("JWKS response exceeds the size limit")
+	}
+	if err := json.Unmarshal(body, &jwks); err != nil {
 		return fmt.Errorf("JWKS decode failed: %w", err)
 	}
 
@@ -161,6 +232,9 @@ func (j *JWKSClient) refresh() error {
 			continue
 		}
 		keys[entry.Kid] = pub
+	}
+	if len(keys) == 0 {
+		return errors.New("JWKS contains no supported signing keys")
 	}
 
 	j.mu.Lock()

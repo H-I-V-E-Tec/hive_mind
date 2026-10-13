@@ -210,7 +210,7 @@ if [ -f "$TARGET/hive" ] && [ -f "$TARGET/deploy/hive.service" ]; then
     if [ -n "$(hive_env_value HIVE_HTTP_TLS_CERT)" ] && [ -n "$(hive_env_value HIVE_HTTP_TLS_KEY)" ]; then
       MIND_SCHEME=https
     fi
-    MIND_URL="${MIND_SCHEME}://${MIND_HOST}:${MIND_PORT}/healthz"
+    MIND_URL="${MIND_SCHEME}://${MIND_HOST}:${MIND_PORT}/readyz"
 
     mind_healthy=false
     for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do

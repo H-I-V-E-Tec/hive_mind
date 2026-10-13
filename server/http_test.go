@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/rsa"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,6 +60,109 @@ func TestHealthzNoAuth(t *testing.T) {
 	}
 }
 
+func TestReadyzChecksDependenciesWithoutChangingHealthz(t *testing.T) {
+	srv, _, _ := testHTTPServer(t)
+	request := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec
+	}
+	if rec := request("/readyz"); rec.Code != http.StatusOK {
+		t.Fatalf("readyz status %d: %s", rec.Code, rec.Body.String())
+	}
+	q := srv.worker.QdrantClient.(*memoryQdrant)
+	q.mu.Lock()
+	q.collections[srv.worker.Cfg.CollectionName] = false
+	q.mu.Unlock()
+	if rec := request("/readyz"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz with missing collection status %d", rec.Code)
+	}
+	if rec := request("/healthz"); rec.Code != http.StatusOK {
+		t.Fatalf("healthz with missing collection status %d", rec.Code)
+	}
+	q.mu.Lock()
+	q.collections[srv.worker.Cfg.CollectionName] = true
+	q.mu.Unlock()
+
+	originalTransport := srv.worker.HTTPClient.Transport
+	srv.worker.HTTPClient.Transport = transportFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("missing")), Header: make(http.Header)}, nil
+	})
+	if rec := request("/readyz"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz with missing embedding model status %d", rec.Code)
+	}
+	srv.worker.HTTPClient.Transport = originalTransport
+
+	srv.jwks.mu.Lock()
+	srv.jwks.fetched = time.Now().Add(-jwksReadinessTTL - time.Second)
+	srv.jwks.mu.Unlock()
+	srv.jwks.httpClient.Transport = transportFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader("unavailable")), Header: make(http.Header)}, nil
+	})
+	if rec := request("/readyz"); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz with unavailable Center status %d", rec.Code)
+	}
+}
+
+func TestAuthenticatedRoutesRejectWhenConcurrencyLimitReached(t *testing.T) {
+	key := testRSAKey(t)
+	kid := "concurrency-test"
+	releaseJWKS := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(releaseJWKS) }) }
+	jwksJSON := testJWKS(t, kid, &key.PublicKey)
+	jwks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		<-releaseJWKS
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(jwksJSON))
+	}))
+	t.Cleanup(func() {
+		unblock()
+		jwks.Close()
+	})
+	srv := NewHTTPServer(nil, NewJWKSClient(jwks.URL), ":0")
+	token := validBearerToken(t, key, kid, jwks.URL)
+	var requests sync.WaitGroup
+	defer func() {
+		unblock()
+		requests.Wait()
+	}()
+	for range maxConcurrentMindRequests {
+		requests.Add(1)
+		go func() {
+			defer requests.Done()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/search", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			srv.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("released request status %d, want 400", rec.Code)
+			}
+		}()
+	}
+	deadline := time.After(2 * time.Second)
+	for len(srv.requestSlots) != maxConcurrentMindRequests {
+		select {
+		case <-deadline:
+			t.Fatal("requests did not occupy the HTTP concurrency slots")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/search", nil))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "1" {
+		t.Fatalf("busy response status=%d retry-after=%q", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	health := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if health.Code != http.StatusOK {
+		t.Fatalf("healthz should bypass concurrency limit, got %d", health.Code)
+	}
+	unblock()
+	requests.Wait()
+}
+
 func TestSearchWithoutAuth(t *testing.T) {
 	srv, _, _ := testHTTPServer(t)
 	body, _ := json.Marshal(map[string]any{"program_id": "acme", "query": "test"})
@@ -93,6 +199,35 @@ func TestSearchBadBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("search bad body status = %d, want 400", rec.Code)
+	}
+}
+
+func TestReadRoutesRejectOversizedBodies(t *testing.T) {
+	srv, key, kid := testHTTPServer(t)
+	token := validBearerToken(t, key, kid, srv.jwks.centerURL)
+	body := append([]byte(`{"program_id":"acme","query":"test"}`), bytes.Repeat([]byte(" "), maxReadRequestBytes)...)
+	for _, route := range []string{"/api/v1/search", "/api/v1/context", "/api/v1/targets"} {
+		t.Run(route, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, route, bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status %d, want 413: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestReadRouteRejectsTrailingJSON(t *testing.T) {
+	srv, key, kid := testHTTPServer(t)
+	token := validBearerToken(t, key, kid, srv.jwks.centerURL)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/targets", bytes.NewBufferString(`{"program_id":"acme"}{}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", rec.Code, rec.Body.String())
 	}
 }
 

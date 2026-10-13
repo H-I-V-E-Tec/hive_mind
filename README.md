@@ -15,6 +15,10 @@ Agente → hive (MCP stdio) ─ modo remoto (<center>/mind) → hive serve (HTTP
 
 O pacote de servidor atual implanta Qdrant e suas ferramentas de operação. Uma API central, PostgreSQL, armazenamento canônico de originais e embeddings no servidor são propostas do [plano de melhoria e limpeza](PLANO_MELHORIA_E_LIMPEZA.md), não funcionalidades já disponíveis. As specs 06–08 continuam pendentes de aceite operacional; veja [registro de execução](docs/spec/status.json).
 
+O [plano do Hive Mind 2.0.0](PLANO_HIVE_MIND_2_0_0.md) prioriza sincronização, autorização por programa, limites HTTP, qualidade da busca e validação de release. A implementação começou pelo watcher e pelos limites das rotas de leitura; o plano distingue entregas concluídas das pendentes.
+
+No serviço HTTP, `/healthz` indica que o processo responde e `/readyz` verifica Qdrant, Ollama e as chaves públicas do Center. O deploy usa `/readyz` para decidir promoção ou rollback.
+
 ## Usar o produto
 
 Em uma máquina nova:

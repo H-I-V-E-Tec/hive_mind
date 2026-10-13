@@ -8,6 +8,7 @@ Este diretório contém os documentos que acompanham o código e seus contratos.
 - [Segurança](spec/security/README.md): ameaças, controles e verificações.
 - [Decisões](decisions/README.md): escolhas arquiteturais aceitas.
 - [Plano atual](../PLANO_MELHORIA_E_LIMPEZA.md): limpeza do repositório, divisão cliente/servidor e roadmap comercial.
+- [Plano Hive Mind 2.0.0](../PLANO_HIVE_MIND_2_0_0.md): ordem de implementação e critérios de aceite das melhorias no cliente e serviço Mind.
 - [Plano de melhoria arquitetural](../PLANO_MELHORIA_ARQUITETURAL.md): permissões por perfil/JWT, ingestão pelo MCP remoto e critérios de aceite.
 - [Hive Center](../../hive_center/README.md): frontend do portal de membros.
 - [API HIVE Center](../../api-hive-center/README.md): identidade, sessão, perfis e concessões; o [plano do piloto](../../api-hive-center/plano-versao-piloto.md) define o serviço Mind em Go.

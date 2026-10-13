@@ -118,14 +118,14 @@ bash "$BUNDLE_NO_MIND/deploy/deploy_server.sh" --version v1.2.6
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.6"
 test ! -e "$INSTALL_ROOT/releases/v1.2.6/hive"
 
-# --- Test 5: hive restarts on the NEW release and healthz uses loopback ---
+# --- Test 5: hive restarts on the NEW release and readiness uses loopback ---
 printf 'HIVE_HTTP_ADDR=":9443"\n' > "$PRIVATE_ROOT/hive.env"
 printf '%040d\n' 5 > "$BUNDLE/REVISION"
 : > "$LOG"
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.7
 test "$(readlink "$INSTALL_ROOT/current")" = "$INSTALL_ROOT/releases/v1.2.7"
 grep -Fqx "systemctl restart hive current=$INSTALL_ROOT/releases/v1.2.7" "$LOG"
-grep -Fq "http://127.0.0.1:9443/healthz" "$LOG"
+grep -Fq "http://127.0.0.1:9443/readyz" "$LOG"
 test -f "$TEST_ROOT/systemd/hive.service"
 
 # --- Test 6: TLS settings switch the probe to https ---
@@ -133,13 +133,13 @@ printf 'HIVE_HTTP_ADDR=0.0.0.0:9443\nHIVE_HTTP_TLS_CERT=/x.crt\nHIVE_HTTP_TLS_KE
 printf '%040d\n' 6 > "$BUNDLE/REVISION"
 : > "$LOG"
 bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.8
-grep -Fq "https://127.0.0.1:9443/healthz" "$LOG"
+grep -Fq "https://127.0.0.1:9443/readyz" "$LOG"
 
-# --- Test 7: hive healthz failure rolls back link and service ---
+# --- Test 7: hive readiness failure rolls back link and service ---
 printf '%040d\n' 7 > "$BUNDLE/REVISION"
 : > "$LOG"
 if HIVE_TEST_MIND_HEALTH=fail bash "$BUNDLE/deploy/deploy_server.sh" --version v1.2.9; then
-  printf 'deploy aceitou /healthz com falha\n' >&2
+  printf 'deploy aceitou /readyz com falha\n' >&2
   exit 1
 fi
 test "$(readlink -f "$INSTALL_ROOT/current")" = "$(readlink -f "$INSTALL_ROOT/releases/v1.2.8")"
@@ -152,7 +152,7 @@ FRESH_ROOT="$TEST_ROOT/fresh-install"
 printf '%040d\n' 8 > "$BUNDLE/REVISION"
 if HIVE_SERVER_INSTALL_ROOT="$FRESH_ROOT" HIVE_TEST_MIND_HEALTH=fail \
     bash "$BUNDLE/deploy/deploy_server.sh" --version v1.3.0 --initial; then
-  printf 'deploy inicial aceitou /healthz com falha\n' >&2
+  printf 'deploy inicial aceitou /readyz com falha\n' >&2
   exit 1
 fi
 test ! -e "$FRESH_ROOT/current" && test ! -L "$FRESH_ROOT/current"

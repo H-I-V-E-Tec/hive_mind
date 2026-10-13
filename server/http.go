@@ -17,6 +17,12 @@ type contextKey string
 
 const claimsContextKey contextKey = "hiveClaims"
 
+const (
+	maxReadRequestBytes       = 64 << 10
+	maxConcurrentMindRequests = 32
+	readinessTimeout          = 5 * time.Second
+)
+
 func claimsFromContext(ctx context.Context) *HiveClaims {
 	if c, ok := ctx.Value(claimsContextKey).(*HiveClaims); ok {
 		return c
@@ -25,17 +31,19 @@ func claimsFromContext(ctx context.Context) *HiveClaims {
 }
 
 type HTTPServer struct {
-	worker *IngestionWorker
-	jwks   *JWKSClient
-	mux    *http.ServeMux
-	server *http.Server
+	worker       *IngestionWorker
+	jwks         *JWKSClient
+	mux          *http.ServeMux
+	server       *http.Server
+	requestSlots chan struct{}
 }
 
 func NewHTTPServer(worker *IngestionWorker, jwks *JWKSClient, addr string) *HTTPServer {
 	s := &HTTPServer{
-		worker: worker,
-		jwks:   jwks,
-		mux:    http.NewServeMux(),
+		worker:       worker,
+		jwks:         jwks,
+		mux:          http.NewServeMux(),
+		requestSlots: make(chan struct{}, maxConcurrentMindRequests),
 	}
 	s.registerRoutes()
 	s.server = &http.Server{
@@ -51,6 +59,7 @@ func NewHTTPServer(worker *IngestionWorker, jwks *JWKSClient, addr string) *HTTP
 
 func (s *HTTPServer) registerRoutes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.HandleFunc("GET /readyz", s.handleReadyz)
 	s.mux.Handle("POST /api/v1/search", s.authMiddleware(http.HandlerFunc(s.handleSearch)))
 	s.mux.Handle("POST /api/v1/context", s.authMiddleware(http.HandlerFunc(s.handleContext)))
 	s.mux.Handle("POST /api/v1/targets", s.authMiddleware(http.HandlerFunc(s.handleTargets)))
@@ -95,6 +104,14 @@ func (s *HTTPServer) Handler() http.Handler {
 
 func (s *HTTPServer) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case s.requestSlots <- struct{}{}:
+			defer func() { <-s.requestSlots }()
+		default:
+			w.Header().Set("Retry-After", "1")
+			writeJSONError(w, http.StatusServiceUnavailable, "service is busy")
+			return
+		}
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") {
 			writeJSONError(w, http.StatusUnauthorized, "missing or invalid Authorization header")
@@ -135,10 +152,30 @@ func (s *HTTPServer) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"status": "ok", "version": Version})
 }
 
+func (s *HTTPServer) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+	defer cancel()
+	for _, name := range []string{s.worker.Cfg.CollectionName, s.worker.Cfg.ControlCollection} {
+		exists, err := s.worker.QdrantClient.CollectionExists(ctx, name)
+		if err != nil || !exists {
+			writeJSONError(w, http.StatusServiceUnavailable, "required service is unavailable")
+			return
+		}
+	}
+	if _, err := s.worker.fetchEmbeddingModelDigest(ctx); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "required service is unavailable")
+		return
+	}
+	if err := s.jwks.ensureFresh(ctx); err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "required service is unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
 func (s *HTTPServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var args HiveSearchArguments
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeReadRequest(w, r, &args) {
 		return
 	}
 	if _, _, err := s.worker.validateHiveSearch(args); err != nil {
@@ -155,8 +192,7 @@ func (s *HTTPServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPServer) handleContext(w http.ResponseWriter, r *http.Request) {
 	var args HiveContextArguments
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeReadRequest(w, r, &args) {
 		return
 	}
 	if _, _, _, err := s.worker.validateHiveContext(args); err != nil {
@@ -173,8 +209,7 @@ func (s *HTTPServer) handleContext(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPServer) handleTargets(w http.ResponseWriter, r *http.Request) {
 	var args HiveListTargetsArguments
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+	if !decodeReadRequest(w, r, &args) {
 		return
 	}
 	if _, _, err := validateHiveListTargets(args); err != nil {
@@ -297,6 +332,26 @@ func (s *HTTPServer) handleApproveScope(w http.ResponseWriter, r *http.Request) 
 }
 
 // --- Helpers ---
+
+func decodeReadRequest(w http.ResponseWriter, r *http.Request, dst any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxReadRequestBytes)
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "request body exceeds the limit")
+		} else {
+			writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		}
+		return false
+	}
+	if err := json.Unmarshal(body, dst); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+	return true
+}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
