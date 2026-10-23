@@ -124,6 +124,20 @@ func (rc *RemoteClient) PreviewScopeApproval(ctx context.Context, programID stri
 	return summary, nil
 }
 
+func (rc *RemoteClient) ScopeStatus(ctx context.Context, programID string) (ScopeStatusSnapshot, error) {
+	if !validIdentifier(programID, 64) {
+		return ScopeStatusSnapshot{}, &searchValidationError{message: "invalid program_id"}
+	}
+	var snapshot ScopeStatusSnapshot
+	if err := rc.getJSON(ctx, "/api/v1/scopes/"+programID+"/status", &snapshot); err != nil {
+		return ScopeStatusSnapshot{}, err
+	}
+	if !validScopeStatusSnapshot(snapshot, programID) {
+		return ScopeStatusSnapshot{}, errors.New("scope status response is invalid")
+	}
+	return snapshot, nil
+}
+
 func (rc *RemoteClient) ApproveScopeRevision(ctx context.Context, programID, sha256 string) (ScopeApprovalResult, error) {
 	if !validIdentifier(programID, 64) || !validScopeApprovalHash(sha256) {
 		return ScopeApprovalResult{}, &searchValidationError{message: "valid program_id and lowercase sha256 are required"}
@@ -237,6 +251,12 @@ func (rc *RemoteClient) doRequest(req *http.Request, result any) error {
 	}
 
 	if result != nil {
+		if scopeResult, ok := result.(*ScopeStatusSnapshot); ok {
+			if err := decodeStrictJSON(respBody, scopeResult); err != nil {
+				return fmt.Errorf("decode scope status: %w", err)
+			}
+			return nil
+		}
 		if err := json.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("decode response: %w", err)
 		}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hive-burp:scope-status:v1",
+  "title": "Saída de scope status v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "program_id", "status", "scope_revision", "rules"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "program_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+    "status": {"enum": ["approved", "unapproved"]},
+    "scope_revision": {"type": "string"},
+    "rules": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["action", "asset_type", "value"],
+        "properties": {
+          "action": {"enum": ["include", "exclude"]},
+          "asset_type": {"enum": ["host", "wildcard_domain", "ip", "cidr", "url_prefix"]},
+          "value": {"type": "string", "minLength": 1, "maxLength": 2048}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "approved"}}},
+      "then": {"properties": {"scope_revision": {"pattern": "^[a-f0-9]{64}$"}, "rules": {"minItems": 1}}},
+      "else": {"properties": {"scope_revision": {"const": "unapproved"}, "rules": {"maxItems": 0}}}
+    }
+  ]
+}

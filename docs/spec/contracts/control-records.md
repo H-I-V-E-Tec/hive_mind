@@ -36,6 +36,8 @@ O commit altera esse registro somente depois que todos os chunks da combinação
 
 Um registro por programa, contendo `program_id`, `status` (`approved` ou `unapproved`), `scope_revision`, schema version, `approved_by_device_id` e timestamps UTC. `scope_revision` é o SHA-256 dos bytes exatos de `scope.json` aprovado.
 
+Novas aprovações incluem `scope_document_hash`, SHA-256 do JSON normalizado que foi publicado em chunks. O reader `scope status` confere esse hash após reconstituir o documento; aprovação antiga sem o campo falha fechada nesse reader até nova aprovação explícita. O hash não substitui `scope_revision`, que continua vinculado aos bytes exatos do manifesto.
+
 `approved_by_device_id` é o dono da aprovação. Somente ele compara o arquivo local com o hash aprovado: ao detectar divergência, grava `unapproved` antes de qualquer nova ingestão do programa. Writers não donos usam a revisão registrada e reconstroem o manifesto a partir do documento de escopo publicado; nunca invalidam. Uma nova aprovação só vira ativa depois que todos os chunks do programa forem materializados e confirmados sob o novo hash.
 
 ## `tombstone`

@@ -74,7 +74,11 @@ Para buscar a nota de teste em programa sem escopo aprovado, use `hive_search` c
 `hive_preview_scope_approval` para revisar o SHA-256 e as contagens de regras.
 Depois chame `hive_approve_scope` com `program_id` e exatamente esse `sha256`.
 O servidor exige `product.mind` e `mind.scope.approve` nas duas chamadas e
-recusa o hash se o manifesto mudou. `platform` e
+recusa o hash se o manifesto mudou. Uma identidade com essa mesma permissão
+administrativa pode consultar `hive scope status <program_id> --json`. O comando
+retorna somente as regras da revisão aprovada no [contrato de escopo v1](docs/spec/contracts/scope-status-v1.md);
+aprovações anteriores a esse contrato exigem nova aprovação explícita. A leitura
+por membro com concessão de programa continua pendente do Center. `platform` e
 `target_name` podem ser enviados juntos para vincular a nota ao catálogo de alvos.
 Uma referência de ativo revisada em `asset_refs` também torna a nota recuperável
 por `hive_get_context`, sem autorizar ações no ativo. A varredura integral do

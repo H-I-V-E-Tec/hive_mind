@@ -201,18 +201,26 @@ func (iw *IngestionWorker) contextScopeManifest(ctx context.Context, programID s
 }
 
 func (iw *IngestionWorker) reconstructApprovedScope(ctx context.Context, programID, revision string) (*scopeManifest, error) {
+	content, err := iw.approvedScopeContent(ctx, programID, revision)
+	if err != nil {
+		return nil, err
+	}
+	return parseScopeManifest([]byte(content), programID)
+}
+
+func (iw *IngestionWorker) approvedScopeContent(ctx context.Context, programID, revision string) (string, error) {
 	manifestPath := "programs/" + programID + "/scope.json"
 	documentID := deterministicUUID("document", iw.Cfg.HiveID, programID, manifestPath)
 	head, err := iw.readDocumentHead(ctx, documentID)
 	if err != nil || head == nil || head.State == "deleted" || head.ProgramID != programID || head.Path != manifestPath || head.ScopeRevision != revision {
-		return nil, errors.New("approved scope document head is unavailable")
+		return "", errors.New("approved scope document head is unavailable")
 	}
 	rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{
 		CollectionName: iw.Cfg.CollectionName, Filter: revisionFilter(documentID, head.DocumentRevision, revision),
 		Limit: qdrant.PtrOf(uint32(head.ChunkCount + 1)), WithPayload: qdrant.NewWithPayloadEnable(true),
 	})
 	if err != nil || len(rows) != head.ChunkCount {
-		return nil, errors.New("approved scope document is incomplete")
+		return "", errors.New("approved scope document is incomplete")
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		return payloadInt(rows[i].Payload, "chunk_ordinal") < payloadInt(rows[j].Payload, "chunk_ordinal")
@@ -222,15 +230,15 @@ func (iw *IngestionWorker) reconstructApprovedScope(ctx context.Context, program
 		if payloadInt(row.Payload, "chunk_ordinal") != int64(ordinal) || payloadString(row.Payload, "content_hash", "") != revision ||
 			payloadString(row.Payload, "record_type", "") != "chunk" || payloadString(row.Payload, "hive_id", "") != iw.Cfg.HiveID ||
 			payloadString(row.Payload, "program_id", "") != programID || payloadString(row.Payload, "document_type", "") != "scope" {
-			return nil, errors.New("approved scope document provenance is invalid")
+			return "", errors.New("approved scope document provenance is invalid")
 		}
 		chunks = append(chunks, payloadString(row.Payload, "content", ""))
 	}
 	normalized, err := joinOverlappingChunks(chunks, iw.Cfg.ChunkOverlapChars)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return parseScopeManifest([]byte(normalized), programID)
+	return normalized, nil
 }
 
 func joinOverlappingChunks(chunks []string, overlap int) (string, error) {

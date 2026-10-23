@@ -66,6 +66,7 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
 	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.instanceWriterMiddleware(http.HandlerFunc(s.handleIngestDocument))))
 	s.mux.Handle("GET /api/v1/scopes/{programID}/approval-preview", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handlePreviewScope))))
+	s.mux.Handle("GET /api/v1/scopes/{programID}/status", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleScopeStatus))))
 	s.mux.Handle("POST /api/v1/scopes/{programID}/approve", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleApproveScope))))
 }
 
@@ -302,6 +303,22 @@ func (s *HTTPServer) handlePreviewScope(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *HTTPServer) handleScopeStatus(w http.ResponseWriter, r *http.Request) {
+	programID := r.PathValue("programID")
+	if !validIdentifier(programID, 64) {
+		writeJSONError(w, http.StatusBadRequest, "invalid program_id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
+	status, err := s.worker.ScopeStatus(ctx, programID)
+	if err != nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "approved scope status is unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *HTTPServer) handleApproveScope(w http.ResponseWriter, r *http.Request) {

@@ -36,6 +36,15 @@ func TestSpec007CLISeparatesConfigurationAndRejectsUnknownCommands(t *testing.T)
 	if err != nil || strings.Join(args, " ") != "hive scope approve acme --yes" {
 		t.Fatalf("config leaked into positional arguments: %v %v", args, err)
 	}
+	statusArgs, err := splitCLIArgs([]string{"hive", "scope", "status", "acme", "--json"})
+	if err != nil || strings.Join(statusArgs, " ") != "hive scope status acme --json" {
+		t.Fatalf("read-only scope status arguments were rejected: %v %v", statusArgs, err)
+	}
+	for _, raw := range [][]string{{"hive", "scope", "status", "acme"}, {"hive", "scope", "status", "acme", "--yes"}} {
+		if _, err := splitCLIArgs(raw); err == nil {
+			t.Fatalf("invalid scope status arguments were accepted: %v", raw)
+		}
+	}
 	for _, raw := range [][]string{{"hive", "typo"}, {"hive", "status", "extra"}, {"hive", "ingest", "--yes"}, {"hive", "--config"}} {
 		if _, err := splitCLIArgs(raw); err == nil {
 			t.Fatalf("invalid CLI accepted: %v", raw)

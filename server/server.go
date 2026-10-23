@@ -680,6 +680,7 @@ func printCLIHelp() {
 	fmt.Println("  audit report [--since=DATE]    Aggregate retrieval usage (queries, response chars, source bytes)")
 	fmt.Println("               [--program=<id>]  from local audit logs; numbers only, no content.")
 	fmt.Println("  scope approve <program_id>     Preview the manifest hash; add --yes to approve it.")
+	fmt.Println("  scope status <program_id> --json  Read approved scope rules (scope administrator only).")
 	fmt.Println("  search <program_id> <query>    Search; filters use --tag=value and related flags.")
 	fmt.Println("  serve                          Start the HTTP API server with JWT authentication.")
 	fmt.Println("                                 Requires HIVE_CENTER_URL for JWKS validation.")
@@ -766,8 +767,30 @@ func remoteMindURL() string {
 // product.mind + mind.scope.approve on every call, and --yes is required to
 // apply the previewed manifest hash.
 func runRemoteScope(args []string) {
+	if len(args) == 5 && args[2] == "status" && args[4] == "--json" {
+		mindURL, err := ValidateHiveCenterURL(ResolveMindURL(os.Args[1:]))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "scope status: Mind endpoint is unavailable")
+			os.Exit(ExitConfiguration)
+		}
+		rc := NewRemoteClient(mindURL)
+		defer rc.Close()
+		if !rc.CanApproveScope() {
+			fmt.Fprintln(os.Stderr, "scope status: scope administrator login is required")
+			os.Exit(ExitAuthorization)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		snapshot, err := rc.ScopeStatus(ctx, args[3])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "scope status: approved scope is unavailable")
+			os.Exit(ExitConnectivity)
+		}
+		printJSON(snapshot)
+		return
+	}
 	if (len(args) != 4 && len(args) != 5) || strings.ToLower(args[2]) != "approve" || (len(args) == 5 && args[4] != "--yes") {
-		fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server scope approve <program_id> [--yes]")
+		fmt.Fprintln(os.Stderr, "Usage: qdrant-mcp-server scope approve <program_id> [--yes] | scope status <program_id> --json")
 		os.Exit(ExitUsage)
 	}
 	programID := args[3]

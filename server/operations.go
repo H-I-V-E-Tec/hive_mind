@@ -335,7 +335,10 @@ func splitCLIArgs(raw []string) ([]string, error) {
 			return nil, errors.New("remove requires a path")
 		}
 	case "scope":
-		if (len(args) != 4 && len(args) != 5) || args[2] != "approve" || (len(args) == 5 && args[4] != "--yes") {
+		approved := (len(args) == 4 || len(args) == 5) && args[2] == "approve" &&
+			(len(args) == 4 || args[4] == "--yes")
+		status := len(args) == 5 && args[2] == "status" && args[4] == "--json"
+		if !approved && !status || len(args) < 4 || !validIdentifier(args[3], 64) {
 			return nil, errors.New("invalid scope arguments")
 		}
 	case "search":

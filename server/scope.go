@@ -417,6 +417,11 @@ func (iw *IngestionWorker) ApproveScopeRevision(ctx context.Context, programID, 
 		return err
 	}
 	revision := sha256Hex(content)
+	normalizedScope, err := normalizeJSON(content, iw.Cfg.JSONMaxDepth, iw.Cfg.JSONMaxElements)
+	if err != nil {
+		return err
+	}
+	scopeDocumentHash := sha256Hex([]byte(normalizedScope))
 	if confirmedHash != "" && revision != confirmedHash {
 		return &operationalError{ExitUsage, "scope manifest changed since confirmation"}
 	}
@@ -444,6 +449,7 @@ func (iw *IngestionWorker) ApproveScopeRevision(ctx context.Context, programID, 
 	}
 	if err := iw.upsertControl(ctx, "scope_approval", programID, map[string]any{
 		"program_id": programID, "status": "approved", "scope_revision": revision, "schema_version": int64(1),
+		"scope_document_hash":   scopeDocumentHash,
 		"approved_by_device_id": iw.Cfg.DeviceID, "approved_at": now, "updated_at": now,
 	}); err != nil {
 		for _, old := range committedHeads {
