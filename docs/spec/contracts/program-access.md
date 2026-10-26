@@ -1,6 +1,6 @@
 # Autorização por programa no Mind remoto
 
-Estado: emissor implementado localmente no Center; validação no Mind implementada localmente, homologação integrada e portal pendentes. O rollout exige migrar a API do Center e configurar concessões explícitas antes de atualizar o servidor Mind.
+Estado: emissor no Center, validação no Mind e portal administrativo implementados localmente; homologação integrada e rollout pendentes. O rollout exige migrar a API do Center e configurar concessões explícitas antes de atualizar o servidor Mind.
 
 O contrato v1 do JWT mantém `programs: string[]` como programas de leitura e
 acrescenta `program_access_version: 1` e `program_contribute: string[]`. As listas
