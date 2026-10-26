@@ -66,7 +66,7 @@ func (s *HTTPServer) registerRoutes() {
 	s.mux.Handle("GET /api/v1/sync-status", s.authMiddleware(http.HandlerFunc(s.handleSyncStatus)))
 	s.mux.Handle("POST /api/v1/documents/ingest", s.authMiddleware(s.instanceWriterMiddleware(http.HandlerFunc(s.handleIngestDocument))))
 	s.mux.Handle("GET /api/v1/scopes/{programID}/approval-preview", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handlePreviewScope))))
-	s.mux.Handle("GET /api/v1/scopes/{programID}/status", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleScopeStatus))))
+	s.mux.Handle("GET /api/v1/scopes/{programID}/status", s.authMiddleware(http.HandlerFunc(s.handleScopeStatus)))
 	s.mux.Handle("POST /api/v1/scopes/{programID}/approve", s.authMiddleware(s.scopeAdminMiddleware(http.HandlerFunc(s.handleApproveScope))))
 }
 
@@ -74,6 +74,10 @@ func (s *HTTPServer) scopeAdminMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !claimsFromContext(r.Context()).HasPermissions(permissionMindRead, permissionScopeAdmin) {
 			writeJSONError(w, http.StatusForbidden, "product.mind and mind.scope.approve permissions are required")
+			return
+		}
+		if !claimsFromContext(r.Context()).CanContributeProgram(r.PathValue("programID")) {
+			writeJSONError(w, http.StatusForbidden, "program contribution grant is required")
 			return
 		}
 		if !s.worker.Cfg.IsWriter() {
@@ -183,6 +187,10 @@ func (s *HTTPServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !claimsFromContext(r.Context()).CanReadProgram(args.ProgramID) {
+		writeJSONError(w, http.StatusForbidden, "program read grant is required")
+		return
+	}
 	result, err := s.worker.HiveSearch(r.Context(), args)
 	if err != nil {
 		writeSearchError(w, err)
@@ -198,6 +206,10 @@ func (s *HTTPServer) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, _, _, err := s.worker.validateHiveContext(args); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !claimsFromContext(r.Context()).CanReadProgram(args.ProgramID) {
+		writeJSONError(w, http.StatusForbidden, "program read grant is required")
 		return
 	}
 	result, err := s.worker.HiveGetContext(r.Context(), args)
@@ -217,7 +229,14 @@ func (s *HTTPServer) handleTargets(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := s.worker.HiveListTargets(r.Context(), args)
+	claims := claimsFromContext(r.Context())
+	if claims.ProgramAccessVersion != 1 || !validProgramGrants(claims.Programs, claims.ProgramContribute) ||
+		args.ProgramID != "" && !claims.CanReadProgram(args.ProgramID) {
+		writeJSONError(w, http.StatusForbidden, "program read grant is required")
+		return
+	}
+	ctx := context.WithValue(r.Context(), allowedProgramsContextKey, append([]string{}, claims.Programs...))
+	result, err := s.worker.HiveListTargets(ctx, args)
 	if err != nil {
 		log.Printf("target catalog failed: %v", err)
 		writeJSONError(w, http.StatusInternalServerError, "target catalog failed")
@@ -226,7 +245,11 @@ func (s *HTTPServer) handleTargets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *HTTPServer) handleSyncStatus(w http.ResponseWriter, _ *http.Request) {
+func (s *HTTPServer) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
+	if !claimsFromContext(r.Context()).HasPermissions(permissionScopeAdmin) {
+		writeJSON(w, http.StatusOK, SyncStatusSnapshot{Status: "available"})
+		return
+	}
 	s.worker.Mu.Lock()
 	status := "idle"
 	if len(s.worker.PendingFiles) > 0 || s.worker.ActiveSyncs > 0 {
@@ -275,6 +298,10 @@ func (s *HTTPServer) handleIngestDocument(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, status, err.Error())
 		return
 	}
+	if !claimsFromContext(r.Context()).CanContributeProgram(args.ProgramID) {
+		writeJSONError(w, http.StatusForbidden, "program contribution grant is required")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), remoteIngestTimeout)
 	defer cancel()
 	report := s.worker.IngestRemoteDocument(ctx, claimsFromContext(ctx), args)
@@ -296,6 +323,10 @@ func (s *HTTPServer) handlePreviewScope(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, http.StatusBadRequest, "invalid program_id")
 		return
 	}
+	if !claimsFromContext(r.Context()).CanReadProgram(programID) {
+		writeJSONError(w, http.StatusForbidden, "program read grant is required")
+		return
+	}
 	summary, err := s.worker.ScopeApprovalPreview(programID)
 	if err != nil {
 		log.Printf("scope approval preview failed for program_id=%s: %v", programID, err)
@@ -309,6 +340,10 @@ func (s *HTTPServer) handleScopeStatus(w http.ResponseWriter, r *http.Request) {
 	programID := r.PathValue("programID")
 	if !validIdentifier(programID, 64) {
 		writeJSONError(w, http.StatusBadRequest, "invalid program_id")
+		return
+	}
+	if !claimsFromContext(r.Context()).CanReadProgram(programID) {
+		writeJSONError(w, http.StatusForbidden, "program read grant is required")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)

@@ -80,12 +80,14 @@ func (rc *RemoteClient) SyncStatus() (SyncStatusSnapshot, error) {
 // the signature and permissions again for every request, including direct calls.
 func (rc *RemoteClient) CanIngestDocument() bool {
 	claims, ok := localMemberClaims()
-	return ok && (claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin))
+	return ok && claims.ProgramAccessVersion == 1 && validProgramGrants(claims.Programs, claims.ProgramContribute) &&
+		len(claims.ProgramContribute) > 0 && (claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin))
 }
 
 func (rc *RemoteClient) CanApproveScope() bool {
 	claims, ok := localMemberClaims()
-	return ok && claims.HasPermissions(permissionScopeAdmin)
+	return ok && claims.ProgramAccessVersion == 1 && validProgramGrants(claims.Programs, claims.ProgramContribute) &&
+		len(claims.ProgramContribute) > 0 && claims.HasPermissions(permissionScopeAdmin)
 }
 
 func localMemberClaims() (*HiveClaims, bool) {

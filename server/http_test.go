@@ -245,8 +245,8 @@ func TestSyncStatusWithAuth(t *testing.T) {
 	}
 	var body map[string]any
 	json.NewDecoder(rec.Body).Decode(&body)
-	if body["status"] != "idle" {
-		t.Errorf("sync status = %v, want idle", body["status"])
+	if body["status"] != "available" || body["total_synced"] != float64(0) {
+		t.Errorf("reader received global sync details: %+v", body)
 	}
 }
 

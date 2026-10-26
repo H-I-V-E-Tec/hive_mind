@@ -73,18 +73,20 @@ Para buscar a nota de teste em programa sem escopo aprovado, use `hive_search` c
 `document_type: scope`, `source_format: json` e `mind.scope.approve`, use
 `hive_preview_scope_approval` para revisar o SHA-256 e as contagens de regras.
 Depois chame `hive_approve_scope` com `program_id` e exatamente esse `sha256`.
-O servidor exige `product.mind` e `mind.scope.approve` nas duas chamadas e
-recusa o hash se o manifesto mudou. Uma identidade com essa mesma permissão
-administrativa pode consultar `hive scope status <program_id> --json`. O comando
+O servidor exige `product.mind`, `mind.scope.approve` e contribuição no programa nas duas chamadas e
+recusa o hash se o manifesto mudou. Uma identidade com concessão de leitura do
+programa pode consultar `hive scope status <program_id> --json`. O comando
 retorna somente as regras da revisão aprovada no [contrato de escopo v1](docs/spec/contracts/scope-status-v1.md);
-aprovações anteriores a esse contrato exigem nova aprovação explícita. A leitura
-por membro com concessão de programa continua pendente do Center. `platform` e
+aprovações anteriores a esse contrato exigem nova aprovação explícita. O token
+precisa ter `program_access_version: 1` e o programa em `programs`; o servidor
+nega tokens legados ou sem concessão. Publique a migração e as concessões do
+Center antes de atualizar o servidor Mind. `platform` e
 `target_name` podem ser enviados juntos para vincular a nota ao catálogo de alvos.
 Uma referência de ativo revisada em `asset_refs` também torna a nota recuperável
 por `hive_get_context`, sem autorizar ações no ativo. A varredura integral do
 workspace fica apenas no comando operacional `hive ingest`, não no MCP ou HTTP.
-Esta primeira entrega usa permissão global de contribuição; concessões por
-programa, jobs e revisão editorial ficam no [plano arquitetural](PLANO_MELHORIA_ARQUITETURAL.md).
+Contribuição remota exige `program_contribute` no token além da permissão global;
+jobs e revisão editorial ficam no [plano arquitetural](PLANO_MELHORIA_ARQUITETURAL.md).
 Veja o [contrato e teste integrado](docs/spec/contracts/remote-ingestion.md).
 
 `hive_mind` não contém mais `hive-data/` nem configuração operacional local. Se você desenvolve aqui, use apenas fixtures sintéticas e diretórios temporários isolados; não aponte o agente a este checkout. Consulte [AGENTS.md](AGENTS.md) antes de alterar o comportamento do produto.

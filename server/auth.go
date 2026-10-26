@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,13 +29,15 @@ const (
 )
 
 type HiveClaims struct {
-	Sub         string   `json:"sub"`
-	Name        string   `json:"name"`
-	Audience    string   `json:"aud"`
-	Issuer      string   `json:"iss"`
-	Permissions []string `json:"permissions"`
-	Profiles    []string `json:"profiles"`
-	Programs    []string `json:"programs"`
+	Sub                  string   `json:"sub"`
+	Name                 string   `json:"name"`
+	Audience             string   `json:"aud"`
+	Issuer               string   `json:"iss"`
+	Permissions          []string `json:"permissions"`
+	Profiles             []string `json:"profiles"`
+	Programs             []string `json:"programs"`
+	ProgramAccessVersion int      `json:"program_access_version"`
+	ProgramContribute    []string `json:"program_contribute"`
 }
 
 type jwkEntry struct {
@@ -89,6 +92,12 @@ func (j *JWKSClient) ValidateToken(tokenString string) (*HiveClaims, error) {
 		return nil, errors.New("missing or invalid member subject")
 	}
 
+	programs, readOK := strictProgramList(mapClaims["programs"])
+	contribute, contributeOK := strictProgramList(mapClaims["program_contribute"])
+	version := 0
+	if mapClaims["program_access_version"] == float64(1) && readOK && contributeOK && validProgramGrants(programs, contribute) {
+		version = 1
+	}
 	return &HiveClaims{
 		Sub:         claimString(mapClaims, "sub"),
 		Name:        claimString(mapClaims, "name"),
@@ -96,8 +105,61 @@ func (j *JWKSClient) ValidateToken(tokenString string) (*HiveClaims, error) {
 		Issuer:      claimString(mapClaims, "iss"),
 		Permissions: claimStringSlice(mapClaims, "permissions"),
 		Profiles:    claimStringSlice(mapClaims, "profiles"),
-		Programs:    claimStringSlice(mapClaims, "programs"),
+		Programs:    programs, ProgramContribute: contribute, ProgramAccessVersion: version,
 	}, nil
+}
+
+func strictProgramList(value any) ([]string, bool) {
+	items, ok := value.([]any)
+	if !ok || len(items) > 128 {
+		return nil, false
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		program, ok := item.(string)
+		if !ok || !validIdentifier(program, 64) {
+			return nil, false
+		}
+		result = append(result, program)
+	}
+	return result, true
+}
+
+func validProgramGrants(read, contribute []string) bool {
+	if read == nil || contribute == nil || len(read) > 128 || len(contribute) > 128 {
+		return false
+	}
+	for index, program := range read {
+		if !validIdentifier(program, 64) || index > 0 && read[index-1] >= program {
+			return false
+		}
+	}
+	for index, program := range contribute {
+		if !validIdentifier(program, 64) || index > 0 && contribute[index-1] >= program {
+			return false
+		}
+		at := sort.SearchStrings(read, program)
+		if at >= len(read) || read[at] != program {
+			return false
+		}
+	}
+	return true
+}
+
+func (claims *HiveClaims) CanReadProgram(program string) bool {
+	if claims == nil || claims.ProgramAccessVersion != 1 || !validProgramGrants(claims.Programs, claims.ProgramContribute) {
+		return false
+	}
+	at := sort.SearchStrings(claims.Programs, program)
+	return at < len(claims.Programs) && claims.Programs[at] == program
+}
+
+func (claims *HiveClaims) CanContributeProgram(program string) bool {
+	if !claims.CanReadProgram(program) {
+		return false
+	}
+	at := sort.SearchStrings(claims.ProgramContribute, program)
+	return at < len(claims.ProgramContribute) && claims.ProgramContribute[at] == program
 }
 
 func (j *JWKSClient) keyFunc(token *jwt.Token) (any, error) {

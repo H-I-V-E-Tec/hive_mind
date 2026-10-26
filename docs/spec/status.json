@@ -109,8 +109,8 @@
     {
       "id": "07",
       "file": "07-operational-cli.md",
-      "version": "1.5.0",
-      "sha256": "b7a03658e0348c5cddb8721c986e1c6dc6dfb6d9783a1b1028bc74526ca67e3f",
+      "version": "1.6.0",
+      "sha256": "25dc00b4bb702a929af088d6a80ad2a44d83399aea9c8d13bddfda7d7522f0e5",
       "status": "pending",
       "executed_at": null,
       "commit": null,
@@ -119,8 +119,8 @@
     {
       "id": "08",
       "file": "08-v01-acceptance.md",
-      "version": "1.1.1",
-      "sha256": "87c871e87f7dd3c6d9357f4675edd6d4946fac9d429b5f254d24158e43ace95b",
+      "version": "1.2.0",
+      "sha256": "e0bb95577c9807fe854897981d5405333110d36288ca9c84d958c680fa1a4539",
       "status": "pending",
       "executed_at": null,
       "commit": null,
@@ -142,8 +142,8 @@
     {
       "id": "10",
       "file": "10-agent-integration.md",
-      "version": "1.0.2",
-      "sha256": "85254098604cb74cb447b69a4a3c273773963fd9bbc821038e89096131706585",
+      "version": "1.1.0",
+      "sha256": "eac5f5da7195fb6c95d0db039c2a0b2a58709f692e1eab6317b713da3e552479",
       "status": "pending",
       "executed_at": null,
       "commit": null,

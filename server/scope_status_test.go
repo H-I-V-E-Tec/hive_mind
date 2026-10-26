@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/qdrant/go-client/qdrant"
 )
 
@@ -19,6 +20,9 @@ func TestScopeStatusRemoteReadOnlyContract(t *testing.T) {
 	program := "scope-status-lab"
 	admin := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionScopeAdmin}, nil)
 	reader := memberToken(t, srv, key, kid, []string{permissionMindRead}, nil)
+	noGrant := memberToken(t, srv, key, kid, []string{permissionMindRead}, jwt.MapClaims{
+		"programs": []string{}, "program_contribute": []string{},
+	})
 	if err := storeToken(admin); err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +77,14 @@ func TestScopeStatusRemoteReadOnlyContract(t *testing.T) {
 	if err := storeToken(reader); err != nil {
 		t.Fatal(err)
 	}
+	if status, err := client.ScopeStatus(context.Background(), program); err != nil || status.Status != "approved" {
+		t.Fatalf("granted reader could not read approved rules: %+v %v", status, err)
+	}
+	if err := storeToken(noGrant); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.ScopeStatus(context.Background(), program); err == nil || !strings.Contains(err.Error(), "forbidden") {
-		t.Fatalf("ordinary reader received approved rules: %v", err)
+		t.Fatalf("reader without a program grant received rules: %v", err)
 	}
 	if err := storeToken(admin); err != nil {
 		t.Fatal(err)

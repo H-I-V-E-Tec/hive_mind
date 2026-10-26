@@ -20,6 +20,8 @@ const (
 	maxCatalogPrograms          = 100
 )
 
+const allowedProgramsContextKey contextKey = "allowedPrograms"
+
 type HiveListTargetsArguments struct {
 	ProgramID          string `json:"program_id"`
 	Limit              *int   `json:"limit,omitempty"`
@@ -294,47 +296,58 @@ func (iw *IngestionWorker) listTargetsInProgram(ctx context.Context, args HiveLi
 
 func (iw *IngestionWorker) listTargetsAcrossPrograms(ctx context.Context, args HiveListTargetsArguments, limit int) (HiveListTargetsResponse, error) {
 	out := HiveListTargetsResponse{Offset: args.Offset, Targets: []TargetCatalogEntry{}, Unconfirmed: []TargetCatalogEntry{}, Warnings: []string{}}
-	filter := &qdrant.Filter{Must: []*qdrant.Condition{
-		qdrant.NewMatchKeyword("record_type", "document_head"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
-		qdrant.NewMatchKeyword("state", "active"),
-	}}
-	rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{CollectionName: iw.Cfg.ControlCollection, Filter: filter,
-		Limit: qdrant.PtrOf(uint32(maxCatalogScanDocuments)), WithPayload: qdrant.NewWithPayloadInclude("hive_id", "record_type", "state", "program_id")})
-	if err != nil {
-		return out, errors.New("program document index is unavailable")
-	}
-	count, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.ControlCollection, Exact: qdrant.PtrOf(true), Filter: filter})
-	if err != nil {
-		return out, errors.New("program document count is unavailable")
-	}
-	if len(rows) > maxCatalogScanDocuments {
-		rows = rows[:maxCatalogScanDocuments]
-	}
-	if count > uint64(len(rows)) {
-		out.Truncated = true
-		out.Warnings = appendWarning(out.Warnings, "program document discovery limit reached; ranking is partial")
-	}
-	programs := map[string]bool{}
-	for _, row := range rows {
-		payload := row.Payload
-		if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "record_type", "") != "document_head" ||
-			payloadString(payload, "state", "") != "active" {
-			continue
+	ids := []string{}
+	if allowed, ok := ctx.Value(allowedProgramsContextKey).([]string); ok {
+		ids = append(ids, allowed...)
+		sort.Strings(ids)
+		if len(ids) > maxCatalogPrograms {
+			out.Truncated = true
+			out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
+			ids = ids[:maxCatalogPrograms]
 		}
-		id := payloadString(payload, "program_id", "")
-		if validIdentifier(id, 64) {
-			programs[id] = true
+	} else {
+		filter := &qdrant.Filter{Must: []*qdrant.Condition{
+			qdrant.NewMatchKeyword("record_type", "document_head"), qdrant.NewMatchKeyword("hive_id", iw.Cfg.HiveID),
+			qdrant.NewMatchKeyword("state", "active"),
+		}}
+		rows, err := iw.QdrantClient.Scroll(ctx, &qdrant.ScrollPoints{CollectionName: iw.Cfg.ControlCollection, Filter: filter,
+			Limit: qdrant.PtrOf(uint32(maxCatalogScanDocuments)), WithPayload: qdrant.NewWithPayloadInclude("hive_id", "record_type", "state", "program_id")})
+		if err != nil {
+			return out, errors.New("program document index is unavailable")
 		}
-	}
-	ids := make([]string, 0, len(programs))
-	for id := range programs {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	if len(ids) > maxCatalogPrograms {
-		out.Truncated = true
-		out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
-		ids = ids[:maxCatalogPrograms]
+		count, err := iw.QdrantClient.Count(ctx, &qdrant.CountPoints{CollectionName: iw.Cfg.ControlCollection, Exact: qdrant.PtrOf(true), Filter: filter})
+		if err != nil {
+			return out, errors.New("program document count is unavailable")
+		}
+		if len(rows) > maxCatalogScanDocuments {
+			rows = rows[:maxCatalogScanDocuments]
+		}
+		if count > uint64(len(rows)) {
+			out.Truncated = true
+			out.Warnings = appendWarning(out.Warnings, "program document discovery limit reached; ranking is partial")
+		}
+		programs := map[string]bool{}
+		for _, row := range rows {
+			payload := row.Payload
+			if payloadString(payload, "hive_id", "") != iw.Cfg.HiveID || payloadString(payload, "record_type", "") != "document_head" ||
+				payloadString(payload, "state", "") != "active" {
+				continue
+			}
+			id := payloadString(payload, "program_id", "")
+			if validIdentifier(id, 64) {
+				programs[id] = true
+			}
+		}
+		ids = make([]string, 0, len(programs))
+		for id := range programs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		if len(ids) > maxCatalogPrograms {
+			out.Truncated = true
+			out.Warnings = appendWarning(out.Warnings, "program discovery limit reached; ranking is partial")
+			ids = ids[:maxCatalogPrograms]
+		}
 	}
 	all := []*catalogCandidate{}
 	for _, id := range ids {

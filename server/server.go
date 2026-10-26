@@ -680,7 +680,7 @@ func printCLIHelp() {
 	fmt.Println("  audit report [--since=DATE]    Aggregate retrieval usage (queries, response chars, source bytes)")
 	fmt.Println("               [--program=<id>]  from local audit logs; numbers only, no content.")
 	fmt.Println("  scope approve <program_id>     Preview the manifest hash; add --yes to approve it.")
-	fmt.Println("  scope status <program_id> --json  Read approved scope rules (scope administrator only).")
+	fmt.Println("  scope status <program_id> --json  Read approved scope rules for a granted program.")
 	fmt.Println("  search <program_id> <query>    Search; filters use --tag=value and related flags.")
 	fmt.Println("  serve                          Start the HTTP API server with JWT authentication.")
 	fmt.Println("                                 Requires HIVE_CENTER_URL for JWKS validation.")
@@ -764,7 +764,7 @@ func remoteMindURL() string {
 // runRemoteScope drives scope approval over HTTP+JWT against the remote Hive
 // Mind. Approval is a member-authenticated administrative action; the local
 // backend refuses it, so there is no local path. The server still enforces
-// product.mind + mind.scope.approve on every call, and --yes is required to
+// product.mind + mind.scope.approve + program contribution on every call, and --yes is required to
 // apply the previewed manifest hash.
 func runRemoteScope(args []string) {
 	if len(args) == 5 && args[2] == "status" && args[4] == "--json" {
@@ -775,14 +775,19 @@ func runRemoteScope(args []string) {
 		}
 		rc := NewRemoteClient(mindURL)
 		defer rc.Close()
-		if !rc.CanApproveScope() {
-			fmt.Fprintln(os.Stderr, "scope status: scope administrator login is required")
+		claims, ok := localMemberClaims()
+		if !ok || !claims.CanReadProgram(args[3]) {
+			fmt.Fprintln(os.Stderr, "scope status: program read grant is required")
 			os.Exit(ExitAuthorization)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		snapshot, err := rc.ScopeStatus(ctx, args[3])
 		if err != nil {
+			if errors.Is(err, errRemoteAccess) || errors.Is(err, errRemoteLogin) {
+				fmt.Fprintln(os.Stderr, "scope status: program read grant is required")
+				os.Exit(ExitAuthorization)
+			}
 			fmt.Fprintln(os.Stderr, "scope status: approved scope is unavailable")
 			os.Exit(ExitConnectivity)
 		}
@@ -801,8 +806,9 @@ func runRemoteScope(args []string) {
 	}
 	rc := NewRemoteClient(mindURL)
 	defer rc.Close()
-	if !rc.CanApproveScope() {
-		fmt.Fprintln(os.Stderr, "authorization error: scope approval requires a current member login with product.mind and mind.scope.approve")
+	claims, ok := localMemberClaims()
+	if !ok || !claims.CanContributeProgram(programID) || !rc.CanApproveScope() {
+		fmt.Fprintln(os.Stderr, "authorization error: scope approval requires a program contribution grant and mind.scope.approve")
 		os.Exit(ExitAuthorization)
 	}
 	ctx := context.Background()

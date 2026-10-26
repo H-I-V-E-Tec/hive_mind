@@ -19,11 +19,13 @@ Preparar ao menos duas máquinas writer e uma reader com a mesma versão e finge
 7. Alterar a nota e confirmar que somente a nova revisão é retornada; simular falha antes do commit e confirmar que a revisão anterior permanece ativa.
 8. Confirmar que o reader não consegue ingerir, aprovar escopo, remover documento ou alterar schema.
 9. Remover a nota pelo fluxo com tombstone e confirmar que ela não é retornada.
+10. No serviço remoto, emitir tokens versionados do Center para dois membros e dois programas sintéticos. Cada membro busca, consulta contexto, lista alvos e lê `scope status` apenas no programa concedido; contribuição exige concessão própria, e aprovação ainda exige `mind.scope.approve`. Token legado ou lista vazia não acessa programa. O catálogo global não conta nem pagina dados alheios.
 
 ## Critérios de saída
 
 - A busca apresenta trecho curto, caminho e fonte corretos.
 - Nenhuma consulta cruza `hive_id` ou programa.
+- Concessões por programa são aplicadas antes da consulta/publicação; a janela de revogação de JWT (até 12 horas) está explicitamente aceita ou reduzida antes de produção.
 - Apenas manifesto aprovado concede autorização e toda resposta recuperada marca conteúdo não confiável.
 - Não há MCP público, Qdrant público, chave versionada ou tráfego remoto inseguro.
 - Todos os gates da [validação de segurança](security/10-security-verification.md) estão aprovados.

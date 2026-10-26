@@ -28,7 +28,9 @@ func remoteNote() HiveIngestDocumentArguments {
 
 func memberToken(t *testing.T, srv *HTTPServer, key *rsa.PrivateKey, kid string, permissions []string, overrides jwt.MapClaims) string {
 	t.Helper()
-	claims := jwt.MapClaims{"iss": srv.jwks.centerURL, "sub": "member-1", "aud": "mind", "exp": time.Now().Add(time.Hour).Unix(), "permissions": permissions}
+	programs := []string{"acme", "beta", "lab", "remote-scope", "remote-scope-mcp", "scope-status-lab", "test", "teste-remoto"}
+	claims := jwt.MapClaims{"iss": srv.jwks.centerURL, "sub": "member-1", "aud": "mind", "exp": time.Now().Add(time.Hour).Unix(), "permissions": permissions,
+		"program_access_version": 1, "programs": programs, "program_contribute": programs}
 	for k, v := range overrides {
 		claims[k] = v
 	}

@@ -326,6 +326,16 @@ func TestHiveListTargetsRanksAcrossProgramsWithoutProgramID(t *testing.T) {
 	if !seen["acme"] || !seen["beta"] {
 		t.Fatalf("global top 10 did not combine programs: %+v", response.Targets)
 	}
+	grantedContext := context.WithValue(context.Background(), allowedProgramsContextKey, []string{"beta"})
+	granted, err := worker.HiveListTargets(grantedContext, HiveListTargetsArguments{})
+	if err != nil || granted.CandidatesEvaluated != 6 || granted.UnregisteredFiles != 0 {
+		t.Fatalf("granted catalog scanned another program: %+v, %v", granted, err)
+	}
+	for _, target := range granted.Targets {
+		if target.ProgramID != "beta" {
+			t.Fatalf("granted catalog leaked another program: %+v", target)
+		}
+	}
 	limit := 1
 	documented, err := worker.HiveListTargets(context.Background(), HiveListTargetsArguments{Limit: &limit, Order: "most_documented"})
 	if err != nil || len(documented.Targets) != 1 || documented.Targets[0].ProgramID != "beta" ||
