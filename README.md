@@ -102,4 +102,6 @@ go vet ./...
 
 Para build local, produza o binário em `bin/`, que é ignorado pelo Git. O [Compose](docker-compose.yml) é somente laboratório isolado e exige `HIVE_DATA_DIR` apontando para uma pasta externa explícita; não cria dados no checkout. O fluxo de distribuição aos clientes usa as releases verificadas e o [`install.sh`](install.sh).
 
+O instalador deste repositório exige `cosign` e valida a assinatura Sigstore de `SHA256SUMS`, vinculada ao workflow de release e à tag solicitada, antes de extrair ou instalar o binário. A instalação falha se a assinatura estiver ausente ou inválida.
+
 A documentação normativa e sua situação ficam em [docs/README.md](docs/README.md). Guias operacionais foram movidos para fora do repositório; o bundle de release não depende deles. Essa pasta irmã precisa ser publicada/versionada separadamente antes que os links apareçam em um clone isolado no GitHub.

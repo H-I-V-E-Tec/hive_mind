@@ -30,6 +30,7 @@ jobs:
       - name: Vulnerability analysis
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          govulncheck -scan=module
           govulncheck ./...
       - name: Scan secrets in history and working files
         run: |

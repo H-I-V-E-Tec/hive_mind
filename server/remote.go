@@ -35,10 +35,8 @@ func syncStatusErrorMessage(err error) string {
 
 func NewRemoteClient(baseURL string) *RemoteClient {
 	return &RemoteClient{
-		baseURL: baseURL,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		baseURL:    baseURL,
+		httpClient: directHTTPClient(60 * time.Second),
 	}
 }
 

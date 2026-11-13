@@ -86,7 +86,8 @@ func runRemoteDoctor(report *DoctorReport, mindURL string, stderr io.Writer) {
 		return
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := directHTTPClient(10 * time.Second)
+	resp, err := client.Do(req)
 	if err != nil {
 		report.addFail("connectivity", fmt.Sprintf("não alcançável: %v", err))
 		fmt.Fprintf(stderr, "  ✗ Servidor: não alcançável\n")
@@ -118,7 +119,7 @@ func runRemoteDoctor(report *DoctorReport, mindURL string, stderr io.Writer) {
 	if token != "" {
 		req2, _ := http.NewRequestWithContext(ctx, "GET", validatedURL+"/api/v1/sync-status", nil)
 		req2.Header.Set("Authorization", "Bearer "+token)
-		resp2, err := http.DefaultClient.Do(req2)
+		resp2, err := client.Do(req2)
 		if err != nil {
 			report.addFail("auth_access", "requisição autenticada falhou")
 			fmt.Fprintf(stderr, "  ✗ Acesso autenticado: falhou\n")

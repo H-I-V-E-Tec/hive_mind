@@ -115,6 +115,9 @@ func (iw *IngestionWorker) IngestRemoteDocument(ctx context.Context, claims *Hiv
 	if err := validateRemoteDocument(args); err != nil {
 		return failedDocumentReport(ExitUsage, err.Error())
 	}
+	if !claims.CanContributeProgram(args.ProgramID) {
+		return failedDocumentReport(ExitAuthorization, "program contribution grant is required")
+	}
 	if args.DocumentType == "scope" {
 		rel := filepath.Join("programs", args.ProgramID, "scope.json")
 		if err := publishRemoteScopeManifest(iw.Cfg.DataDirectory, rel, []byte(args.Content)); err != nil {
@@ -163,7 +166,7 @@ func publishRemoteScopeManifest(dataDir, rel string, content []byte) error {
 	}
 	defer root.Close()
 	programDir := filepath.Dir(rel)
-	if err := root.MkdirAll(programDir, 0o700); err != nil {
+	if err := ensureRemoteParents(root, programDir); err != nil {
 		return err
 	}
 	if info, err := root.Lstat(programDir); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -205,22 +208,8 @@ func publishRemoteDocument(dataDir, rel string, encoded []byte) error {
 		return err
 	}
 	defer root.Close()
-	parent := ""
-	for _, component := range strings.Split(filepath.Dir(rel), string(filepath.Separator)) {
-		parent = filepath.Join(parent, component)
-		info, err := root.Lstat(parent)
-		if errors.Is(err, os.ErrNotExist) {
-			if err := root.Mkdir(parent, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-				return err
-			}
-			info, err = root.Lstat(parent)
-		}
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return errors.New("document parent must be a real directory")
-		}
+	if err := ensureRemoteParents(root, filepath.Dir(rel)); err != nil {
+		return err
 	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -262,6 +251,27 @@ func publishRemoteDocument(dataDir, rel string, encoded []byte) error {
 	content, err := io.ReadAll(io.LimitReader(existing, int64(len(encoded))+1))
 	if err != nil || !bytes.Equal(content, encoded) {
 		return errors.New("existing document bytes differ")
+	}
+	return nil
+}
+
+func ensureRemoteParents(root *os.Root, dir string) error {
+	parent := ""
+	for _, component := range strings.Split(dir, string(filepath.Separator)) {
+		parent = filepath.Join(parent, component)
+		info, err := root.Lstat(parent)
+		if errors.Is(err, os.ErrNotExist) {
+			if err := root.Mkdir(parent, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+			info, err = root.Lstat(parent)
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("document parent must be a real directory")
+		}
 	}
 	return nil
 }

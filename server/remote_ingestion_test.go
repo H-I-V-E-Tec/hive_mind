@@ -275,7 +275,7 @@ func TestRemoteDocumentSymlinkAndCollision(t *testing.T) {
 			if err := os.Symlink(outside, filepath.Join(root, "programs", remoteNote().ProgramID)); err != nil {
 				t.Skip(err)
 			}
-			report := worker.IngestRemoteDocument(context.Background(), &HiveClaims{Sub: "member-1", Permissions: []string{permissionMindRead, permissionMindIngest}}, remoteNote())
+			report := worker.IngestRemoteDocument(context.Background(), &HiveClaims{Sub: "member-1", Permissions: []string{permissionMindRead, permissionMindIngest}, ProgramAccessVersion: 1, Programs: []string{remoteNote().ProgramID}, ProgramContribute: []string{remoteNote().ProgramID}}, remoteNote())
 			if report.OK {
 				t.Fatal("symlink accepted")
 			}
@@ -460,7 +460,7 @@ func TestRemotePublicationSerializesWatcherAndHonorsWaitingDeadline(t *testing.T
 	})
 	done := make(chan IngestionReport, 1)
 	go func() {
-		done <- srv.worker.IngestRemoteDocument(context.Background(), &HiveClaims{Sub: "member-1", Permissions: []string{permissionMindRead, permissionMindIngest}}, remoteNote())
+		done <- srv.worker.IngestRemoteDocument(context.Background(), &HiveClaims{Sub: "member-1", Permissions: []string{permissionMindRead, permissionMindIngest}, ProgramAccessVersion: 1, Programs: []string{remoteNote().ProgramID}, ProgramContribute: []string{remoteNote().ProgramID}}, remoteNote())
 	}()
 	select {
 	case <-entered:

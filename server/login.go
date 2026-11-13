@@ -143,7 +143,7 @@ func RunLogin(centerURL string, stdin io.Reader, stderr io.Writer) error {
 		"audience": "hive",
 	})
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Post(
+	resp, err := directHTTPClient(15*time.Second).Post(
 		centerURL+"/auth/token",
 		"application/json",
 		bytes.NewReader(body),

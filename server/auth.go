@@ -60,7 +60,7 @@ type JWKSClient struct {
 func NewJWKSClient(centerURL string) *JWKSClient {
 	return &JWKSClient{
 		centerURL:   centerURL,
-		httpClient:  &http.Client{Timeout: jwksFetchTimeout},
+		httpClient:  directHTTPClient(jwksFetchTimeout),
 		keys:        make(map[string]*rsa.PublicKey),
 		refreshSlot: make(chan struct{}, 1),
 	}
@@ -280,18 +280,23 @@ func (j *JWKSClient) refresh(ctx context.Context) (resultErr error) {
 			Kty string `json:"kty"`
 			Kid string `json:"kid"`
 			Alg string `json:"alg"`
+			Use string `json:"use"`
 			N   string `json:"n"`
 			E   string `json:"e"`
 		}
 		if err := json.Unmarshal(raw, &entry); err != nil {
 			continue
 		}
-		if entry.Kty != "RSA" || entry.Kid == "" {
+		if entry.Kty != "RSA" || entry.Kid == "" ||
+			(entry.Alg != "" && entry.Alg != "RS256") || (entry.Use != "" && entry.Use != "sig") {
 			continue
 		}
 		pub, err := parseRSAPublicKey(entry.N, entry.E)
 		if err != nil {
 			continue
+		}
+		if _, exists := keys[entry.Kid]; exists {
+			return errors.New("JWKS contains duplicate signing key identifiers")
 		}
 		keys[entry.Kid] = pub
 	}
@@ -317,8 +322,11 @@ func parseRSAPublicKey(nB64, eB64 string) (*rsa.PublicKey, error) {
 	}
 	n := new(big.Int).SetBytes(nBytes)
 	e := new(big.Int).SetBytes(eBytes)
-	if !e.IsInt64() {
-		return nil, errors.New("RSA exponent too large")
+	if n.BitLen() < 2048 || n.BitLen() > 8192 || n.Bit(0) == 0 {
+		return nil, errors.New("RSA modulus must be odd and between 2048 and 8192 bits")
+	}
+	if !e.IsInt64() || e.Int64() < 3 || e.Int64() > 1<<31-1 || e.Bit(0) == 0 {
+		return nil, errors.New("invalid RSA exponent")
 	}
 	return &rsa.PublicKey{N: n, E: int(e.Int64())}, nil
 }

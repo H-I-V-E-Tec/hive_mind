@@ -96,11 +96,11 @@ type Config struct {
 	JSONMaxElements     int
 	DeleteGrace         time.Duration
 
-	HiveCenterURL  string
-	HTTPAddr       string
-	HTTPTLSCert    string
-	HTTPTLSKey     string
-	HiveMindURL    string
+	HiveCenterURL string
+	HTTPAddr      string
+	HTTPTLSCert   string
+	HTTPTLSKey    string
+	HiveMindURL   string
 }
 
 func (c Config) IsWriter() bool { return c.Role == RoleWriter }
@@ -564,6 +564,9 @@ func ValidateHiveCenterURL(raw string) (string, error) {
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", errors.New("HIVE_CENTER_URL must use http or https")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.Hostname() == "" {
+		return "", errors.New("HIVE_CENTER_URL must not contain credentials, query, or fragment")
 	}
 	if parsed.Scheme == "http" && !isLoopbackHost(parsed.Hostname()) {
 		return "", errors.New("HIVE_CENTER_URL outside loopback must use https")

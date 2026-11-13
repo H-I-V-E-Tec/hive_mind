@@ -70,6 +70,11 @@ case "$ARCH" in
 esac
 
 # 2. Dependency Check
+if ! command -v cosign >/dev/null 2>&1; then
+    log_error "cosign is required to verify the release signature; install cosign before running this installer."
+    exit 1
+fi
+
 if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     log_error "Either 'curl' or 'wget' is required to install ${BINARY_NAME}."
     exit 1
@@ -217,7 +222,7 @@ if [ "$EXPECTED" != "$ACTUAL" ]; then
 fi
 log_success "Checksum verified (SHA-256)."
 
-# 6c. Verify the Sigstore signature of SHA256SUMS when cosign is available.
+# 6c. Verify the mandatory Sigstore signature of SHA256SUMS.
 # The identity is pinned to this repository's release workflow at this tag,
 # matching deploy/pull_server_release.sh.
 if command -v cosign >/dev/null 2>&1; then
@@ -241,7 +246,8 @@ if command -v cosign >/dev/null 2>&1; then
     fi
     log_success "Sigstore signature verified (release.yml@${VERSION})."
 else
-    log_warning "cosign not found; release signature not verified (checksum only). Install cosign for full verification."
+    log_error "cosign is required; refusing to install without signature verification."
+    exit 1
 fi
 
 # 7. Extract Archive
