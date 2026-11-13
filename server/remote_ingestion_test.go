@@ -154,6 +154,33 @@ func TestRemoteScopeRequiresDedicatedPermissionAndSeparateApproval(t *testing.T)
 	}
 
 	scopeToken := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionScopeAdmin}, nil)
+	publisher := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionScopePublish}, nil)
+	if rec := documentRequest(srv, publisher, body); rec.Code != http.StatusOK {
+		t.Fatalf("limited publisher could not deliver scope: %d %s", rec.Code, rec.Body.String())
+	}
+	note, _ := json.Marshal(remoteNote())
+	if rec := documentRequest(srv, publisher, note); rec.Code != http.StatusForbidden {
+		t.Fatalf("scope publisher published an ordinary note: %d", rec.Code)
+	}
+	for _, route := range []string{"/api/v1/scopes/remote-scope/approve", "/api/v1/scopes/remote-scope/approval-preview"} {
+		method := http.MethodPost
+		if strings.HasSuffix(route, "approval-preview") {
+			method = http.MethodGet
+		}
+		req := httptest.NewRequest(method, route, strings.NewReader(`{"sha256":"`+sha256Hex([]byte(manifest))+`"}`))
+		req.Header.Set("Authorization", "Bearer "+publisher)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("limited publisher reached administrative scope route: %d", rec.Code)
+		}
+	}
+	denied := memberToken(t, srv, key, kid, []string{permissionMindRead, permissionScopePublish}, jwt.MapClaims{
+		"program_contribute": []string{},
+	})
+	if rec := documentRequest(srv, denied, body); rec.Code != http.StatusForbidden {
+		t.Fatalf("publisher without program contribution was accepted: %d", rec.Code)
+	}
 	if rec := documentRequest(srv, scopeToken, body); rec.Code != http.StatusOK {
 		t.Fatalf("scope publication failed: %d %s", rec.Code, rec.Body.String())
 	}

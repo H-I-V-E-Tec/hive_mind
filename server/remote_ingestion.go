@@ -16,13 +16,14 @@ import (
 )
 
 const (
-	remoteContentLimit   = 16 << 10
-	remoteScopeLimit     = 1 << 20
-	remoteRequestLimit   = 6 << 20 // JSON escapes can expand each content byte sixfold.
-	remoteIngestTimeout  = 45 * time.Second
-	permissionMindRead   = "product.mind"
-	permissionMindIngest = "mind.ingest"
-	permissionScopeAdmin = "mind.scope.approve"
+	remoteContentLimit     = 16 << 10
+	remoteScopeLimit       = 1 << 20
+	remoteRequestLimit     = 6 << 20 // JSON escapes can expand each content byte sixfold.
+	remoteIngestTimeout    = 45 * time.Second
+	permissionMindRead     = "product.mind"
+	permissionMindIngest   = "mind.ingest"
+	permissionScopeAdmin   = "mind.scope.approve"
+	permissionScopePublish = "mind.scope.publish"
 )
 
 type HiveIngestDocumentArguments struct {
@@ -107,7 +108,12 @@ func failedDocumentReport(code int, message string) IngestionReport {
 func (iw *IngestionWorker) IngestRemoteDocument(ctx context.Context, claims *HiveClaims, args HiveIngestDocumentArguments) IngestionReport {
 	requiredPermission := permissionMindIngest
 	if args.DocumentType == "scope" {
-		requiredPermission = permissionScopeAdmin
+		requiredPermission = permissionScopePublish
+		// Preserve existing human publishers while allowing unattended collection
+		// credentials that cannot approve a scope revision.
+		if claims.HasPermissions(permissionScopeAdmin) {
+			requiredPermission = permissionScopeAdmin
+		}
 	}
 	if !iw.Cfg.IsWriter() || claims == nil || !claims.HasPermissions(permissionMindRead, requiredPermission) || !validMemberSubject(claims.Sub) {
 		return failedDocumentReport(ExitAuthorization, "document ingestion requires an authorized member and writer")

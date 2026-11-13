@@ -16,7 +16,7 @@ Manifestos `scope` não aceitam esses metadados externos. Campos desconhecidos,
 conteúdo vazio/binário e metadados inválidos são recusados antes da gravação.
 
 Notas e evidências exigem `mind.ingest`. Um manifesto usa `document_type=scope`,
-`source_format=json`, exige `mind.scope.approve` e é publicado no path canônico
+`source_format=json`, exige `mind.scope.publish` ou `mind.scope.approve` e é publicado no path canônico
 `programs/<program_id>/scope.json`. A publicação o mantém não aprovado. A aprovação
 é separada da publicação: `GET /api/v1/scopes/<program_id>/approval-preview`
 valida o manifesto publicado e devolve somente SHA-256 e contagens de regras.
@@ -99,3 +99,5 @@ symlinks, colisão, replay concorrente, falha de embedding e prazo na espera do 
    carregar a ferramenta e o novo token. Tokens antigos não ganham a permissão.
 4. Enviar a nota sintética e conferir publicação, busca e replay. Este teste no
    ambiente implantado permanece pendente; a validação local não é aceite do deploy.
+
+A entrega automatizada do Scout usa identidade sem aprovação, conforme [o contrato Scout](scout-scope-delivery.md).

@@ -79,7 +79,7 @@ func (rc *RemoteClient) SyncStatus() (SyncStatusSnapshot, error) {
 func (rc *RemoteClient) CanIngestDocument() bool {
 	claims, ok := localMemberClaims()
 	return ok && claims.ProgramAccessVersion == 1 && validProgramGrants(claims.Programs, claims.ProgramContribute) &&
-		len(claims.ProgramContribute) > 0 && (claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin))
+		len(claims.ProgramContribute) > 0 && (claims.HasPermissions(permissionMindIngest) || claims.HasPermissions(permissionScopeAdmin) || claims.HasPermissions(permissionScopePublish))
 }
 
 func (rc *RemoteClient) CanApproveScope() bool {
